@@ -1,0 +1,9 @@
+.confirm-body {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  color: var(--color-text-secondary);
+}
+
+.confirm-body p + p {
+  margin-top: var(--space-3);
+}

@@ -2,68 +2,214 @@
   display: flex;
   height: 100vh;
   overflow: hidden;
-  background-color: var(--bg);
+  background-color: var(--color-bg);
 }
 
-.sidebar-backdrop {
-  display: none;
-}
-
+/* -------------------------------------------------------------- sidebar -- */
 .sidebar {
-  width: var(--sidebar-width);
-  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background-color: var(--surface);
-  border-right: 1px solid var(--border);
-  transition: transform 180ms ease;
+  flex-shrink: 0;
+  width: var(--sidebar-width);
+  background-color: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  transition: width var(--duration-normal) var(--ease-standard);
+}
+
+.shell-railed .sidebar {
+  width: var(--sidebar-rail);
 }
 
 .sidebar-brand {
-  padding: 0 1.2em;
-  height: var(--topbar-height);
   display: flex;
   align-items: center;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  border-bottom: 1px solid var(--border);
+  gap: var(--space-3);
+  height: var(--topbar-height);
+  padding: 0 var(--space-4);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.sidebar nav {
+.sidebar-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-accent);
+  color: var(--color-accent-fg);
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.02em;
+}
+
+.sidebar-wordmark {
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sidebar-collapse {
+  margin-left: auto;
+}
+
+.sidebar-nav {
   display: flex;
   flex-direction: column;
-  padding: 0.6em;
-  gap: 0.15em;
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-3);
   overflow-y: auto;
+  overflow-x: hidden;
+  /* Both are required for overflow-y to do anything. A flex item defaults to
+     min-height:auto, i.e. it refuses to shrink below its content, so the nav
+     grew past the sidebar and .shell's overflow:hidden simply clipped it —
+     on a short window the bottom entries were unreachable, not scrollable. */
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar-group-label {
+  padding: 0 var(--space-3) var(--space-2);
+  font-size: var(--text-2xs);
+  line-height: var(--lh-2xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-muted);
 }
 
 .sidebar-link {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.6em;
-  padding: 0.55em 0.8em;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   text-decoration: none;
-  font-size: 0.92em;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  transition: var(--transition-colors);
 }
 
 .sidebar-link:hover {
-  background-color: var(--surface-2);
-  color: var(--text);
+  background-color: var(--color-hover);
+  color: var(--color-text);
+  text-decoration: none;
 }
 
-.sidebar-link.active {
-  background-color: var(--primary);
-  color: var(--primary-contrast);
+.sidebar-link-active,
+.sidebar-link-active:hover {
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent-text);
 }
 
-.sidebar-icon {
-  width: 1.2em;
-  text-align: center;
+/* A 2px accent bar in the gutter, so the active item is still identifiable in
+   rail mode where the label is gone. */
+.sidebar-link-active::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--space-3) * -1);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 1.1rem;
+  border-radius: var(--radius-full);
+  background-color: var(--color-accent);
 }
 
+.sidebar-link-icon {
+  opacity: 0.85;
+}
+
+.sidebar-link-active .sidebar-link-icon {
+  opacity: 1;
+}
+
+/* ----------------------------------------------------------- rail state -- */
+.shell-railed .sidebar-wordmark,
+.shell-railed .sidebar-link-label,
+.shell-railed .sidebar-group-label {
+  display: none;
+}
+
+/* Collapsing is a one-way door if the control that undoes it is hidden by the
+   very state it creates. In a pinned rail the toggle takes the brand mark's
+   place, so there is always a way back out. */
+.shell-railed:not(.shell-rail-forced) .sidebar-mark {
+  display: none;
+}
+
+.shell-railed .sidebar-collapse {
+  margin-left: 0;
+}
+
+/* A width-forced rail has no toggle: the window is too narrow to expand into,
+   so the button would be a control that does nothing. */
+.shell-rail-forced .sidebar-collapse {
+  display: none;
+}
+
+.shell-railed .sidebar-brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.shell-railed .sidebar-nav {
+  padding-inline: var(--space-2);
+  gap: var(--space-3);
+}
+
+.shell-railed .sidebar-link {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+/* Group labels are hidden in rail mode, so a rule between groups carries the
+   grouping instead of losing it entirely. */
+.shell-railed .sidebar-group + .sidebar-group {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+/* --------------------------------------------------------- drawer state -- */
+.shell-drawer .sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: var(--z-sidebar);
+  transform: translateX(-100%);
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--duration-normal) var(--ease-standard);
+}
+
+.shell-drawer-open .sidebar {
+  transform: translateX(0);
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-backdrop);
+  background-color: var(--overlay);
+  animation: backdrop-in var(--duration-fast) var(--ease-out);
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* --------------------------------------------------------------- topbar -- */
 .shell-main {
   flex: 1;
   display: flex;
@@ -73,102 +219,118 @@
 }
 
 .topbar {
-  height: var(--topbar-height);
-  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 0.6em;
-  padding: 0 1.2em;
-  border-bottom: 1px solid var(--border);
-  background-color: var(--surface);
-}
-
-.menu-toggle {
-  display: none;
+  gap: var(--space-3);
+  height: var(--topbar-height);
+  flex-shrink: 0;
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface);
 }
 
 .topbar-spacer {
   flex: 1;
 }
 
-.theme-toggle {
+/* -------------------------------------------------------------- profile -- */
+.profile {
+  position: relative;
+}
+
+.profile-trigger {
   display: flex;
   align-items: center;
-  gap: 0.15em;
-  padding: 0.2em;
+  gap: var(--space-3);
+  height: var(--control-h-md);
+  padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
-  background-color: var(--surface-2);
-  border: 1px solid var(--border);
-}
-
-.theme-toggle button {
-  padding: 0.3em 0.55em;
-  font-size: 0.85em;
   background: transparent;
-  color: var(--text-muted);
-  border: none;
-  border-radius: 5px;
+  border: 1px solid transparent;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: var(--transition-colors);
 }
 
-.theme-toggle button:hover {
-  background-color: var(--surface);
-  color: var(--text);
+.profile-trigger:hover {
+  background-color: var(--color-hover);
 }
 
-.theme-toggle button.active {
-  background-color: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow);
+.profile-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-3);
+  color: var(--color-text-secondary);
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
 }
 
-.topbar-profile {
+.profile-name {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--z-dropdown);
+  min-width: 12rem;
+  padding: var(--space-1);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.profile-menu-header {
   display: flex;
   align-items: center;
-  gap: 0.8em;
-  font-size: 0.9em;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin-bottom: var(--space-1);
 }
 
-.topbar-profile button {
-  padding: 0.3em 0.8em;
-  font-size: 0.85em;
+.profile-menu-name {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* .menu-item / .menu-separator are owned by Menu.css and reused here so the
+   two popovers in the app stay identical. */
+.profile-menu .menu-item {
+  text-decoration: none;
+}
+
+/* -------------------------------------------------------------- content -- */
 .content {
   flex: 1;
   overflow: auto;
-  padding: 1.6em 2em;
+  padding: clamp(1rem, 2vw, 2rem);
 }
 
-@media (max-width: 860px) {
-  .menu-toggle {
-    display: inline-flex;
-  }
-
-  .sidebar {
-    position: fixed;
-    inset: 0 auto 0 0;
-    z-index: 90;
-    transform: translateX(-100%);
-    box-shadow: var(--shadow-lg);
-  }
-
-  .shell.sidebar-open .sidebar {
-    transform: translateX(0);
-  }
-
-  .shell.sidebar-open .sidebar-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background-color: rgba(10, 12, 16, 0.4);
-    z-index: 80;
-  }
-
-  .content {
-    padding: 1.2em;
-  }
-
-  .topbar-profile span {
+/* Collapse the profile to just its avatar rather than hiding the name and
+   leaving an oddly narrow orphaned button. */
+@media (max-width: 40rem) {
+  .profile-name {
     display: none;
+  }
+
+  .topbar {
+    padding-inline: var(--space-4);
   }
 }
