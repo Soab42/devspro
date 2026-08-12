@@ -1,0 +1,987 @@
+//! Spins up databases (+ optional admin UI) as containers in DevSuite's *own*
+//! docker-compose space — a single compose file this app fully owns, under
+//! `<app-data>/docker/docker-compose.yml`, run under the fixed project name
+//! "devsuite" (`docker compose -p devsuite ...`). Deliberately separate from
+//! whatever other compose stacks the user already has (e.g. `~/docker/databases`)
+//! — this is a sandbox DevSuite manages end-to-end, not something that edits
+//! someone else's existing file the way the Docker module's port-change feature
+//! does.
+//!
+//! Since DevSuite writes every line of this file itself, service blocks are
+//! appended/removed with plain text manipulation rather than a YAML library —
+//! there's no unknown external formatting to preserve, unlike the port-rewrite
+//! feature in the Docker module which edits a compose file DevSuite doesn't own.
+
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+use tauri::Manager;
+
+const PROJECT_NAME: &str = "devsuite";
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DbKind {
+    Mysql,
+    Postgres,
+    Mongo,
+    Redis,
+}
+
+struct ServiceSpec {
+    image: String,
+    env: Vec<(String, String)>,
+    volume_target: Option<String>,
+    command: Option<String>,
+    container_port: u16,
+}
+
+fn image_repo(kind: DbKind) -> &'static str {
+    match kind {
+        DbKind::Mysql => "mysql",
+        DbKind::Postgres => "postgres",
+        DbKind::Mongo => "mongo",
+        DbKind::Redis => "redis",
+    }
+}
+
+fn db_spec(name: &str, kind: DbKind, version: &str, username: Option<&str>, password: &str) -> ServiceSpec {
+    let image = format!("{}:{version}", image_repo(kind));
+    match kind {
+        DbKind::Mysql => {
+            let mut env = vec![
+                ("MYSQL_ROOT_PASSWORD".to_string(), password.to_string()),
+                ("MYSQL_DATABASE".to_string(), name.to_string()),
+            ];
+            if let Some(user) = username.filter(|u| !u.is_empty() && *u != "root") {
+                env.push(("MYSQL_USER".to_string(), user.to_string()));
+                env.push(("MYSQL_PASSWORD".to_string(), password.to_string()));
+            }
+            ServiceSpec {
+                image,
+                env,
+                volume_target: Some("/var/lib/mysql".to_string()),
+                command: None,
+                container_port: 3306,
+            }
+        }
+        DbKind::Postgres => {
+            let user = username.filter(|u| !u.is_empty()).unwrap_or("postgres");
+            ServiceSpec {
+                image,
+                env: vec![
+                    ("POSTGRES_USER".to_string(), user.to_string()),
+                    ("POSTGRES_PASSWORD".to_string(), password.to_string()),
+                    ("POSTGRES_DB".to_string(), name.to_string()),
+                ],
+                volume_target: Some("/var/lib/postgresql/data".to_string()),
+                command: None,
+                container_port: 5432,
+            }
+        }
+        DbKind::Mongo => {
+            let user = username.filter(|u| !u.is_empty()).unwrap_or("root");
+            ServiceSpec {
+                image,
+                env: vec![
+                    ("MONGO_INITDB_ROOT_USERNAME".to_string(), user.to_string()),
+                    ("MONGO_INITDB_ROOT_PASSWORD".to_string(), password.to_string()),
+                ],
+                volume_target: Some("/data/db".to_string()),
+                command: None,
+                container_port: 27017,
+            }
+        }
+        DbKind::Redis => ServiceSpec {
+            image,
+            env: vec![],
+            volume_target: Some("/data".to_string()),
+            command: Some(format!("redis-server --requirepass {password}")),
+            container_port: 6379,
+        },
+    }
+}
+
+fn ui_spec(db_name: &str, kind: DbKind, username: Option<&str>, password: &str) -> Option<(String, ServiceSpec)> {
+    let ui_name = format!("{db_name}_ui");
+    let spec = match kind {
+        // Adminer deliberately never accepts a password via env var or URL —
+        // that's an intentional Adminer security choice, not something this app
+        // can work around. ADMINER_DEFAULT_SERVER pre-fills the server field;
+        // username/db get pre-filled via query string on the "Open" link
+        // instead (see the frontend), and the password still has to be typed
+        // once when the login page loads.
+        DbKind::Mysql | DbKind::Postgres => {
+            let server = if matches!(kind, DbKind::Postgres) {
+                format!("pgsql://{db_name}")
+            } else {
+                db_name.to_string()
+            };
+            ServiceSpec {
+                image: "adminer:latest".to_string(),
+                env: vec![("ADMINER_DEFAULT_SERVER".to_string(), server)],
+                volume_target: None,
+                command: None,
+                container_port: 8080,
+            }
+        }
+        DbKind::Mongo => {
+            let user = username.filter(|u| !u.is_empty()).unwrap_or("root");
+            ServiceSpec {
+                image: "mongo-express:latest".to_string(),
+                env: vec![
+                    ("ME_CONFIG_MONGODB_SERVER".to_string(), db_name.to_string()),
+                    ("ME_CONFIG_MONGODB_ADMINUSERNAME".to_string(), user.to_string()),
+                    ("ME_CONFIG_MONGODB_ADMINPASSWORD".to_string(), password.to_string()),
+                    // mongo-express's own web UI login (separate from the Mongo
+                    // connection itself) — set to the same credentials so there's
+                    // only one username/password to remember, not two.
+                    ("ME_CONFIG_BASICAUTH_USERNAME".to_string(), user.to_string()),
+                    ("ME_CONFIG_BASICAUTH_PASSWORD".to_string(), password.to_string()),
+                ],
+                volume_target: None,
+                command: None,
+                container_port: 8081,
+            }
+        }
+        DbKind::Redis => ServiceSpec {
+            image: "rediscommander/redis-commander:latest".to_string(),
+            env: vec![
+                ("REDIS_HOST".to_string(), db_name.to_string()),
+                ("REDIS_PASSWORD".to_string(), password.to_string()),
+            ],
+            volume_target: None,
+            command: None,
+            container_port: 8081,
+        },
+    };
+    Some((ui_name, spec))
+}
+
+fn render_service_block(name: &str, host_port: u16, spec: &ServiceSpec) -> String {
+    let mut s = format!(
+        "  {name}:\n    image: {}\n    container_name: devsuite_{name}\n    restart: unless-stopped\n",
+        spec.image
+    );
+    if !spec.env.is_empty() {
+        s.push_str("    environment:\n");
+        for (k, v) in &spec.env {
+            s.push_str(&format!("      {k}: \"{v}\"\n"));
+        }
+    }
+    if let Some(cmd) = &spec.command {
+        s.push_str(&format!("    command: {cmd}\n"));
+    }
+    s.push_str(&format!("    ports:\n      - \"{host_port}:{}\"\n", spec.container_port));
+    if let Some(target) = &spec.volume_target {
+        s.push_str(&format!("    volumes:\n      - ./volumes/{name}_data:{target}\n"));
+    }
+    s
+}
+
+fn random_password() -> String {
+    uuid::Uuid::new_v4().simple().to_string()[..16].to_string()
+}
+
+fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 40
+        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+}
+
+fn valid_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 40
+        && version.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+}
+
+fn valid_username(username: &str) -> bool {
+    !username.is_empty() && username.len() <= 32 && username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+// Values land inside a double-quoted YAML string (and, for Redis, directly on a
+// shell command line) — restricted to a charset that can't break either.
+fn valid_password(password: &str) -> bool {
+    !password.is_empty()
+        && password.len() <= 72
+        && password
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.!@#%^*+=".contains(c))
+}
+
+fn compose_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("docker");
+    fs::create_dir_all(dir.join("volumes")).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+fn compose_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let file = compose_dir(app)?.join("docker-compose.yml");
+    if !file.exists() {
+        fs::write(&file, "services:\n").map_err(|e| e.to_string())?;
+    }
+    Ok(file)
+}
+
+fn indent_of(l: &str) -> usize {
+    l.len() - l.trim_start().len()
+}
+
+fn service_block_text(contents: &str, service: &str) -> Option<String> {
+    let lines: Vec<&str> = contents.lines().collect();
+    let start = lines.iter().position(|l| l.trim_start().trim_end() == format!("{service}:"))?;
+    let base_indent = indent_of(lines[start]);
+    let end = lines[(start + 1)..]
+        .iter()
+        .position(|l| !l.trim().is_empty() && indent_of(l) <= base_indent)
+        .map(|i| start + 1 + i)
+        .unwrap_or(lines.len());
+    Some(lines[start..end].join("\n"))
+}
+
+fn remove_service_block(contents: &str, service: &str) -> String {
+    let lines: Vec<&str> = contents.lines().collect();
+    let Some(start) = lines.iter().position(|l| l.trim_start().trim_end() == format!("{service}:")) else {
+        return contents.to_string();
+    };
+    let base_indent = indent_of(lines[start]);
+    let end = lines[(start + 1)..]
+        .iter()
+        .position(|l| !l.trim().is_empty() && indent_of(l) <= base_indent)
+        .map(|i| start + 1 + i)
+        .unwrap_or(lines.len());
+    let mut out: Vec<&str> = Vec::new();
+    out.extend(&lines[..start]);
+    out.extend(&lines[end..]);
+    let mut result = out.join("\n");
+    if !result.is_empty() {
+        result.push('\n');
+    }
+    result
+}
+
+fn extract_env_value(block: &str, key: &str) -> Option<String> {
+    let idx = block.find(key)?;
+    let rest = &block[idx..];
+    let colon = rest.find(':')?;
+    let after = rest[colon + 1..].trim_start().trim_start_matches('"');
+    let end = after.find('"').unwrap_or(after.len());
+    Some(after[..end].trim().to_string())
+}
+
+fn extract_password_from_block(block: &str) -> Option<String> {
+    for key in ["MYSQL_ROOT_PASSWORD", "POSTGRES_PASSWORD", "MONGO_INITDB_ROOT_PASSWORD"] {
+        if let Some(v) = extract_env_value(block, key) {
+            return Some(v);
+        }
+    }
+    if let Some(idx) = block.find("--requirepass") {
+        let rest = block[idx + "--requirepass".len()..].trim_start();
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        return Some(rest[..end].to_string());
+    }
+    None
+}
+
+fn extract_username_from_block(block: &str) -> Option<String> {
+    for key in ["MYSQL_USER", "POSTGRES_USER", "MONGO_INITDB_ROOT_USERNAME"] {
+        if let Some(v) = extract_env_value(block, key) {
+            return Some(v);
+        }
+    }
+    None
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDatabaseInput {
+    pub name: String,
+    pub kind: DbKind,
+    pub version: String,
+    pub port: u16,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub with_ui: bool,
+    pub ui_port: Option<u16>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateDatabaseResult {
+    pub message: String,
+    pub username: Option<String>,
+    pub password: String,
+    pub db_port: u16,
+    pub ui_port: Option<u16>,
+}
+
+#[tauri::command]
+pub fn databases_create(app: tauri::AppHandle, input: CreateDatabaseInput) -> Result<CreateDatabaseResult, String> {
+    let name = input.name.trim().to_lowercase().replace('-', "_");
+    if !valid_name(&name) {
+        return Err(
+            "name must start with a lowercase letter and contain only lowercase letters, numbers, and underscores"
+                .to_string(),
+        );
+    }
+    let version = input.version.trim();
+    if !valid_version(version) {
+        return Err("version can only contain letters, numbers, dots, dashes, and underscores".to_string());
+    }
+    let username = match input.username.as_deref().map(str::trim) {
+        Some(u) if !u.is_empty() => {
+            if !valid_username(u) {
+                return Err("username must contain only letters, numbers, and underscores".to_string());
+            }
+            Some(u.to_string())
+        }
+        _ => None,
+    };
+    let password = match input.password.as_deref().map(str::trim) {
+        Some(p) if !p.is_empty() => {
+            if !valid_password(p) {
+                return Err("password can only contain letters, numbers, and - _ . ! @ # % ^ * + =".to_string());
+            }
+            p.to_string()
+        }
+        _ => random_password(),
+    };
+
+    let file = compose_file(&app)?;
+    let existing = fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
+    if service_block_text(&existing, &name).is_some() {
+        return Err(format!("a database named '{name}' already exists in this space"));
+    }
+
+    let spec = db_spec(&name, input.kind, version, username.as_deref(), &password);
+    let mut appended = render_service_block(&name, input.port, &spec);
+
+    let mut services_to_start = vec![name.clone()];
+    let mut ui_port_out = None;
+    if input.with_ui {
+        if let Some((ui_name, ui_spec)) = ui_spec(&name, input.kind, username.as_deref(), &password) {
+            let ui_port = input.ui_port.unwrap_or(input.port + 1);
+            appended.push_str(&render_service_block(&ui_name, ui_port, &ui_spec));
+            services_to_start.push(ui_name);
+            ui_port_out = Some(ui_port);
+        }
+    }
+
+    let mut new_content = existing;
+    if !new_content.ends_with('\n') {
+        new_content.push('\n');
+    }
+    new_content.push_str(&appended);
+    fs::write(&file, new_content).map_err(|e| format!("could not write {}: {e}", file.display()))?;
+
+    let file_str = file.to_string_lossy().to_string();
+    let mut args: Vec<&str> = vec!["-p", PROJECT_NAME, "-f", &file_str, "up", "-d"];
+    args.extend(services_to_start.iter().map(String::as_str));
+    let output = super::compose::build(&args)?
+        .output()
+        .map_err(|e| format!("failed to run docker compose: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "wrote the compose file but starting containers failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    Ok(CreateDatabaseResult {
+        message: format!("{name} is starting on port {}", input.port),
+        username,
+        password,
+        db_port: input.port,
+        ui_port: ui_port_out,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct RawContainer {
+    #[serde(rename = "ID")]
+    id: String,
+    #[serde(rename = "Names")]
+    names: String,
+    #[serde(rename = "Image")]
+    image: String,
+    #[serde(rename = "State")]
+    state: String,
+    #[serde(rename = "Status")]
+    status: String,
+    #[serde(rename = "Ports")]
+    ports: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct DevsuiteContainer {
+    pub id: String,
+    pub name: String,
+    pub image: String,
+    pub state: String,
+    pub status: String,
+    pub ports: String,
+}
+
+#[tauri::command]
+pub fn databases_list() -> Result<Vec<DevsuiteContainer>, String> {
+    let output = Command::new("docker")
+        .args([
+            "ps",
+            "-a",
+            "--filter",
+            &format!("label=com.docker.compose.project={PROJECT_NAME}"),
+            "--format",
+            "{{json .}}",
+        ])
+        .output()
+        .map_err(|e| format!("failed to run docker: {e}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|line| {
+            let raw: RawContainer =
+                serde_json::from_str(line).map_err(|e| format!("failed to parse docker output: {e}"))?;
+            Ok(DevsuiteContainer {
+                id: raw.id,
+                name: raw.names,
+                image: raw.image,
+                state: raw.state,
+                status: raw.status,
+                ports: raw.ports,
+            })
+        })
+        .collect()
+}
+
+#[derive(Debug, Serialize)]
+pub struct Credentials {
+    pub username: Option<String>,
+    pub password: Option<String>,
+}
+
+#[tauri::command]
+pub fn databases_get_credentials(app: tauri::AppHandle, name: String) -> Result<Credentials, String> {
+    let file = compose_file(&app)?;
+    let contents = fs::read_to_string(&file).unwrap_or_default();
+    let block = service_block_text(&contents, &name);
+    Ok(Credentials {
+        username: block.as_deref().and_then(extract_username_from_block),
+        password: block.as_deref().and_then(extract_password_from_block),
+    })
+}
+
+#[tauri::command]
+pub fn databases_remove(app: tauri::AppHandle, name: String, delete_data: bool) -> Result<String, String> {
+    let file = compose_file(&app)?;
+    let existing = fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
+    let ui_name = format!("{name}_ui");
+    let has_ui = service_block_text(&existing, &ui_name).is_some();
+
+    let file_str = file.to_string_lossy().to_string();
+    let mut args: Vec<&str> = vec!["-p", PROJECT_NAME, "-f", &file_str, "rm", "-sf", &name];
+    if has_ui {
+        args.push(&ui_name);
+    }
+    let output = super::compose::build(&args)?
+        .output()
+        .map_err(|e| format!("failed to run docker compose: {e}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    let mut updated = remove_service_block(&existing, &name);
+    if has_ui {
+        updated = remove_service_block(&updated, &ui_name);
+    }
+    fs::write(&file, updated).map_err(|e| format!("could not write {}: {e}", file.display()))?;
+
+    if delete_data {
+        let dir = compose_dir(&app)?;
+        let _ = fs::remove_dir_all(dir.join("volumes").join(format!("{name}_data")));
+    }
+
+    Ok(format!("removed {name}"))
+}
+
+// ---------------------------------------------------------------------------
+// Per-engine user management. Compose env vars only set the *initial* admin
+// user at first container creation — they have no effect on an already-running
+// database — so adding/removing additional users has to actually talk to the
+// running engine. Done via `docker exec <container> <client-cli> ...` using
+// whichever client each official image already bundles (mysql/psql/mongosh/
+// redis-cli), rather than pulling in a Rust DB driver crate per engine.
+
+fn container_name(base: &str) -> String {
+    format!("devsuite_{base}")
+}
+
+fn docker_exec(container: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    let mut full: Vec<&str> = vec!["exec", container];
+    full.extend(args);
+    Command::new("docker")
+        .args(&full)
+        .output()
+        .map_err(|e| format!("failed to run docker exec: {e}"))
+}
+
+/// Determines the engine and admin credentials for an existing database purely
+/// from its own compose service block — no separate metadata store needed,
+/// consistent with how `databases_get_credentials` already works.
+fn admin_context(app: &tauri::AppHandle, base: &str) -> Result<(DbKind, String, String), String> {
+    let file = compose_file(app)?;
+    let contents = fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
+    let block = service_block_text(&contents, base)
+        .ok_or_else(|| format!("could not find '{base}' in the compose file"))?;
+
+    let kind = if block.contains("MYSQL_ROOT_PASSWORD") {
+        DbKind::Mysql
+    } else if block.contains("POSTGRES_PASSWORD") {
+        DbKind::Postgres
+    } else if block.contains("MONGO_INITDB_ROOT_PASSWORD") {
+        DbKind::Mongo
+    } else if block.contains("--requirepass") {
+        DbKind::Redis
+    } else {
+        return Err(format!("could not determine the database type for '{base}'"));
+    };
+
+    let admin_password =
+        extract_password_from_block(&block).ok_or_else(|| "could not find the admin password".to_string())?;
+    let admin_username = match kind {
+        DbKind::Mysql => "root".to_string(),
+        DbKind::Postgres => extract_username_from_block(&block).unwrap_or_else(|| "postgres".to_string()),
+        DbKind::Mongo => extract_username_from_block(&block).unwrap_or_else(|| "root".to_string()),
+        DbKind::Redis => String::new(),
+    };
+    Ok((kind, admin_username, admin_password))
+}
+
+fn command_failed(output: &std::process::Output) -> Option<String> {
+    if output.status.success() {
+        None
+    } else {
+        let mut msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if msg.is_empty() {
+            msg = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        }
+        Some(msg)
+    }
+}
+
+fn mysql_list_users(container: &str, admin_password: &str) -> Result<Vec<String>, String> {
+    let out = docker_exec(
+        container,
+        &[
+            "mysql",
+            "-uroot",
+            &format!("-p{admin_password}"),
+            "-N",
+            "-e",
+            "SELECT User FROM mysql.user WHERE Host='%' AND User != 'root';",
+        ],
+    )?;
+    if let Some(err) = command_failed(&out) {
+        return Err(err);
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
+}
+
+fn mysql_create_user(container: &str, admin_password: &str, db: &str, user: &str, pass: &str) -> Result<(), String> {
+    let sql =
+        format!("CREATE USER '{user}'@'%' IDENTIFIED BY '{pass}'; GRANT ALL PRIVILEGES ON `{db}`.* TO '{user}'@'%'; FLUSH PRIVILEGES;");
+    let out = docker_exec(container, &["mysql", "-uroot", &format!("-p{admin_password}"), "-e", &sql])?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn mysql_drop_user(container: &str, admin_password: &str, user: &str) -> Result<(), String> {
+    let sql = format!("DROP USER IF EXISTS '{user}'@'%'; FLUSH PRIVILEGES;");
+    let out = docker_exec(container, &["mysql", "-uroot", &format!("-p{admin_password}"), "-e", &sql])?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn postgres_list_users(container: &str, admin_user: &str) -> Result<Vec<String>, String> {
+    let out = docker_exec(
+        container,
+        &[
+            "psql",
+            "-U",
+            admin_user,
+            "-d",
+            "postgres",
+            "-t",
+            "-A",
+            "-c",
+            "SELECT usename FROM pg_catalog.pg_user WHERE usename != current_user;",
+        ],
+    )?;
+    if let Some(err) = command_failed(&out) {
+        return Err(err);
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
+}
+
+fn postgres_create_user(container: &str, admin_user: &str, db: &str, user: &str, pass: &str) -> Result<(), String> {
+    let sql = format!(
+        "CREATE USER \"{user}\" WITH PASSWORD '{pass}'; GRANT ALL PRIVILEGES ON DATABASE \"{db}\" TO \"{user}\";"
+    );
+    let out = docker_exec(container, &["psql", "-U", admin_user, "-d", "postgres", "-c", &sql])?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn postgres_drop_user(container: &str, admin_user: &str, user: &str) -> Result<(), String> {
+    let sql = format!("DROP USER IF EXISTS \"{user}\";");
+    let out = docker_exec(container, &["psql", "-U", admin_user, "-d", "postgres", "-c", &sql])?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn mongo_list_users(container: &str, admin_user: &str, admin_password: &str, db: &str) -> Result<Vec<String>, String> {
+    let eval = format!("db.getSiblingDB('{db}').getUsers().forEach(u => print(u.user))");
+    let out = docker_exec(
+        container,
+        &[
+            "mongosh",
+            "-u",
+            admin_user,
+            "-p",
+            admin_password,
+            "--authenticationDatabase",
+            "admin",
+            "--quiet",
+            "--eval",
+            &eval,
+        ],
+    )?;
+    if let Some(err) = command_failed(&out) {
+        return Err(err);
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
+}
+
+fn mongo_create_user(
+    container: &str,
+    admin_user: &str,
+    admin_password: &str,
+    db: &str,
+    user: &str,
+    pass: &str,
+) -> Result<(), String> {
+    let eval = format!(
+        "db.getSiblingDB('{db}').createUser({{user: '{user}', pwd: '{pass}', roles: [{{role: 'readWrite', db: '{db}'}}]}})"
+    );
+    let out = docker_exec(
+        container,
+        &[
+            "mongosh",
+            "-u",
+            admin_user,
+            "-p",
+            admin_password,
+            "--authenticationDatabase",
+            "admin",
+            "--quiet",
+            "--eval",
+            &eval,
+        ],
+    )?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn mongo_drop_user(container: &str, admin_user: &str, admin_password: &str, db: &str, user: &str) -> Result<(), String> {
+    let eval = format!("db.getSiblingDB('{db}').dropUser('{user}')");
+    let out = docker_exec(
+        container,
+        &[
+            "mongosh",
+            "-u",
+            admin_user,
+            "-p",
+            admin_password,
+            "--authenticationDatabase",
+            "admin",
+            "--quiet",
+            "--eval",
+            &eval,
+        ],
+    )?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn redis_list_users(container: &str, admin_password: &str) -> Result<Vec<String>, String> {
+    let out = docker_exec(container, &["redis-cli", "-a", admin_password, "--no-auth-warning", "ACL", "LIST"])?;
+    if let Some(err) = command_failed(&out) {
+        return Err(err);
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.split_whitespace().nth(1).map(str::to_string))
+        .filter(|u| u != "default")
+        .collect())
+}
+
+fn redis_create_user(container: &str, admin_password: &str, user: &str, pass: &str) -> Result<(), String> {
+    let out = docker_exec(
+        container,
+        &[
+            "redis-cli",
+            "-a",
+            admin_password,
+            "--no-auth-warning",
+            "ACL",
+            "SETUSER",
+            user,
+            "on",
+            &format!(">{pass}"),
+            "~*",
+            "+@all",
+        ],
+    )?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn redis_drop_user(container: &str, admin_password: &str, user: &str) -> Result<(), String> {
+    let out = docker_exec(container, &["redis-cli", "-a", admin_password, "--no-auth-warning", "ACL", "DELUSER", user])?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn mysql_change_password(container: &str, admin_password: &str, user: &str, new_password: &str) -> Result<(), String> {
+    let sql = format!("ALTER USER '{user}'@'%' IDENTIFIED BY '{new_password}'; FLUSH PRIVILEGES;");
+    let out = docker_exec(container, &["mysql", "-uroot", &format!("-p{admin_password}"), "-e", &sql])?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn postgres_change_password(container: &str, admin_user: &str, user: &str, new_password: &str) -> Result<(), String> {
+    let sql = format!("ALTER USER \"{user}\" WITH PASSWORD '{new_password}';");
+    let out = docker_exec(container, &["psql", "-U", admin_user, "-d", "postgres", "-c", &sql])?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+/// `auth_db` is "admin" for the root user (that's where MongoDB keeps it) or the
+/// app database name for a user created scoped to that database.
+fn mongo_change_password(
+    container: &str,
+    admin_user: &str,
+    admin_password: &str,
+    auth_db: &str,
+    user: &str,
+    new_password: &str,
+) -> Result<(), String> {
+    let eval = format!("db.getSiblingDB('{auth_db}').changeUserPassword('{user}', '{new_password}')");
+    let out = docker_exec(
+        container,
+        &[
+            "mongosh",
+            "-u",
+            admin_user,
+            "-p",
+            admin_password,
+            "--authenticationDatabase",
+            "admin",
+            "--quiet",
+            "--eval",
+            &eval,
+        ],
+    )?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn redis_change_user_password(container: &str, admin_password: &str, user: &str, new_password: &str) -> Result<(), String> {
+    let out = docker_exec(
+        container,
+        &["redis-cli", "-a", admin_password, "--no-auth-warning", "ACL", "SETUSER", user, &format!(">{new_password}")],
+    )?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+/// Live-updates Redis's own `requirepass` (works immediately, no restart) —
+/// callers still need to persist the new value into the compose file's
+/// `command:` line so a future restart doesn't revert to the old password.
+fn redis_change_requirepass(container: &str, admin_password: &str, new_password: &str) -> Result<(), String> {
+    let out = docker_exec(
+        container,
+        &["redis-cli", "-a", admin_password, "--no-auth-warning", "CONFIG", "SET", "requirepass", new_password],
+    )?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+/// Rewrites a `KEY: "value"` environment line inside `service`'s block,
+/// preserving indentation — the write-side counterpart to `extract_env_value`.
+fn set_env_value(contents: &str, service: &str, key: &str, new_value: &str) -> Result<String, String> {
+    let lines: Vec<&str> = contents.lines().collect();
+    let start = lines
+        .iter()
+        .position(|l| l.trim_start().trim_end() == format!("{service}:"))
+        .ok_or_else(|| format!("could not find service '{service}' in the compose file"))?;
+    let base_indent = indent_of(lines[start]);
+    let end = lines[(start + 1)..]
+        .iter()
+        .position(|l| !l.trim().is_empty() && indent_of(l) <= base_indent)
+        .map(|i| start + 1 + i)
+        .unwrap_or(lines.len());
+
+    let target_idx = lines[(start + 1)..end]
+        .iter()
+        .position(|l| {
+            let trimmed = l.trim_start();
+            trimmed.strip_prefix(key).is_some_and(|rest| rest.trim_start().starts_with(':'))
+        })
+        .map(|i| start + 1 + i)
+        .ok_or_else(|| format!("could not find {key} for service '{service}'"))?;
+
+    let leading_ws = &lines[target_idx][..indent_of(lines[target_idx])];
+    let mut new_lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+    new_lines[target_idx] = format!("{leading_ws}{key}: \"{new_value}\"");
+    Ok(new_lines.join("\n") + "\n")
+}
+
+/// Same idea as `set_env_value` but for Redis's `command: redis-server
+/// --requirepass <password>` line, which isn't a `KEY: value` environment entry.
+fn set_redis_requirepass(contents: &str, service: &str, new_password: &str) -> Result<String, String> {
+    let lines: Vec<&str> = contents.lines().collect();
+    let start = lines
+        .iter()
+        .position(|l| l.trim_start().trim_end() == format!("{service}:"))
+        .ok_or_else(|| format!("could not find service '{service}' in the compose file"))?;
+    let base_indent = indent_of(lines[start]);
+    let end = lines[(start + 1)..]
+        .iter()
+        .position(|l| !l.trim().is_empty() && indent_of(l) <= base_indent)
+        .map(|i| start + 1 + i)
+        .unwrap_or(lines.len());
+
+    let target_idx = lines[(start + 1)..end]
+        .iter()
+        .position(|l| l.trim_start().starts_with("command:"))
+        .map(|i| start + 1 + i)
+        .ok_or_else(|| format!("could not find the command: line for service '{service}'"))?;
+
+    let leading_ws = &lines[target_idx][..indent_of(lines[target_idx])];
+    let mut new_lines: Vec<String> = lines.iter().map(|s| s.to_string()).collect();
+    new_lines[target_idx] = format!("{leading_ws}command: redis-server --requirepass {new_password}");
+    Ok(new_lines.join("\n") + "\n")
+}
+
+#[tauri::command]
+pub fn databases_change_admin_password(app: tauri::AppHandle, name: String, new_password: String) -> Result<String, String> {
+    let new_password = new_password.trim();
+    if !valid_password(new_password) {
+        return Err("password can only contain letters, numbers, and - _ . ! @ # % ^ * + =".to_string());
+    }
+
+    let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
+    let container = container_name(&name);
+    let file = compose_file(&app)?;
+    let existing = fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
+
+    let updated = match kind {
+        DbKind::Mysql => {
+            mysql_change_password(&container, &admin_password, "root", new_password)?;
+            set_env_value(&existing, &name, "MYSQL_ROOT_PASSWORD", new_password)?
+        }
+        DbKind::Postgres => {
+            postgres_change_password(&container, &admin_user, &admin_user, new_password)?;
+            set_env_value(&existing, &name, "POSTGRES_PASSWORD", new_password)?
+        }
+        DbKind::Mongo => {
+            mongo_change_password(&container, &admin_user, &admin_password, "admin", &admin_user, new_password)?;
+            set_env_value(&existing, &name, "MONGO_INITDB_ROOT_PASSWORD", new_password)?
+        }
+        DbKind::Redis => {
+            redis_change_requirepass(&container, &admin_password, new_password)?;
+            set_redis_requirepass(&existing, &name, new_password)?
+        }
+    };
+    fs::write(&file, updated).map_err(|e| format!("could not write {}: {e}", file.display()))?;
+
+    Ok(format!("changed the admin password for '{name}'"))
+}
+
+#[tauri::command]
+pub fn databases_change_user_password(
+    app: tauri::AppHandle,
+    name: String,
+    username: String,
+    new_password: String,
+) -> Result<String, String> {
+    let new_password = new_password.trim();
+    if !valid_password(new_password) {
+        return Err("password can only contain letters, numbers, and - _ . ! @ # % ^ * + =".to_string());
+    }
+
+    let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
+    let container = container_name(&name);
+    match kind {
+        DbKind::Mysql => mysql_change_password(&container, &admin_password, &username, new_password),
+        DbKind::Postgres => postgres_change_password(&container, &admin_user, &username, new_password),
+        DbKind::Mongo => mongo_change_password(&container, &admin_user, &admin_password, &name, &username, new_password),
+        DbKind::Redis => redis_change_user_password(&container, &admin_password, &username, new_password),
+    }?;
+    Ok(format!("changed password for '{username}'"))
+}
+
+#[tauri::command]
+pub fn databases_list_users(app: tauri::AppHandle, name: String) -> Result<Vec<String>, String> {
+    let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
+    let container = container_name(&name);
+    match kind {
+        DbKind::Mysql => mysql_list_users(&container, &admin_password),
+        DbKind::Postgres => postgres_list_users(&container, &admin_user),
+        DbKind::Mongo => mongo_list_users(&container, &admin_user, &admin_password, &name),
+        DbKind::Redis => redis_list_users(&container, &admin_password),
+    }
+}
+
+#[tauri::command]
+pub fn databases_create_user(
+    app: tauri::AppHandle,
+    name: String,
+    username: String,
+    password: String,
+) -> Result<String, String> {
+    let username = username.trim();
+    let password = password.trim();
+    if !valid_username(username) {
+        return Err("username must contain only letters, numbers, and underscores".to_string());
+    }
+    if !valid_password(password) {
+        return Err("password can only contain letters, numbers, and - _ . ! @ # % ^ * + =".to_string());
+    }
+
+    let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
+    let container = container_name(&name);
+    match kind {
+        DbKind::Mysql => mysql_create_user(&container, &admin_password, &name, username, password),
+        DbKind::Postgres => postgres_create_user(&container, &admin_user, &name, username, password),
+        DbKind::Mongo => mongo_create_user(&container, &admin_user, &admin_password, &name, username, password),
+        DbKind::Redis => redis_create_user(&container, &admin_password, username, password),
+    }?;
+    Ok(format!("created user '{username}'"))
+}
+
+#[tauri::command]
+pub fn databases_drop_user(app: tauri::AppHandle, name: String, username: String) -> Result<String, String> {
+    let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
+    let container = container_name(&name);
+    match kind {
+        DbKind::Mysql => mysql_drop_user(&container, &admin_password, &username),
+        DbKind::Postgres => postgres_drop_user(&container, &admin_user, &username),
+        DbKind::Mongo => mongo_drop_user(&container, &admin_user, &admin_password, &name, &username),
+        DbKind::Redis => redis_drop_user(&container, &admin_password, &username),
+    }?;
+    Ok(format!("removed user '{username}'"))
+}

@@ -1,0 +1,67 @@
+.custom-select {
+  position: relative;
+  flex: 1;
+  min-width: 140px;
+}
+
+.custom-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  background-color: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.5em 0.75em;
+  font-size: 1em;
+  font-family: inherit;
+  font-weight: 400;
+  cursor: pointer;
+  text-align: left;
+}
+
+.custom-select-trigger:hover {
+  background-color: var(--surface-2);
+}
+
+.custom-select-arrow {
+  color: var(--text-muted);
+  font-size: 0.8em;
+  flex-shrink: 0;
+}
+
+.custom-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 110;
+  margin: 0;
+  padding: 0.3em;
+  list-style: none;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.custom-select-option {
+  padding: 0.45em 0.6em;
+  border-radius: 5px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.95em;
+}
+
+.custom-select-option:hover {
+  background-color: var(--surface-2);
+}
+
+.custom-select-option.active {
+  background-color: var(--primary);
+  color: var(--primary-contrast);
+}
