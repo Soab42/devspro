@@ -1,0 +1,256 @@
+/* =============================================================================
+   DevsPro design tokens
+   -----------------------------------------------------------------------------
+   Two layers, and the distinction matters:
+
+   1. RAW RAMPS  (--gray-500, --blue-600, …)
+      Fixed values. Theme-independent. NEVER referenced by a component.
+   2. SEMANTIC ALIASES  (--color-text, --color-surface, …)
+      What components actually use. These are what the dark block re-points.
+
+   If a component references a raw ramp directly it will not respond to theme
+   changes. That is the whole reason for the split.
+============================================================================= */
+
+:root {
+  /* ---------------------------------------------------------------- ramps -- */
+  --gray-0: #ffffff;
+  --gray-25: #fcfcfd;
+  --gray-50: #f7f7f8;
+  --gray-100: #f0f0f1;
+  --gray-150: #e8e8ea;
+  --gray-200: #dfdfe2;
+  --gray-300: #c8c8cd;
+  --gray-400: #a0a0a8;
+  --gray-500: #71717a;
+  --gray-600: #52525b;
+  --gray-700: #3f3f46;
+  --gray-800: #27272a;
+  --gray-850: #1c1c1f;
+  --gray-900: #141416;
+  --gray-950: #0b0b0d;
+
+  /* ------------------------------------------------------------ typography -- */
+  --font-ui: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "SF Mono", "Cascadia Mono", Menlo,
+    Consolas, "DejaVu Sans Mono", monospace;
+
+  /* Type scale. Every size is rem so it rides the fluid root in base.css.
+     Line heights are paired, not derived — a computed ratio produces
+     fractional pixels that blur text at small sizes. */
+  --text-2xs: 0.6875rem;   --lh-2xs: 1rem;        /* 11px — uppercase micro-labels */
+  --text-xs: 0.75rem;      --lh-xs: 1.125rem;     /* 12px — th, captions, pills */
+  --text-sm: 0.8125rem;    --lh-sm: 1.25rem;      /* 13px — table body, mono */
+  --text-base: 0.875rem;   --lh-base: 1.375rem;   /* 14px — default UI text */
+  --text-md: 0.9375rem;    --lh-md: 1.5rem;       /* 15px — card titles */
+  --text-lg: 1.0625rem;    --lh-lg: 1.5rem;       /* 17px — section headings */
+  --text-xl: 1.25rem;      --lh-xl: 1.75rem;      /* 20px — page titles */
+  --text-2xl: 1.5rem;      --lh-2xl: 1.875rem;    /* 24px — KPI values */
+  --text-3xl: 1.875rem;    --lh-3xl: 2.125rem;    /* 30px — hero / splash */
+
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  --tracking-tight: -0.011em;   /* headings only */
+  --tracking-wide: 0.04em;      /* uppercase micro-labels only */
+
+  /* --------------------------------------------------------------- spacing -- */
+  /* 4px base at the 14px root, in rem so density scales with the fluid root. */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.375rem;
+  --space-3: 0.5rem;
+  --space-4: 0.75rem;
+  --space-5: 1rem;
+  --space-6: 1.25rem;
+  --space-7: 1.5rem;
+  --space-8: 2rem;
+  --space-9: 2.5rem;
+  --space-10: 3rem;
+
+  /* ---------------------------------------------------------------- radius -- */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 999px;
+
+  /* ---------------------------------------------------------------- z-index -- */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-dropdown: 40;
+  /* The scrim sits BELOW the drawer it dims. Inverted, the open drawer renders
+     behind its own overlay: greyed out, and every click lands on the backdrop
+     and closes it again. */
+  --z-backdrop: 80;
+  --z-sidebar: 90;
+  --z-modal: 100;
+  --z-toast: 120;
+  --z-tooltip: 140;
+  /* Portalled popovers (Select's listbox, Menu) sit above everything. They are
+     appended to <body>, so they leave the stacking context of whatever opened
+     them — and Select is used inside five modals. At --z-dropdown they render
+     behind the modal that owns them. */
+  --z-popover: 150;
+
+  /* ---------------------------------------------------------------- motion -- */
+  --duration-instant: 60ms;
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --duration-slow: 300ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --transition-colors: color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+
+  /* ---------------------------------------------------------------- layout -- */
+  --sidebar-width: 15rem;
+  --sidebar-rail: 3.5rem;
+  --topbar-height: 3.25rem;
+  --control-h-sm: 1.75rem;
+  --control-h-md: 2rem;
+  --control-h-lg: 2.375rem;
+
+  /* ============================ SEMANTIC — LIGHT ========================== */
+  --color-bg: var(--gray-50);
+  --color-surface: var(--gray-0);
+  --color-surface-2: var(--gray-50);
+  --color-surface-3: var(--gray-100);
+  --color-hover: rgba(9, 9, 11, 0.04);
+  --color-active: rgba(9, 9, 11, 0.07);
+
+  --color-border: var(--gray-200);
+  --color-border-subtle: var(--gray-150);
+  --color-border-strong: var(--gray-300);
+
+  --color-text: var(--gray-900);
+  --color-text-secondary: var(--gray-600);
+  --color-text-muted: var(--gray-500);
+  --color-text-disabled: var(--gray-400);
+  --color-text-inverse: var(--gray-0);
+
+  --color-accent: #3b5bd0;
+  --color-accent-hover: #3049b4;
+  --color-accent-active: #27409c;
+  --color-accent-fg: #ffffff;
+  --color-accent-subtle: #eef1fd;
+  --color-accent-text: #2b46ac;
+  --color-accent-border: #c3cef5;
+
+  --color-success: #157f3d;
+  --color-success-bg: #e6f6eb;
+  --color-success-text: #106b33;
+  --color-success-border: #b7e2c6;
+
+  --color-warning: #b25e09;
+  --color-warning-bg: #fdf3e3;
+  --color-warning-text: #8f4a06;
+  --color-warning-border: #f0d5a8;
+
+  --color-danger: #c8322b;
+  --color-danger-hover: #a92823;
+  --color-danger-bg: #fdeceb;
+  --color-danger-text: #a32420;
+  --color-danger-border: #f3c4c1;
+
+  --color-info: #1d6fa5;
+  --color-info-bg: #e8f2f9;
+  --color-info-text: #185b87;
+  --color-info-border: #b8d8ea;
+
+  --color-neutral-bg: var(--gray-100);
+  --color-neutral-text: var(--gray-600);
+  --color-neutral-border: var(--gray-200);
+
+  --color-focus-ring: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  --overlay: rgba(9, 9, 11, 0.45);
+
+  --color-meter-good: var(--color-accent);
+  --color-meter-warn: var(--color-warning);
+  --color-meter-crit: var(--color-danger);
+
+  /* ---------------------------------------------------------------- shadow -- */
+  /* Deliberately minimal: this design leans on 1px borders, not elevation. */
+  --shadow-xs: 0 1px 1px rgba(9, 9, 11, 0.04);
+  --shadow-sm: 0 1px 2px rgba(9, 9, 11, 0.06), 0 1px 1px rgba(9, 9, 11, 0.04);
+  --shadow-md: 0 4px 12px rgba(9, 9, 11, 0.08);
+  --shadow-lg: 0 12px 32px rgba(9, 9, 11, 0.16);
+  --shadow-focus: 0 0 0 3px var(--color-focus-ring);
+
+  --border-1: 1px solid var(--color-border);
+  --border-subtle: 1px solid var(--color-border-subtle);
+  --border-strong: 1px solid var(--color-border-strong);
+
+  color-scheme: light;
+}
+
+/* ============================== SEMANTIC — DARK ==========================
+   ONE block. ThemeContext always resolves `system` in JS and writes a concrete
+   data-theme, which is what lets this be a single selector instead of the
+   duplicated rule + prefers-color-scheme media query it replaced.
+========================================================================== */
+:root[data-theme="dark"] {
+  --color-bg: var(--gray-950);
+  --color-surface: var(--gray-900);
+  --color-surface-2: var(--gray-850);
+  --color-surface-3: var(--gray-800);
+  --color-hover: rgba(255, 255, 255, 0.05);
+  --color-active: rgba(255, 255, 255, 0.08);
+
+  --color-border: #26262a;
+  --color-border-subtle: #1e1e21;
+  --color-border-strong: #35353a;
+
+  --color-text: #ededf0;
+  --color-text-secondary: #a1a1a8;
+  --color-text-muted: #7c7c85;
+  --color-text-disabled: #55555c;
+  --color-text-inverse: var(--gray-950);
+
+  --color-accent: #6e8ef2;
+  --color-accent-hover: #869ef5;
+  --color-accent-active: #9ab0f7;
+  --color-accent-fg: #0b0d16;
+  --color-accent-subtle: #171a2b;
+  --color-accent-text: #9db3f7;
+  --color-accent-border: #2c3557;
+
+  --color-success: #4ec27a;
+  --color-success-bg: #10251a;
+  --color-success-text: #6fdc9b;
+  --color-success-border: #1d4430;
+
+  --color-warning: #d99a35;
+  --color-warning-bg: #2a1f0d;
+  --color-warning-text: #efbf6f;
+  --color-warning-border: #4a3616;
+
+  --color-danger: #ef6b60;
+  --color-danger-hover: #f3897f;
+  --color-danger-bg: #2b1414;
+  --color-danger-text: #ff9e97;
+  --color-danger-border: #4c2020;
+
+  --color-info: #59a7d8;
+  --color-info-bg: #10202b;
+  --color-info-text: #8ec6ec;
+  --color-info-border: #1d3c4f;
+
+  --color-neutral-bg: var(--gray-800);
+  --color-neutral-text: #a1a1a8;
+  --color-neutral-border: #2f2f34;
+
+  --overlay: rgba(0, 0, 0, 0.6);
+
+  --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 1px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}

@@ -1,0 +1,201 @@
+/* =============================================================================
+   Base: fonts, reset, element defaults.
+
+   Deliberately does NOT style the appearance of button/input/select. The old
+   App.css did, which made every button blue by default and forced a
+   `.secondary` / `.ghost-button` override at nearly every call site. Appearance
+   belongs to the primitives (.btn, .field-input) — this file only normalises.
+============================================================================= */
+
+/* ------------------------------------------------------------------ fonts -- */
+/* Vendored latin subsets — see src/assets/fonts/README.md. Variable weight
+   axis, upright only; italic is not shipped and not synthesized. */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../assets/fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("../assets/fonts/jetbrains-mono-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ------------------------------------------------------------------ reset -- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Fluid root. Covers ~440px → ~1560px, gaining 2px of root size across it, so
+   every rem token scales ~15% end to end.
+     440px  → 13.0px (floor)
+     1024px → 14.0px
+     1440px → 14.8px
+     1560px+→ 15.0px (ceiling)
+   The ceiling is the point: an uncapped vw term turns a dense tool into a
+   presentation slide on a 4K display. px inside clamp() is intentional —
+   rem/em in a root font-size expression compounds against itself. */
+html {
+  font-size: clamp(13px, 12.2px + 0.18vw, 15px);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Margin collapse was a constant source of ad-hoc `style={{marginTop: 0}}`.
+   Vertical rhythm is owned by <Stack>, never by the elements themselves. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd,
+ul,
+ol {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+}
+
+h1 {
+  font-size: var(--text-xl);
+  line-height: var(--lh-xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+h2 {
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  font-weight: var(--fw-semibold);
+}
+
+h3 {
+  font-size: var(--text-base);
+  line-height: var(--lh-base);
+  font-weight: var(--fw-semibold);
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Normalise only — appearance is the primitives' job. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  margin: 0;
+}
+
+button {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+img,
+svg,
+video,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+::selection {
+  background-color: var(--color-accent-subtle);
+  color: var(--color-text);
+}
+
+/* --------------------------------------------------------------- scrollbars -- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-strong);
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-muted);
+  background-clip: content-box;
+}
+
+/* ------------------------------------------------------------ reduced motion -- */
+/* Blanket reset. Note it uses !important, so any primitive that legitimately
+   needs to keep animating under reduced motion — currently only .spinner, since
+   a frozen loading indicator reads as a hung app — must re-declare with
+   !important inside its own prefers-reduced-motion block. Spinner.css does this
+   by slowing the spin rather than stopping it. Skeleton.css takes the opposite
+   route and drops its shimmer entirely, which is the right default. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

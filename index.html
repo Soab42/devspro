@@ -4,7 +4,27 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React + Typescript</title>
+    <title>DevsPro</title>
+    <script>
+      // Applies the theme before first paint. Without this, ThemeContext sets
+      // data-theme in an effect and the app renders one light frame first —
+      // a visible white flash on every cold start in dark mode.
+      // Must stay in sync with resolve() in src/app/ThemeContext.tsx.
+      (function () {
+        try {
+          var stored = localStorage.getItem("devsuite:theme");
+          var theme =
+            stored === "light" || stored === "dark"
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
   </head>
 
   <body>

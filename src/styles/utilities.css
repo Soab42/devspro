@@ -1,0 +1,56 @@
+/* =============================================================================
+   Utilities — a deliberately small escape hatch.
+
+   This is NOT a utility framework. If you find yourself wanting a new one,
+   the answer is almost always a primitive prop instead. Anything added here
+   must be layout- or text-primitive-level and used in at least three places.
+============================================================================= */
+
+.u-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabular figures for anything that updates in place (meters, counters, KPI
+   values) — proportional digits make numbers visibly jitter as they change. */
+.u-tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.u-muted {
+  color: var(--color-text-muted);
+}
+
+.u-secondary {
+  color: var(--color-text-secondary);
+}
+
+.u-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.u-nowrap {
+  white-space: nowrap;
+}
+
+.u-flex-1 {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Screen-reader only: visually hidden but announced. Used for table captions
+   and the text label inside icon-only controls. */
+.u-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
