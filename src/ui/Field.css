@@ -1,0 +1,328 @@
+/* ---------------------------------------------------------------- Field -- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* Settings-row layout: label left, control right. */
+.field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.field-inline .field-label-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.field-inline .field-control {
+  flex: 0 0 auto;
+}
+
+.field-label-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.field-label {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--fw-medium);
+  color: var(--color-text);
+}
+
+.field-required {
+  color: var(--color-danger);
+  margin-left: 0.15rem;
+}
+
+.field-description {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--color-text-muted);
+}
+
+.field-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.field-hint {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--color-text-muted);
+}
+
+.field-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--color-danger);
+}
+
+/* ------------------------------------------------------------ TextInput -- */
+.field-input {
+  width: 100%;
+  min-width: 0;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--text-base);
+  transition: var(--transition-colors), box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.field-input-md {
+  height: var(--control-h-md);
+  padding: 0 var(--space-3);
+}
+
+.field-input-sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.field-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+.field-input:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
+
+.field-input:disabled {
+  background-color: var(--color-surface-2);
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.field-input-invalid,
+.field-input-invalid:hover:not(:disabled) {
+  border-color: var(--color-danger);
+}
+
+.field-input-invalid:focus {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 25%, transparent);
+}
+
+/* Numeric inputs — ports, line counts — where a full-width box implies far more
+   input than the two-to-five characters actually wanted. */
+.field-input-narrow {
+  width: 7rem;
+  flex: 0 0 auto;
+}
+
+.field-textarea {
+  height: auto;
+  min-height: 5rem;
+  padding: var(--space-3);
+  line-height: var(--lh-base);
+  resize: vertical;
+}
+
+/* --------------------------------------------------------------- Switch -- */
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.switch-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.switch-label {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.switch-description {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--color-text-muted);
+}
+
+.switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 1.25rem;
+  padding: 2px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-border-strong);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.switch-on {
+  background-color: var(--color-accent);
+}
+
+.switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.switch-thumb {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  border-radius: var(--radius-full);
+  background-color: #ffffff;
+  box-shadow: var(--shadow-sm);
+  transform: translateX(0);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.switch-on .switch-thumb {
+  transform: translateX(1rem);
+}
+
+/* ------------------------------------------------------------- Checkbox -- */
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.checkbox {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.checkbox:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.checkbox-label {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------- SearchInput -- */
+.search-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  max-width: 22rem;
+}
+
+.search-input-icon {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.search-input-control {
+  height: var(--control-h-md);
+  padding: 0 var(--space-3) 0 calc(var(--space-3) * 2 + 14px);
+}
+
+/* The platform's own clear affordance duplicates ours and is unstyleable. */
+.search-input-control::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-input-clear {
+  position: absolute;
+  right: var(--space-1);
+}
+
+/* ------------------------------------------------------- Form structure -- */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+/* Zero margin, deliberately — vertical rhythm belongs to the parent Stack or
+   Form. The old .form-row carried a top margin, which is why call sites kept
+   overriding it with an inline style={{ marginTop: 0 }}. */
+.form-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.form-row-center {
+  align-items: center;
+}
+
+.form-row-end {
+  align-items: flex-end;
+}
+
+.form-row > .field {
+  flex: 1;
+  min-width: 9rem;
+}
+
+/* Trailing action row in a form that renders its own buttons rather than
+   handing them to ModalFooter. Same right-aligned order as the footer. */
+.form-actions {
+  justify-content: flex-end;
+  padding-top: var(--space-2);
+}
+
+.form-grid {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.form-grid-1 { grid-template-columns: minmax(0, 1fr); }
+.form-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+@media (max-width: 35rem) {
+  .form-grid-2,
+  .form-grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .field-inline {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+}

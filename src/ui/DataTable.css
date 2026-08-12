@@ -1,0 +1,202 @@
+/* container-type makes the breakpoints below respond to the TABLE's width
+   rather than the viewport's — correct here, because the same window is much
+   narrower for content when the sidebar is expanded than when it is a rail.
+   Requires WebKitGTK >= 2.42; the target builds 2.50+. */
+.dt-scroll {
+  container-type: inline-size;
+  overflow-x: auto;
+  width: 100%;
+}
+
+.dt {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+/* ---------------------------------------------------------------- header -- */
+.dt-th {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-2xs);
+  line-height: var(--lh-2xs);
+  font-weight: var(--fw-semibold);
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  white-space: nowrap;
+  background-color: var(--color-surface-2);
+}
+
+/* A border-bottom on a sticky th detaches from the cell as it scrolls in
+   WebKit. An inset shadow rides along with it. */
+.dt-sticky .dt-th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  box-shadow: inset 0 -1px 0 var(--color-border);
+}
+
+.dt:not(.dt-sticky) .dt-th {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dt-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.dt-sort-btn:hover {
+  color: var(--color-text);
+}
+
+/* Reserve the icon's space always, and only reveal the neutral hint on hover.
+   Showing/hiding the glyph itself would change the header width and make the
+   whole row jitter as the pointer moves across it. */
+.dt-sort-hint {
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.dt-sortable:hover .dt-sort-hint,
+.dt-sort-btn:focus-visible .dt-sort-hint {
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------------ body -- */
+/* max-width:0 + overflow:hidden is the table-cell ellipsis hack: it works by
+   forcing the column below its min-content width. That is right for text, and
+   actively harmful for anything interactive — it clips controls to a sliver
+   rather than letting the column claim the width it needs. */
+.dt-td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 0;
+}
+
+/* So any cell holding a control opts out of the hack. Text-only cells keep
+   truncating; buttons, inputs, links and dropdowns always get their full size.
+   Automatic via :has() so a new column can't forget to ask for it.
+   (:has() needs WebKitGTK >= 2.38; the target builds 2.50+.) */
+.dt-td:has(button, input, a, .custom-select, .action-group) {
+  max-width: none;
+  overflow: visible;
+}
+
+/* Action columns shrink-wrap their buttons instead of absorbing slack. */
+.dt-td:has(.action-group) {
+  width: 1%;
+}
+
+.dt-density-compact .dt-td,
+.dt-density-compact .dt-th {
+  padding: var(--space-2) var(--space-3);
+}
+
+.dt-row:last-child .dt-td {
+  border-bottom: none;
+}
+
+.dt-row:hover .dt-td {
+  background-color: var(--color-hover);
+}
+
+.dt-row-clickable {
+  cursor: pointer;
+}
+
+/* The column a row is identified by — gives the eye an anchor when scanning a
+   wide table of otherwise uniform grey text. */
+.dt-strong {
+  font-weight: var(--fw-medium);
+  color: var(--color-text);
+}
+
+.dt-cell-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "calt" 0;
+  font-size: 0.95em;
+}
+
+/* A cell stacking a primary line over supporting detail. Lets a description
+   ride along with the name instead of consuming a column of its own — which is
+   what made the widest tables unusable in a narrow window. */
+.dt-cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.dt-cell-sub {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--color-text-muted);
+}
+
+.dt-cell-note-ok {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--color-success-text);
+}
+
+.dt-cell-note-bad {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--color-danger-text);
+}
+
+/* A cell holding a truncating value next to a small action (expand, copy). */
+.dt-cell-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.dt-cell-wrap {
+  white-space: normal;
+  max-width: none;
+}
+
+.dt-align-end {
+  text-align: right;
+}
+
+.dt-align-center {
+  text-align: center;
+}
+
+.dt-empty-cell {
+  padding: 0;
+  border-bottom: none;
+}
+
+/* ---------------------------------------------------- responsive priority -- */
+/* Priority 1 carries no class and is therefore never hidden. */
+@container (max-width: 900px) {
+  .dt-prio-3 {
+    display: none;
+  }
+}
+
+@container (max-width: 700px) {
+  .dt-prio-2 {
+    display: none;
+  }
+}

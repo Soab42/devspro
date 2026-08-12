@@ -1,0 +1,70 @@
+/* -------------------------------------------------------------- Spinner -- */
+.spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.spinner-icon {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* base.css blanket-resets animations under reduced motion with !important, so
+   this has to shout back. A stopped spinner reads as a hung app, which is worse
+   than the motion it avoids — slow it down instead of freezing it. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner-icon {
+    animation-duration: 2s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* ------------------------------------------------------------- Skeleton -- */
+.skeleton {
+  display: block;
+  background-color: var(--color-surface-2);
+  background-image: linear-gradient(
+    90deg,
+    var(--color-surface-2) 0%,
+    var(--color-surface-3) 50%,
+    var(--color-surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.skeleton-sm {
+  border-radius: var(--radius-xs);
+}
+
+.skeleton-md {
+  border-radius: var(--radius-sm);
+}
+
+.skeleton-full {
+  border-radius: var(--radius-full);
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Unlike the spinner, a static skeleton still communicates "content pending",
+   so here the blanket reset is exactly right — just drop the gradient too. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    background-image: none;
+  }
+}

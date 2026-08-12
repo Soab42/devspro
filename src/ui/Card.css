@@ -1,0 +1,105 @@
+/* Border-first, near-invisible shadow. The design leans on 1px rules for
+   separation; heavy elevation reads as a consumer app, not a developer tool. */
+.card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+
+.card-span-2 {
+  grid-column: 1 / -1;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  min-width: 0;
+}
+
+/* Only rule off the header when something follows it. */
+.card-header:not(:last-child) {
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.card-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-secondary);
+}
+
+.card-header-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.card-title {
+  font-size: var(--text-md);
+  line-height: var(--lh-md);
+  font-weight: var(--fw-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-desc {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  color: var(--color-text-muted);
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.card-toolbar {
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-pad-none { padding: 0; }
+.card-pad-sm { padding: var(--space-4); }
+.card-pad-md { padding: var(--space-5); }
+.card-pad-lg { padding: var(--space-7); }
+
+.card-footer {
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-subtle);
+  background-color: var(--color-surface-2);
+}
+
+@media (max-width: 40rem) {
+  .card-header {
+    flex-wrap: wrap;
+  }
+
+  .card-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+}

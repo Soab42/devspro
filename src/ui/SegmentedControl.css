@@ -1,0 +1,81 @@
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  /* Shrinkable, and scrolls itself when it runs out of room. Pinned at
+     `flex: 0 0 auto` a wide control (the Dashboard's six-facet filter) could
+     not shrink, so it pushed the whole content area wider than the window and
+     produced a page-level horizontal scrollbar. A control must never be the
+     thing that decides the page's width. */
+  flex: 0 1 auto;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.segmented::-webkit-scrollbar {
+  display: none;
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  font-family: inherit;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.segmented-sm .segment {
+  height: calc(var(--control-h-sm) - 2px);
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.segmented-md .segment {
+  height: calc(var(--control-h-md) - 2px);
+  padding: 0 var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.segmented-icon-only.segmented-sm .segment {
+  width: calc(var(--control-h-sm) - 2px);
+  padding: 0;
+  justify-content: center;
+}
+
+.segmented-icon-only.segmented-md .segment {
+  width: calc(var(--control-h-md) - 2px);
+  padding: 0;
+  justify-content: center;
+}
+
+.segment:hover {
+  color: var(--color-text);
+}
+
+.segment-active {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-xs);
+}
+
+.segment-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  font-size: 0.9em;
+}
+
+.segment-active .segment-count {
+  color: var(--color-text-secondary);
+}

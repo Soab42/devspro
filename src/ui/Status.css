@@ -1,0 +1,197 @@
+/* ----------------------------------------------------------- StatusPill -- */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-full);
+  border: 1px solid transparent;
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  white-space: nowrap;
+}
+
+.status-pill-sm {
+  padding: 0.1rem var(--space-3);
+  font-size: var(--text-2xs);
+  line-height: var(--lh-2xs);
+}
+
+.status-pill-md {
+  padding: 0.2rem var(--space-4);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.status-pill-ok {
+  background-color: var(--color-success-bg);
+  color: var(--color-success-text);
+  border-color: var(--color-success-border);
+}
+
+.status-pill-bad {
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border-color: var(--color-danger-border);
+}
+
+.status-pill-warn {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  border-color: var(--color-warning-border);
+}
+
+.status-pill-info {
+  background-color: var(--color-info-bg);
+  color: var(--color-info-text);
+  border-color: var(--color-info-border);
+}
+
+.status-pill-pending,
+.status-pill-neutral {
+  background-color: var(--color-neutral-bg);
+  color: var(--color-neutral-text);
+  border-color: var(--color-neutral-border);
+}
+
+.status-pill-spin {
+  animation: spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-pill-spin {
+    animation-duration: 2s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+/* ---------------------------------------------------------------- Badge -- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-xs);
+  border: 1px solid transparent;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.badge-sm {
+  padding: 0.05rem var(--space-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
+.badge-md {
+  padding: 0.15rem var(--space-3);
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.badge-neutral {
+  background-color: var(--color-neutral-bg);
+  color: var(--color-neutral-text);
+  border-color: var(--color-neutral-border);
+}
+
+.badge-accent {
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent-text);
+  border-color: var(--color-accent-border);
+}
+
+.badge-success {
+  background-color: var(--color-success-bg);
+  color: var(--color-success-text);
+  border-color: var(--color-success-border);
+}
+
+.badge-warning {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  border-color: var(--color-warning-border);
+}
+
+.badge-danger {
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border-color: var(--color-danger-border);
+}
+
+.badge-info {
+  background-color: var(--color-info-bg);
+  color: var(--color-info-text);
+  border-color: var(--color-info-border);
+}
+
+/* -------------------------------------------------------------- Callout -- */
+.callout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+}
+
+.callout-icon {
+  margin-top: 0.1rem;
+}
+
+.callout-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.callout-title {
+  font-weight: var(--fw-semibold);
+}
+
+.callout-body {
+  color: inherit;
+  opacity: 0.9;
+}
+
+.callout-body p + p {
+  margin-top: var(--space-2);
+}
+
+.callout-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-1);
+}
+
+.callout-dismiss {
+  margin: calc(var(--space-1) * -1) calc(var(--space-2) * -1) 0 0;
+  color: inherit;
+}
+
+.callout-info {
+  background-color: var(--color-info-bg);
+  color: var(--color-info-text);
+  border-color: var(--color-info-border);
+}
+
+.callout-success {
+  background-color: var(--color-success-bg);
+  color: var(--color-success-text);
+  border-color: var(--color-success-border);
+}
+
+.callout-warning {
+  background-color: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  border-color: var(--color-warning-border);
+}
+
+.callout-danger {
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border-color: var(--color-danger-border);
+}

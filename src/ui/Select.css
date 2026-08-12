@@ -1,0 +1,95 @@
+.custom-select {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  max-width: 20rem;
+}
+
+.custom-select-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-weight: var(--fw-normal);
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition-colors);
+}
+
+.custom-select-md .custom-select-trigger {
+  height: var(--control-h-md);
+  padding: 0 var(--space-3);
+  font-size: var(--text-base);
+}
+
+.custom-select-sm .custom-select-trigger {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.custom-select-trigger:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.custom-select-trigger:disabled {
+  background-color: var(--color-surface-2);
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.custom-select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-select-arrow {
+  color: var(--color-text-muted);
+}
+
+/* Fixed, not absolute: the listbox is portalled to <body> to escape the card
+   and table clipping contexts, so it is positioned in viewport coordinates by
+   Select.tsx rather than relative to its trigger. */
+.custom-select-menu {
+  position: fixed;
+  z-index: var(--z-popover);
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  max-height: 15rem;
+  overflow-y: auto;
+}
+
+.custom-select-option {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-xs);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Hover and keyboard focus share one highlight, so the two navigation modes
+   can't disagree about which option is about to be chosen. */
+.custom-select-option-active {
+  background-color: var(--color-surface-2);
+}
+
+.custom-select-option-selected {
+  background-color: var(--color-accent);
+  color: var(--color-accent-fg);
+}

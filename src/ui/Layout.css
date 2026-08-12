@@ -1,0 +1,114 @@
+/* ---------------------------------------------------------------- Stack -- */
+.stack {
+  display: flex;
+  min-width: 0;
+}
+
+.stack-column {
+  flex-direction: column;
+}
+
+.stack-row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.stack-wrap {
+  flex-wrap: wrap;
+}
+
+.stack-gap-1 { gap: var(--space-1); }
+.stack-gap-2 { gap: var(--space-2); }
+.stack-gap-3 { gap: var(--space-3); }
+.stack-gap-4 { gap: var(--space-4); }
+.stack-gap-5 { gap: var(--space-5); }
+.stack-gap-6 { gap: var(--space-6); }
+.stack-gap-7 { gap: var(--space-7); }
+.stack-gap-8 { gap: var(--space-8); }
+
+/* ----------------------------------------------------------- EmptyState -- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+}
+
+.empty-state-sm {
+  padding: var(--space-7) var(--space-5);
+}
+
+.empty-state-md {
+  padding: var(--space-10) var(--space-5);
+  min-height: 16rem;
+}
+
+.empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-border-subtle);
+  color: var(--color-text-muted);
+}
+
+.empty-state-md .empty-state-icon {
+  width: 3rem;
+  height: 3rem;
+}
+
+.empty-state-title {
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+  font-size: var(--text-base);
+}
+
+.empty-state-desc {
+  font-size: var(--text-sm);
+  line-height: var(--lh-sm);
+  max-width: 34rem;
+}
+
+.empty-state-action {
+  margin-top: var(--space-2);
+}
+
+/* -------------------------------------------------------------- Toolbar -- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.toolbar-start,
+.toolbar-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.toolbar-start {
+  flex: 1;
+}
+
+.toolbar-end {
+  margin-left: auto;
+}
+
+.toolbar-sticky {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background-color: var(--color-surface);
+  padding-block: var(--space-3);
+}

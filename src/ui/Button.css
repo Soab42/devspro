@@ -1,0 +1,148 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: var(--transition-colors);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.btn-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------------ sizes -- */
+.btn-sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.btn-md {
+  height: var(--control-h-md);
+  padding: 0 var(--space-4);
+  font-size: var(--text-base);
+}
+
+.btn-lg {
+  height: var(--control-h-lg);
+  padding: 0 var(--space-5);
+  font-size: var(--text-base);
+}
+
+/* Square when there is no label. Width tracks the size's height token so the
+   control stays a true square at every scale. */
+.btn-icon-only {
+  padding: 0;
+}
+
+.btn-icon-only.btn-sm {
+  width: var(--control-h-sm);
+}
+
+.btn-icon-only.btn-md {
+  width: var(--control-h-md);
+}
+
+.btn-icon-only.btn-lg {
+  width: var(--control-h-lg);
+}
+
+.btn-full {
+  width: 100%;
+}
+
+/* --------------------------------------------------------------- variants -- */
+.btn-primary {
+  background-color: var(--color-accent);
+  color: var(--color-accent-fg);
+  border-color: transparent;
+}
+
+.btn-primary:hover {
+  background-color: var(--color-accent-hover);
+}
+
+.btn-primary:active {
+  background-color: var(--color-accent-active);
+}
+
+.btn-secondary {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-surface-2);
+  border-color: var(--color-border-strong);
+}
+
+.btn-secondary:active {
+  background-color: var(--color-surface-3);
+}
+
+.btn-ghost {
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  border-color: transparent;
+}
+
+.btn-ghost:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+.btn-ghost:active {
+  background-color: var(--color-active);
+}
+
+/* Outlined danger — the default for destructive row actions, where a wall of
+   solid red would drown the table. */
+.btn-danger {
+  background-color: transparent;
+  color: var(--color-danger);
+  border-color: var(--color-border);
+}
+
+.btn-danger:hover {
+  background-color: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+}
+
+/* Solid danger — reserved for the confirming action in a destructive dialog. */
+.btn-danger-solid {
+  background-color: var(--color-danger);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.btn-danger-solid:hover {
+  background-color: var(--color-danger-hover);
+}
+
+.btn-link {
+  height: auto;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  color: var(--color-accent);
+  font-weight: var(--fw-medium);
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}

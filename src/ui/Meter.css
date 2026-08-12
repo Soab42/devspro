@@ -1,0 +1,77 @@
+.meter-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.meter-row-label {
+  flex: 0 0 auto;
+  min-width: 4rem;
+  max-width: 9rem;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meter-track {
+  flex: 1;
+  height: 0.5rem;
+  min-width: 0;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-border-subtle);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition:
+    width var(--duration-slow) var(--ease-out),
+    background-color var(--duration-normal) var(--ease-standard);
+}
+
+.meter-fill-good {
+  background-color: var(--color-meter-good);
+}
+
+.meter-fill-warning {
+  background-color: var(--color-meter-warn);
+}
+
+.meter-fill-critical {
+  background-color: var(--color-meter-crit);
+}
+
+.meter-row-value {
+  flex: 0 0 auto;
+  min-width: 3rem;
+  text-align: right;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------- compact -- */
+.meter-compact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.meter-compact-label {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-2xs);
+  line-height: var(--lh-2xs);
+  color: var(--color-text-muted);
+}
+
+.meter-compact .meter-track {
+  height: 0.375rem;
+}

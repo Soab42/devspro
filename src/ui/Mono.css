@@ -1,0 +1,75 @@
+.mono {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  /* Disable contextual alternates — JetBrains Mono ligates -> and != into
+     glyphs that misrepresent a literal path or command. */
+  font-feature-settings: "calt" 0;
+  /* The one legitimate relative size in the system: mono glyphs have a larger
+     x-height and read visibly bigger than the UI font at the same px. */
+  font-size: 0.95em;
+}
+
+.mono-value {
+  min-width: 0;
+}
+
+.mono-truncate .mono-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono-chip {
+  padding: 0.05rem var(--space-2);
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-xs);
+}
+
+/* Visible by default. The dimming below is scoped to table cells only: a copy
+   button on every row of a dense table becomes a field of icons, but a
+   standalone one (a log toolbar, a credentials field, a modal footer) is a
+   primary affordance and must not hide until you happen to hover it. */
+.copy-button {
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.dt-td .copy-button {
+  opacity: 0;
+}
+
+.dt-row:hover .copy-button,
+.dt-td .copy-button:focus-visible,
+.dt-td .copy-button-done {
+  opacity: 1;
+}
+
+.copy-button-done {
+  color: var(--color-success);
+}
+
+/* ------------------------------------------------------------ CodeBlock -- */
+.code-block {
+  margin: 0;
+  padding: var(--space-4);
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--color-text);
+  overflow: auto;
+  font-feature-settings: "calt" 0;
+  tab-size: 2;
+}
+
+.code-block-wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

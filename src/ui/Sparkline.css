@@ -1,0 +1,9 @@
+.sparkline {
+  display: block;
+  width: 100%;
+  /* Clipped, not visible. A 2px stroke sitting on the viewBox edge paints
+     outside the SVG box, and visual overflow still counts toward the nearest
+     scroll container's scrollable area — four sparklines on the dashboard were
+     enough to make the content region scroll with nothing to scroll to. */
+  overflow: hidden;
+}

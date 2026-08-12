@@ -1,0 +1,7 @@
+.icon {
+  flex: 0 0 auto;
+  display: block;
+  /* Icons inherit the text colour of whatever labelled control holds them.
+     Never hard-code a colour here. */
+  color: currentColor;
+}

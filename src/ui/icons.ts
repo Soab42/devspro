@@ -1,0 +1,107 @@
+/**
+ * The app's entire icon vocabulary, in one place.
+ *
+ * Nothing outside this file may import from `lucide-react`. Two reasons:
+ *   1. Swapping an icon app-wide is a one-line change here.
+ *   2. It keeps the "no emoji, SVG only" rule enforceable by grep.
+ *
+ * Named re-exports only — never `import * as Icons`, which defeats
+ * tree-shaking and would pull all ~1770 icons into the bundle.
+ *
+ * NOTE ON NAMES: lucide-react v1 dropped the old numeric-suffix aliases.
+ * If you port code written against v0.5xx, translate:
+ *   Loader2 → LoaderCircle      CheckCircle2 → CircleCheck
+ *   XCircle → CircleX           AlertTriangle → TriangleAlert
+ *   MoreHorizontal → Ellipsis   Filter → Funnel
+ *   FileCode2 → FileCode        Wand2 → WandSparkles
+ */
+export type { LucideIcon } from "lucide-react";
+
+export {
+  /* ---- module / navigation ---- */
+  LayoutDashboard, // Dashboard
+  Globe, // Nginx & SSL
+  Container, // Docker
+  Database, // Databases
+  ScrollText, // Logs
+  Mail, // Mail Catcher
+  Package, // Apps
+  Network, // Processes
+  Workflow, // Workers
+  Settings, // Settings
+
+  /* ---- dashboard metrics ---- */
+  Cpu,
+  Server, // System
+  MemoryStick, // Memory
+  Gpu, // GPU
+  HardDrive, // Storage / disk
+  Activity, // Network throughput
+  Clock, // Uptime
+  ShieldCheck, // Health: nominal
+  TriangleAlert, // Health: degraded
+
+  /* ---- nginx / ssl ---- */
+  ShieldAlert, // certificate expiring or invalid
+  FileCode, // PHP version
+  Hexagon, // Node version
+  FolderPlus, // new project
+  Wrench, // fix permissions
+  Power, // enable / disable site
+
+  /* ---- chrome & controls ---- */
+  X, // close
+  ChevronUp, // sort ascending
+  ChevronDown, // sort descending, and the Select caret
+  ChevronsUpDown, // sortable but unsorted
+  ChevronRight, // disclosure
+  Ellipsis, // overflow menu
+  Menu, // sidebar drawer toggle
+  PanelLeftClose,
+  PanelLeftOpen,
+  Sun, // light theme
+  Monitor, // system theme
+  Moon, // dark theme
+  Search,
+  SearchX, // no search matches
+  Funnel, // filter
+
+  /* ---- actions ---- */
+  RefreshCw, // refresh
+  Plus, // add / create
+  Trash2, // delete
+  Pencil, // edit
+  Play, // start
+  Square, // stop
+  RotateCw, // restart
+  OctagonX, // force kill
+  FileText, // view logs (row action; ScrollText is reserved for the module)
+  ExternalLink,
+  Copy,
+  Check, // copied
+  Download,
+  Upload,
+  Maximize2, // expand into modal
+  WandSparkles, // suggest a value
+  Terminal, // command
+  KeyRound, // credentials
+  Users, // manage users
+  Eye,
+  EyeOff,
+  LogOut,
+  Lock,
+
+  /* ---- status & feedback ---- */
+  LoaderCircle, // spinner / pending
+  CircleCheck, // ok
+  CircleX, // bad
+  CircleAlert, // warning
+  Circle, // neutral
+  Info,
+  Inbox, // default empty state
+  PackageX, // dependency not installed
+  PlugZap, // daemon unreachable
+
+  /* ---- auth ---- */
+  UserPlus,
+} from "lucide-react";
