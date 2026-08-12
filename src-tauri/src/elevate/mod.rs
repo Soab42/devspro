@@ -9,6 +9,7 @@ mod platform;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -87,7 +88,7 @@ pub struct OpResult {
     pub message: String,
 }
 
-pub fn run(manifest: OperationManifest) -> Result<Vec<OpResult>, String> {
+pub fn run(app: &AppHandle, manifest: OperationManifest) -> Result<Vec<OpResult>, String> {
     let tmp_dir = std::env::temp_dir();
     let stem = uuid::Uuid::new_v4().to_string();
     let manifest_path = tmp_dir.join(format!("devsuite-manifest-{stem}.json"));
@@ -98,7 +99,7 @@ pub fn run(manifest: OperationManifest) -> Result<Vec<OpResult>, String> {
     fs::write(&manifest_path, manifest_json)
         .map_err(|e| format!("failed to write manifest: {e}"))?;
 
-    let helper_path = helper_binary_path()?;
+    let helper_path = helper_binary_path(app)?;
     let launch_result = platform::launch_helper(&helper_path, &manifest_path);
 
     let read_results = || -> Result<Vec<OpResult>, String> {
@@ -116,11 +117,14 @@ pub fn run(manifest: OperationManifest) -> Result<Vec<OpResult>, String> {
 
 /// Round-trips a single `Ping` op through the real elevation flow. Used by the
 /// Settings module to verify the helper is reachable on this OS.
-pub fn ping() -> Result<String, String> {
-    let results = run(OperationManifest {
-        allowed_write_prefix: String::new(),
-        operations: vec![Operation::Ping],
-    })?;
+pub fn ping(app: &AppHandle) -> Result<String, String> {
+    let results = run(
+        app,
+        OperationManifest {
+            allowed_write_prefix: String::new(),
+            operations: vec![Operation::Ping],
+        },
+    )?;
     match results.first() {
         Some(r) if r.success => Ok(r.message.clone()),
         Some(r) => Err(r.message.clone()),
@@ -128,20 +132,38 @@ pub fn ping() -> Result<String, String> {
     }
 }
 
-/// Debug-build lookup only: resolves the helper binary inside the shared workspace
-/// target directory. Production packaging should ship this as a Tauri sidecar
-/// (`bundle.externalBin`) and resolve it via the app's resource directory instead —
-/// deferred until this ships in a released build.
-fn helper_binary_path() -> Result<PathBuf, String> {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let profile = if cfg!(debug_assertions) { "debug" } else { "release" };
+/// In debug builds, resolves the helper inside the shared workspace `target/`
+/// directory (what `cargo tauri dev` runs against, with no bundle around it). In
+/// a packaged build the helper instead ships as a Tauri sidecar (`bundle.externalBin`
+/// in tauri.conf.json) — the bundler copies `binaries/ldm-helper-<target-triple>`
+/// into the bundle next to the main executable, stripped of its triple suffix, so
+/// at runtime it sits beside whatever `tauri::process::current_binary` resolves to.
+/// This mirrors `tauri_plugin_shell`'s own sidecar path resolution, without pulling
+/// in that plugin just to compute a path.
+fn helper_binary_path(app: &AppHandle) -> Result<PathBuf, String> {
     let bin_name = if cfg!(windows) { "ldm-helper.exe" } else { "ldm-helper" };
-    let path = manifest_dir.join("target").join(profile).join(bin_name);
+
+    let path = if cfg!(debug_assertions) {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest_dir.join("target").join("debug").join(bin_name)
+    } else {
+        let current_exe = tauri::process::current_binary(&app.env())
+            .map_err(|e| format!("could not resolve current executable path: {e}"))?;
+        let exe_dir = current_exe
+            .parent()
+            .ok_or_else(|| "current executable path has no parent directory".to_string())?;
+        exe_dir.join(bin_name)
+    };
+
     if path.exists() {
         Ok(path)
-    } else {
+    } else if cfg!(debug_assertions) {
         Err(format!(
             "ldm-helper binary not found at {path:?} — run `cargo build` from src-tauri first"
+        ))
+    } else {
+        Err(format!(
+            "ldm-helper sidecar not found at {path:?} — check that bundle.externalBin in tauri.conf.json points at a built binaries/ldm-helper-<target-triple>"
         ))
     }
 }

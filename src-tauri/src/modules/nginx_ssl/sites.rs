@@ -45,6 +45,11 @@ pub fn migrations() -> Vec<&'static str> {
         DROP TABLE nginx_ssl_sites;
         ALTER TABLE nginx_ssl_sites_v2 RENAME TO nginx_ssl_sites;
         "#,
+        // v3: a Laravel site can pin which installed PHP-FPM pool it runs
+        // against instead of always taking whichever socket `require_socket()`
+        // picks. Nullable column, so a plain `ALTER TABLE ADD COLUMN` is enough —
+        // no NOT NULL constraint to relax, unlike v2's rebuild.
+        "ALTER TABLE nginx_ssl_sites ADD COLUMN php_version TEXT;",
     ]
 }
 
@@ -54,7 +59,13 @@ pub enum Backend {
     Port { port: u16 },
     /// Served directly by nginx + PHP-FPM via the project's `public/` front
     /// controller — no `artisan serve`, no port for the user to pick.
-    Laravel { project_path: String },
+    Laravel {
+        project_path: String,
+        /// Which installed PHP-FPM pool to bind to (e.g. `"8.1"`). `None` means
+        /// "system default" — today's behaviour of picking whichever pool
+        /// `php_fpm::require_socket()` finds.
+        php_version: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -93,15 +104,17 @@ fn slugify(name: &str) -> String {
 }
 
 const SITE_COLUMNS: &str =
-    "id, name, slug, hostname, backend_type, port, project_path, enabled, ssl_not_after, created_at";
+    "id, name, slug, hostname, backend_type, port, project_path, php_version, enabled, ssl_not_after, created_at";
 
 fn row_to_site(row: &rusqlite::Row) -> rusqlite::Result<Site> {
     let backend_type: String = row.get(4)?;
     let port: Option<i64> = row.get(5)?;
     let project_path: Option<String> = row.get(6)?;
+    let php_version: Option<String> = row.get(7)?;
     let backend = match backend_type.as_str() {
         "laravel" => Backend::Laravel {
             project_path: project_path.unwrap_or_default(),
+            php_version,
         },
         _ => Backend::Port {
             port: port.unwrap_or_default() as u16,
@@ -113,9 +126,9 @@ fn row_to_site(row: &rusqlite::Row) -> rusqlite::Result<Site> {
         slug: row.get(2)?,
         hostname: row.get(3)?,
         backend,
-        enabled: row.get::<_, i64>(7)? != 0,
-        ssl_not_after: row.get(8)?,
-        created_at: row.get(9)?,
+        enabled: row.get::<_, i64>(8)? != 0,
+        ssl_not_after: row.get(9)?,
+        created_at: row.get(10)?,
     })
 }
 
@@ -132,6 +145,13 @@ fn find(conn: &Connection, id: &str) -> Result<Site, String> {
         row_to_site,
     )
     .map_err(|_| "site not found".to_string())
+}
+
+/// Cross-module lookup for callers (e.g. `tunnel`) that need one site by id
+/// but shouldn't need to know this module's `Connection`/row-parsing details.
+pub(crate) fn find_by_id(db: &crate::db::Db, id: &str) -> Result<Site, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    find(&conn, id)
 }
 
 fn enabled_hostnames(conn: &Connection) -> rusqlite::Result<Vec<String>> {
@@ -165,8 +185,20 @@ fn require_nginx() -> Result<(String, String), String> {
 fn backend_target(backend: &Backend) -> Result<nginx::render::BackendTarget, String> {
     match backend {
         Backend::Port { port } => Ok(nginx::render::BackendTarget::Proxy { port: *port }),
-        Backend::Laravel { project_path } => {
-            let php_fpm_socket = php_fpm::require_socket()?;
+        Backend::Laravel { project_path, php_version } => {
+            let php_fpm_socket = match php_version {
+                // The user explicitly pinned a version — if it's no longer running,
+                // that's a hard error rather than silently falling back to whatever
+                // else happens to be up: a site that looks fine but is quietly
+                // running under the wrong PHP version is worse than one that fails
+                // to reload at all.
+                Some(version) => php_fpm::socket_for_version(version).ok_or_else(|| {
+                    format!(
+                        "this site is pinned to PHP {version}, but it's not currently running (no live socket in /run/php) — start php{version}-fpm, or change the site's PHP version"
+                    )
+                })?,
+                None => php_fpm::require_socket()?,
+            };
             let public_root = PathBuf::from(project_path)
                 .join("public")
                 .to_string_lossy()
@@ -217,6 +249,7 @@ pub fn nginx_ssl_add_site(
     backend_kind: String,
     port: Option<u16>,
     project_path: Option<String>,
+    php_version: Option<String>,
 ) -> Result<Site, String> {
     let hostname = hostname.trim().to_lowercase();
     if !valid_hostname(&hostname) {
@@ -244,8 +277,19 @@ pub fn nginx_ssl_add_site(
                         .to_string(),
                 );
             }
-            php_fpm::require_socket()?;
-            Backend::Laravel { project_path }
+            match &php_version {
+                Some(version) => {
+                    php_fpm::socket_for_version(version).ok_or_else(|| {
+                        format!(
+                            "PHP {version} is not currently running (no live socket in /run/php) — install/start php{version}-fpm, or leave the version unset to use the system default"
+                        )
+                    })?;
+                }
+                None => {
+                    php_fpm::require_socket()?;
+                }
+            }
+            Backend::Laravel { project_path, php_version }
         }
         other => return Err(format!("unknown backend kind: {other}")),
     };
@@ -284,7 +328,7 @@ pub fn nginx_ssl_add_site(
         path: conf_path,
         contents: conf_contents,
     }];
-    if let Backend::Laravel { project_path } = &backend {
+    if let Backend::Laravel { project_path, .. } = &backend {
         operations.push(Operation::FixLaravelPermissions {
             project_path: project_path.clone(),
         });
@@ -304,7 +348,7 @@ pub fn nginx_ssl_add_site(
         operations,
     };
 
-    let results = elevate::run(manifest)?;
+    let results = elevate::run(&app, manifest)?;
     if let Some(failed) = results.iter().find(|r| !r.success) {
         return Err(format!("failed to activate site: {}", failed.message));
     }
@@ -320,15 +364,17 @@ pub fn nginx_ssl_add_site(
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    let (backend_type, db_port, db_project_path) = match &site.backend {
-        Backend::Port { port } => ("port", Some(*port as i64), None::<String>),
-        Backend::Laravel { project_path } => ("laravel", None, Some(project_path.clone())),
+    let (backend_type, db_port, db_project_path, db_php_version) = match &site.backend {
+        Backend::Port { port } => ("port", Some(*port as i64), None::<String>, None::<String>),
+        Backend::Laravel { project_path, php_version } => {
+            ("laravel", None, Some(project_path.clone()), php_version.clone())
+        }
     };
 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute(
-        "INSERT INTO nginx_ssl_sites (id, name, slug, hostname, backend_type, port, project_path, enabled, ssl_not_after, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, ?8, ?9)",
+        "INSERT INTO nginx_ssl_sites (id, name, slug, hostname, backend_type, port, project_path, php_version, enabled, ssl_not_after, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10)",
         (
             &site.id,
             &site.name,
@@ -337,6 +383,7 @@ pub fn nginx_ssl_add_site(
             backend_type,
             db_port,
             db_project_path,
+            db_php_version,
             &site.ssl_not_after,
             &site.created_at,
         ),
@@ -393,7 +440,7 @@ pub fn nginx_ssl_set_site_enabled(
         ],
     };
 
-    let results = elevate::run(manifest)?;
+    let results = elevate::run(&app, manifest)?;
     if let Some(failed) = results.iter().find(|r| !r.success) {
         return Err(format!("failed to update site: {}", failed.message));
     }
@@ -407,16 +454,78 @@ pub fn nginx_ssl_set_site_enabled(
     Ok(())
 }
 
-/// Standalone re-run of the storage/bootstrap-cache permission fix, for Laravel
-/// sites that were added before this app started applying it automatically at
-/// add-time (or whose ownership got reset by something outside this app).
+/// Changes which installed PHP-FPM pool a Laravel site is pinned to (or clears
+/// the pin, reverting to system-default), re-rendering and reloading nginx the
+/// same way `nginx_ssl_set_site_enabled` does.
 #[tauri::command]
-pub fn nginx_ssl_fix_laravel_permissions(db: State<crate::db::Db>, id: String) -> Result<String, String> {
+pub fn nginx_ssl_set_site_php_version(
+    app: AppHandle,
+    db: State<crate::db::Db>,
+    id: String,
+    php_version: Option<String>,
+) -> Result<(), String> {
     let site = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         find(&conn, &id)?
     };
-    let Backend::Laravel { project_path } = &site.backend else {
+    let Backend::Laravel { project_path, .. } = &site.backend else {
+        return Err("this site isn't a Laravel project".to_string());
+    };
+    let new_backend = Backend::Laravel {
+        project_path: project_path.clone(),
+        php_version: php_version.clone(),
+    };
+
+    let (binary_path, config_path) = require_nginx()?;
+    let conf_path = conf_path_string(&app, &site.slug)?;
+    let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
+
+    let file_op = if site.enabled {
+        Operation::WriteFile {
+            path: conf_path,
+            contents: render_conf_for(&app, &site.hostname, &new_backend, &site.slug)?,
+        }
+    } else {
+        Operation::RemoveFile { path: conf_path }
+    };
+
+    let manifest = OperationManifest {
+        allowed_write_prefix: allowed_write_prefix(&app)?,
+        operations: vec![
+            file_op,
+            nginx::cleanup_legacy_include_block_op(&config_path),
+            nginx::include_op(&config_path, &sites_glob)?,
+            Operation::RunNginxTest {
+                binary_path: binary_path.clone(),
+            },
+            Operation::ReloadNginx { binary_path },
+        ],
+    };
+
+    let results = elevate::run(&app, manifest)?;
+    if let Some(failed) = results.iter().find(|r| !r.success) {
+        return Err(format!("failed to update site: {}", failed.message));
+    }
+
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE nginx_ssl_sites SET php_version = ?1 WHERE id = ?2",
+        (&php_version, &id),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Standalone re-run of the storage/bootstrap-cache permission fix, for Laravel
+/// sites that were added before this app started applying it automatically at
+/// add-time (or whose ownership got reset by something outside this app).
+#[tauri::command]
+pub fn nginx_ssl_fix_laravel_permissions(app: AppHandle, db: State<crate::db::Db>, id: String) -> Result<String, String> {
+    let site = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        find(&conn, &id)?
+    };
+    let Backend::Laravel { project_path, .. } = &site.backend else {
         return Err("this site isn't a Laravel project".to_string());
     };
 
@@ -426,7 +535,7 @@ pub fn nginx_ssl_fix_laravel_permissions(db: State<crate::db::Db>, id: String) -
             project_path: project_path.clone(),
         }],
     };
-    let results = elevate::run(manifest)?;
+    let results = elevate::run(&app, manifest)?;
     match results.first() {
         Some(r) if r.success => Ok(r.message.clone()),
         Some(r) => Err(r.message.clone()),
@@ -464,7 +573,7 @@ pub fn nginx_ssl_remove_site(app: AppHandle, db: State<crate::db::Db>, id: Strin
         ],
     };
 
-    let results = elevate::run(manifest)?;
+    let results = elevate::run(&app, manifest)?;
     if let Some(failed) = results.iter().find(|r| !r.success) {
         return Err(format!("failed to remove site: {}", failed.message));
     }
@@ -477,4 +586,40 @@ pub fn nginx_ssl_remove_site(app: AppHandle, db: State<crate::db::Db>, id: Strin
     conn.execute("DELETE FROM nginx_ssl_sites WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_hostname_accepts_ordinary_names() {
+        assert!(valid_hostname("myapp.test"));
+        assert!(valid_hostname("my-app.local"));
+        assert!(valid_hostname("a"));
+    }
+
+    #[test]
+    fn valid_hostname_rejects_bad_shapes() {
+        assert!(!valid_hostname(""));
+        assert!(!valid_hostname("-leading.test"));
+        assert!(!valid_hostname("trailing.test-"));
+        assert!(!valid_hostname(".leading.test"));
+        assert!(!valid_hostname("trailing.test."));
+        assert!(!valid_hostname("has space.test"));
+        assert!(!valid_hostname("has_underscore.test"));
+        assert!(!valid_hostname(&"a".repeat(254)));
+    }
+
+    #[test]
+    fn slugify_lowercases_and_dashes() {
+        assert_eq!(slugify("My Cool App"), "my-cool-app");
+        assert_eq!(slugify("  Leading/Trailing  "), "leading-trailing");
+        assert_eq!(slugify("already-slug"), "already-slug");
+    }
+
+    #[test]
+    fn slugify_of_only_symbols_is_empty() {
+        assert_eq!(slugify("!!!"), "");
+    }
 }

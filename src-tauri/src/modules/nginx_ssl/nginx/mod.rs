@@ -16,7 +16,7 @@ pub struct NginxDetection {
     pub linux_package_manager: Option<String>,
 }
 
-/// The exact marker block DevSuite adds to the user's real nginx.conf — one `include`
+/// The exact marker block DevsPro adds to the user's real nginx.conf — one `include`
 /// line, wrapped so it can be found and removed cleanly again. Never touches
 /// anything else in that file.
 pub const MARKER_BEGIN: &str = "# >>> devsuite (do not edit this block manually) >>>";
@@ -151,7 +151,7 @@ pub fn nginx_ssl_install_nginx(app: tauri::AppHandle) -> Result<String, String> 
         }],
     };
 
-    let results = crate::elevate::run(manifest)?;
+    let results = crate::elevate::run(&app, manifest)?;
     match results.first() {
         Some(r) if r.success => Ok(r.message.clone()),
         Some(r) => Err(r.message.clone()),

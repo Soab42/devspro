@@ -286,6 +286,63 @@ pub fn docker_change_port(id: String, container_port: u16, new_host_port: u16) -
     change_port(&id, container_port, new_host_port)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rewrite_port_mapping_replaces_matching_container_port() {
+        let compose = "\
+services:
+  redis:
+    image: redis:7
+    ports:
+      - \"6379:6379\"
+  mysql:
+    image: mysql:8
+    ports:
+      - \"3306:3306\"
+";
+        let updated = rewrite_port_mapping(compose, "redis", 6379, 16379).unwrap();
+        assert!(updated.contains("      - \"16379:6379\""));
+        // Untouched service keeps its original mapping.
+        assert!(updated.contains("      - \"3306:3306\""));
+    }
+
+    #[test]
+    fn rewrite_port_mapping_preserves_unquoted_style() {
+        let compose = "\
+services:
+  app:
+    ports:
+      - 8080:80
+";
+        let updated = rewrite_port_mapping(compose, "app", 80, 9090).unwrap();
+        assert!(updated.contains("      - 9090:80"));
+    }
+
+    #[test]
+    fn rewrite_port_mapping_errors_on_missing_service() {
+        let compose = "services:\n  app:\n    ports:\n      - \"80:80\"\n";
+        let err = rewrite_port_mapping(compose, "missing", 80, 81).unwrap_err();
+        assert!(err.contains("missing"));
+    }
+
+    #[test]
+    fn rewrite_port_mapping_errors_on_missing_container_port() {
+        let compose = "services:\n  app:\n    ports:\n      - \"80:80\"\n";
+        let err = rewrite_port_mapping(compose, "app", 443, 8443).unwrap_err();
+        assert!(err.contains("443"));
+    }
+
+    #[test]
+    fn rewrite_port_mapping_errors_on_missing_ports_block() {
+        let compose = "services:\n  app:\n    image: foo\n";
+        let err = rewrite_port_mapping(compose, "app", 80, 81).unwrap_err();
+        assert!(err.contains("ports:"));
+    }
+}
+
 /// Combines stdout+stderr from `docker logs`. The two streams are captured
 /// separately and concatenated, not merged in true chronological order — an
 /// acceptable simplification for a quick-look viewer, not a substitute for

@@ -13,6 +13,7 @@ fn all_migrations() -> Vec<&'static str> {
     let mut migrations = Vec::new();
     migrations.extend(crate::auth::migrations());
     migrations.extend(crate::modules::nginx_ssl::migrations());
+    migrations.extend(crate::modules::workers::migrations());
     // Future modules append here.
     migrations
 }
@@ -36,4 +37,29 @@ fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrate_applies_all_migrations_and_sets_user_version() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version as usize, all_migrations().len());
+    }
+
+    #[test]
+    fn migrate_twice_is_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        // Re-running must not re-execute already-applied migrations (several of
+        // which are destructive table-rebuild steps that would fail the second
+        // time round, e.g. `DROP TABLE` on a table already dropped).
+        migrate(&conn).unwrap();
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version as usize, all_migrations().len());
+    }
 }

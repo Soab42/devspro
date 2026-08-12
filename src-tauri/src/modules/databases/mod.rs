@@ -1,21 +1,21 @@
-//! Spins up databases (+ optional admin UI) as containers in DevSuite's *own*
+//! Spins up databases (+ optional admin UI) as containers in DevsPro's *own*
 //! docker-compose space — a single compose file this app fully owns, under
 //! `<app-data>/docker/docker-compose.yml`, run under the fixed project name
 //! "devsuite" (`docker compose -p devsuite ...`). Deliberately separate from
 //! whatever other compose stacks the user already has (e.g. `~/docker/databases`)
-//! — this is a sandbox DevSuite manages end-to-end, not something that edits
+//! — this is a sandbox DevsPro manages end-to-end, not something that edits
 //! someone else's existing file the way the Docker module's port-change feature
 //! does.
 //!
-//! Since DevSuite writes every line of this file itself, service blocks are
+//! Since DevsPro writes every line of this file itself, service blocks are
 //! appended/removed with plain text manipulation rather than a YAML library —
 //! there's no unknown external formatting to preserve, unlike the port-rewrite
-//! feature in the Docker module which edits a compose file DevSuite doesn't own.
+//! feature in the Docker module which edits a compose file DevsPro doesn't own.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use tauri::Manager;
 
 const PROJECT_NAME: &str = "devsuite";
@@ -984,4 +984,312 @@ pub fn databases_drop_user(app: tauri::AppHandle, name: String, username: String
         DbKind::Redis => redis_drop_user(&container, &admin_password, &username),
     }?;
     Ok(format!("removed user '{username}'"))
+}
+
+// ---------------------------------------------------------------------------
+// Backup / restore. Same docker-exec-into-the-official-client pattern as user
+// management above — no Rust DB driver crate, just the client binary each
+// image already bundles. Dumps are piped straight to/from a file instead of
+// being buffered as a String, since a real dump can be sizeable: the child's
+// stdout/stdin is wired directly to a file handle rather than going through
+// `.output()`, which would force everything through an in-memory Vec<u8>.
+//
+// Redis has no SQL-style dump to speak of. The practical equivalent is
+// triggering a SAVE and `docker cp`-ing out the resulting dump.rdb; restoring
+// means copying it back in and restarting the container, since Redis only
+// loads dump.rdb from disk at startup.
+
+pub fn backups_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("backups");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+fn backup_extension(kind: DbKind) -> &'static str {
+    match kind {
+        DbKind::Mysql | DbKind::Postgres => "sql",
+        DbKind::Mongo => "archive.gz",
+        DbKind::Redis => "rdb",
+    }
+}
+
+fn backup_filename(name: &str, kind: DbKind, timestamp: &str) -> String {
+    format!("{name}_{timestamp}.{}", backup_extension(kind))
+}
+
+fn docker_exec_to_file(container: &str, args: &[&str], file_path: &Path) -> Result<(), String> {
+    let file = fs::File::create(file_path).map_err(|e| format!("could not create {}: {e}", file_path.display()))?;
+    let mut full: Vec<&str> = vec!["exec", container];
+    full.extend(args);
+    let child = Command::new("docker")
+        .args(&full)
+        .stdout(Stdio::from(file))
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to run docker exec: {e}"))?;
+    let output = child.wait_with_output().map_err(|e| format!("failed to wait for docker exec: {e}"))?;
+    if let Some(err) = command_failed(&output) {
+        let _ = fs::remove_file(file_path);
+        return Err(err);
+    }
+    Ok(())
+}
+
+fn docker_exec_from_file(container: &str, args: &[&str], file_path: &Path) -> Result<(), String> {
+    let file = fs::File::open(file_path).map_err(|e| format!("could not open {}: {e}", file_path.display()))?;
+    let mut full: Vec<&str> = vec!["exec", "-i", container];
+    full.extend(args);
+    let child = Command::new("docker")
+        .args(&full)
+        .stdin(Stdio::from(file))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to run docker exec: {e}"))?;
+    let output = child.wait_with_output().map_err(|e| format!("failed to wait for docker exec: {e}"))?;
+    command_failed(&output).map_or(Ok(()), Err)
+}
+
+fn mysql_dump_args(admin_password: &str, db: &str) -> Vec<String> {
+    vec!["mysqldump".to_string(), "-uroot".to_string(), format!("-p{admin_password}"), db.to_string()]
+}
+
+fn mysql_restore_args(admin_password: &str, db: &str) -> Vec<String> {
+    vec!["mysql".to_string(), "-uroot".to_string(), format!("-p{admin_password}"), db.to_string()]
+}
+
+fn postgres_dump_args(admin_user: &str, db: &str) -> Vec<String> {
+    vec!["pg_dump".to_string(), "-U".to_string(), admin_user.to_string(), "-d".to_string(), db.to_string()]
+}
+
+fn postgres_restore_args(admin_user: &str, db: &str) -> Vec<String> {
+    vec!["psql".to_string(), "-U".to_string(), admin_user.to_string(), "-d".to_string(), db.to_string()]
+}
+
+fn mongo_dump_args(admin_user: &str, admin_password: &str, db: &str) -> Vec<String> {
+    vec![
+        "mongodump".to_string(),
+        "-u".to_string(),
+        admin_user.to_string(),
+        "-p".to_string(),
+        admin_password.to_string(),
+        "--authenticationDatabase".to_string(),
+        "admin".to_string(),
+        "--db".to_string(),
+        db.to_string(),
+        "--archive".to_string(),
+        "--gzip".to_string(),
+    ]
+}
+
+// Restoring an archive produced with `--db <name>` already scopes it to that
+// database — no `--nsInclude` needed, unlike a restore from a full-instance dump.
+fn mongo_restore_args(admin_user: &str, admin_password: &str) -> Vec<String> {
+    vec![
+        "mongorestore".to_string(),
+        "-u".to_string(),
+        admin_user.to_string(),
+        "-p".to_string(),
+        admin_password.to_string(),
+        "--authenticationDatabase".to_string(),
+        "admin".to_string(),
+        "--drop".to_string(),
+        "--archive".to_string(),
+        "--gzip".to_string(),
+    ]
+}
+
+fn as_str_args(args: &[String]) -> Vec<&str> {
+    args.iter().map(String::as_str).collect()
+}
+
+fn mysql_backup(container: &str, admin_password: &str, db: &str, file_path: &Path) -> Result<(), String> {
+    docker_exec_to_file(container, &as_str_args(&mysql_dump_args(admin_password, db)), file_path)
+}
+
+fn mysql_restore(container: &str, admin_password: &str, db: &str, file_path: &Path) -> Result<(), String> {
+    docker_exec_from_file(container, &as_str_args(&mysql_restore_args(admin_password, db)), file_path)
+}
+
+fn postgres_backup(container: &str, admin_user: &str, db: &str, file_path: &Path) -> Result<(), String> {
+    docker_exec_to_file(container, &as_str_args(&postgres_dump_args(admin_user, db)), file_path)
+}
+
+fn postgres_restore(container: &str, admin_user: &str, db: &str, file_path: &Path) -> Result<(), String> {
+    docker_exec_from_file(container, &as_str_args(&postgres_restore_args(admin_user, db)), file_path)
+}
+
+fn mongo_backup(
+    container: &str,
+    admin_user: &str,
+    admin_password: &str,
+    db: &str,
+    file_path: &Path,
+) -> Result<(), String> {
+    docker_exec_to_file(container, &as_str_args(&mongo_dump_args(admin_user, admin_password, db)), file_path)
+}
+
+fn mongo_restore(container: &str, admin_user: &str, admin_password: &str, file_path: &Path) -> Result<(), String> {
+    docker_exec_from_file(container, &as_str_args(&mongo_restore_args(admin_user, admin_password)), file_path)
+}
+
+fn redis_backup(container: &str, admin_password: &str, file_path: &Path) -> Result<(), String> {
+    let out = docker_exec(container, &["redis-cli", "-a", admin_password, "--no-auth-warning", "SAVE"])?;
+    if let Some(err) = command_failed(&out) {
+        return Err(err);
+    }
+    let out = Command::new("docker")
+        .arg("cp")
+        .arg(format!("{container}:/data/dump.rdb"))
+        .arg(file_path)
+        .output()
+        .map_err(|e| format!("failed to run docker cp: {e}"))?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn redis_restore(container: &str, file_path: &Path) -> Result<(), String> {
+    let out = Command::new("docker")
+        .arg("cp")
+        .arg(file_path)
+        .arg(format!("{container}:/data/dump.rdb"))
+        .output()
+        .map_err(|e| format!("failed to run docker cp: {e}"))?;
+    if let Some(err) = command_failed(&out) {
+        return Err(err);
+    }
+    let out = Command::new("docker")
+        .args(["restart", container])
+        .output()
+        .map_err(|e| format!("failed to restart container: {e}"))?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+#[tauri::command]
+pub fn databases_backup(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
+    let container = container_name(&name);
+    let dir = backups_dir(&app)?;
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+    let path = dir.join(backup_filename(&name, kind, &timestamp));
+
+    match kind {
+        DbKind::Mysql => mysql_backup(&container, &admin_password, &name, &path),
+        DbKind::Postgres => postgres_backup(&container, &admin_user, &name, &path),
+        DbKind::Mongo => mongo_backup(&container, &admin_user, &admin_password, &name, &path),
+        DbKind::Redis => redis_backup(&container, &admin_password, &path),
+    }?;
+
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn databases_restore(app: tauri::AppHandle, name: String, backup_path: String) -> Result<String, String> {
+    let path = PathBuf::from(&backup_path);
+    if !path.is_file() {
+        return Err(format!("backup file not found: {backup_path}"));
+    }
+    let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
+    let container = container_name(&name);
+
+    match kind {
+        DbKind::Mysql => mysql_restore(&container, &admin_password, &name, &path),
+        DbKind::Postgres => postgres_restore(&container, &admin_user, &name, &path),
+        DbKind::Mongo => mongo_restore(&container, &admin_user, &admin_password, &path),
+        DbKind::Redis => redis_restore(&container, &path),
+    }?;
+
+    Ok(format!("restored '{name}' from {backup_path}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backup_filename_uses_sql_extension_for_sql_engines() {
+        assert_eq!(backup_filename("mydb", DbKind::Mysql, "20260101_120000"), "mydb_20260101_120000.sql");
+        assert_eq!(backup_filename("mydb", DbKind::Postgres, "20260101_120000"), "mydb_20260101_120000.sql");
+    }
+
+    #[test]
+    fn backup_filename_uses_archive_gz_for_mongo() {
+        assert_eq!(backup_filename("mydb", DbKind::Mongo, "20260101_120000"), "mydb_20260101_120000.archive.gz");
+    }
+
+    #[test]
+    fn backup_filename_uses_rdb_for_redis() {
+        assert_eq!(backup_filename("mydb", DbKind::Redis, "20260101_120000"), "mydb_20260101_120000.rdb");
+    }
+
+    #[test]
+    fn mysql_dump_args_pass_password_without_a_space_before_the_flag_value() {
+        let args = mysql_dump_args("s3cr3t", "mydb");
+        assert_eq!(args, vec!["mysqldump", "-uroot", "-ps3cr3t", "mydb"]);
+    }
+
+    #[test]
+    fn mysql_restore_args_use_the_plain_client_not_mysqldump() {
+        let args = mysql_restore_args("s3cr3t", "mydb");
+        assert_eq!(args, vec!["mysql", "-uroot", "-ps3cr3t", "mydb"]);
+    }
+
+    #[test]
+    fn postgres_dump_args_target_the_right_database() {
+        let args = postgres_dump_args("postgres", "mydb");
+        assert_eq!(args, vec!["pg_dump", "-U", "postgres", "-d", "mydb"]);
+    }
+
+    #[test]
+    fn postgres_restore_args_pipe_into_psql() {
+        let args = postgres_restore_args("postgres", "mydb");
+        assert_eq!(args, vec!["psql", "-U", "postgres", "-d", "mydb"]);
+    }
+
+    #[test]
+    fn mongo_dump_args_scope_to_one_database_and_use_a_single_archive_file() {
+        let args = mongo_dump_args("root", "s3cr3t", "mydb");
+        assert_eq!(
+            args,
+            vec![
+                "mongodump",
+                "-u",
+                "root",
+                "-p",
+                "s3cr3t",
+                "--authenticationDatabase",
+                "admin",
+                "--db",
+                "mydb",
+                "--archive",
+                "--gzip",
+            ]
+        );
+    }
+
+    #[test]
+    fn mongo_restore_args_drop_before_restoring_and_read_the_same_archive_format() {
+        let args = mongo_restore_args("root", "s3cr3t");
+        assert_eq!(
+            args,
+            vec![
+                "mongorestore",
+                "-u",
+                "root",
+                "-p",
+                "s3cr3t",
+                "--authenticationDatabase",
+                "admin",
+                "--drop",
+                "--archive",
+                "--gzip",
+            ]
+        );
+    }
+
+    #[test]
+    fn backup_extension_differs_per_engine_where_the_dump_format_differs() {
+        assert_eq!(backup_extension(DbKind::Mysql), backup_extension(DbKind::Postgres));
+        assert_ne!(backup_extension(DbKind::Mysql), backup_extension(DbKind::Mongo));
+        assert_ne!(backup_extension(DbKind::Mysql), backup_extension(DbKind::Redis));
+    }
 }

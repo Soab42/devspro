@@ -56,7 +56,7 @@ pub fn render_site_conf(
 ) -> String {
     let location = location_block(backend);
     format!(
-        r#"# Managed by DevSuite — do not edit by hand, changes will be overwritten on next save.
+        r#"# Managed by DevsPro — do not edit by hand, changes will be overwritten on next save.
 server {{
     listen 80;
     server_name {hostname};

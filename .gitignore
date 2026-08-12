@@ -1,6 +1,9 @@
 # Logs
 logs
 *.log
+# ...but not the Log Viewer feature module itself, which is named "logs".
+!src-tauri/src/modules/logs/
+!src/modules/logs/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

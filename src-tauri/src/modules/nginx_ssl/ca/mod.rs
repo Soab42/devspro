@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use time::{Duration, OffsetDateTime};
 
-const CA_COMMON_NAME: &str = "DevSuite Local Development CA";
+const CA_COMMON_NAME: &str = "DevsPro Local Development CA";
 const CA_VALID_YEARS: i64 = 10;
 
 fn root_cert_path(certs_dir: &Path) -> PathBuf {
@@ -67,7 +67,7 @@ pub fn ensure_root_ca(certs_dir: &Path) -> Result<(), String> {
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     let mut dn = DistinguishedName::new();
     dn.push(DnType::CommonName, CA_COMMON_NAME);
-    dn.push(DnType::OrganizationName, "DevSuite (local, do not trust off this machine)");
+    dn.push(DnType::OrganizationName, "DevsPro (local, do not trust off this machine)");
     params.distinguished_name = dn;
     let now = OffsetDateTime::now_utc();
     params.not_before = now - Duration::days(1);
@@ -104,7 +104,7 @@ pub(super) fn load_issuer(certs_dir: &Path) -> Result<(Certificate, KeyPair), St
     params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     let mut dn = DistinguishedName::new();
     dn.push(DnType::CommonName, CA_COMMON_NAME);
-    dn.push(DnType::OrganizationName, "DevSuite (local, do not trust off this machine)");
+    dn.push(DnType::OrganizationName, "DevsPro (local, do not trust off this machine)");
     params.distinguished_name = dn;
 
     let issuer_cert = params
@@ -236,7 +236,7 @@ pub fn nginx_ssl_ca_install(app: tauri::AppHandle) -> Result<String, String> {
         operations,
     };
 
-    let results = crate::elevate::run(manifest)?;
+    let results = crate::elevate::run(&app, manifest)?;
     if results.iter().any(|r| !r.success) {
         return Err(results.iter().map(|r| r.message.as_str()).collect::<Vec<_>>().join("; "));
     }
