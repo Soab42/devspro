@@ -1,37 +1,136 @@
 import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import StatusPill from "../../../components/StatusPill";
-import Modal from "../../../components/Modal";
-import AddSiteForm from "../components/AddSiteForm";
 import { useConfirm } from "../../../app/ConfirmContext";
-import { fixLaravelPermissions, listSites, removeSite, setSiteEnabled, Site } from "../api";
+import AddSiteForm from "../components/AddSiteForm";
+import NewProjectForm from "../components/NewProjectForm";
+import NodeVersionModal from "../components/NodeVersionModal";
+import PhpVersionModal from "../components/PhpVersionModal";
+import {
+  ActionGroup,
+  Badge,
+  Button,
+  Callout,
+  Column,
+  CopyButton,
+  DataTable,
+  IconButton,
+  Menu,
+  Modal,
+  Mono,
+  Resource,
+  Section,
+  Stack,
+  StatusPill,
+  useResource,
+} from "../../../ui";
+import {
+  ExternalLink,
+  FileCode,
+  FolderPlus,
+  Globe,
+  Hexagon,
+  Plus,
+  Power,
+  Trash2,
+  Wrench,
+} from "../../../ui/icons";
+import {
+  detectTunnelCli,
+  fixLaravelPermissions,
+  removeSite,
+  setSiteEnabled,
+  Site,
+  tunnelList,
+  tunnelStart,
+  tunnelStop,
+  TunnelStatus,
+} from "../api";
+
+const TUNNEL_POLL_MS = 2000;
 
 function backendLabel(site: Site): string {
-  return site.backend.type === "port" ? `:${site.backend.port}` : `Laravel — ${site.backend.project_path}`;
+  if (site.backend.type === "port") return `:${site.backend.port}`;
+  const version = site.backend.php_version
+    ? `PHP ${site.backend.php_version}`
+    : "PHP (system default)";
+  return `${site.backend.project_path} — ${version}`;
 }
 
-export default function SitesTab() {
+export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
   const confirmAction = useConfirm();
-  const [sites, setSites] = useState<Site[]>([]);
+
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function refresh() {
-    setSites(await listSites());
-  }
+  const [phpModalSite, setPhpModalSite] = useState<Site | null>(null);
+  const [nodeModalSite, setNodeModalSite] = useState<Site | null>(null);
+
+  const [tunnels, setTunnels] = useState<Record<string, TunnelStatus>>({});
+  const tunnelCli = useResource(detectTunnelCli);
 
   useEffect(() => {
-    refresh();
+    let active = true;
+
+    async function refreshTunnels() {
+      let list: TunnelStatus[];
+      try {
+        list = await tunnelList();
+      } catch {
+        return; // best-effort background poll — a transient failure shouldn't blank the UI
+      }
+      if (!active) return;
+      const exited = list.filter((t) => t.exited);
+      if (exited.length > 0) {
+        setError(
+          `Tunnel for ${exited[0].hostname} stopped unexpectedly: ${
+            exited[0].last_log ?? "unknown error"
+          }`,
+        );
+      }
+      setTunnels(Object.fromEntries(list.map((t) => [t.site_id, t])));
+    }
+
+    void refreshTunnels();
+    const interval = setInterval(refreshTunnels, TUNNEL_POLL_MS);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
+
+  async function handleStartTunnel(site: Site) {
+    setError(null);
+    try {
+      const status = await tunnelStart(site.id);
+      setTunnels((prev) => ({ ...prev, [site.id]: status }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleStopTunnel(site: Site) {
+    setError(null);
+    try {
+      await tunnelStop(site.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    setTunnels((prev) => {
+      const next = { ...prev };
+      delete next[site.id];
+      return next;
+    });
+  }
 
   async function handleToggle(site: Site) {
     setError(null);
     try {
       await setSiteEnabled(site.id, !site.enabled);
-      await refresh();
+      await sites.refresh();
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -41,98 +140,291 @@ export default function SitesTab() {
     try {
       setMessage(await fixLaravelPermissions(site.id));
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
   async function handleRemove(site: Site) {
     const ok = await confirmAction(
-      `Remove "${site.name}" (${site.hostname})? This deletes its nginx config and certificate.`,
-      { confirmLabel: "Delete", danger: true },
+      `"${site.name}" (${site.hostname}) will lose its nginx config and certificate.`,
+      { title: "Delete site?", confirmLabel: "Delete", danger: true },
     );
     if (!ok) return;
     setError(null);
     try {
       await removeSite(site.id);
-      await refresh();
+      await sites.refresh();
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  return (
-    <div>
-      <section className="card">
-        <div className="card-header">
-          <h2>Sites</h2>
-          <div className="topbar-spacer" />
-          <button onClick={() => setShowAddModal(true)}>+ Add site</button>
+  const rows = sites.data ?? [];
+
+  const columns: Column<Site>[] = [
+    {
+      key: "name",
+      header: "Site",
+      priority: 1,
+      wrap: true,
+      sortValue: (s) => s.name,
+      render: (s) => (
+        <div className="dt-cell-stack">
+          <span className="dt-strong">{s.name}</span>
+          <Mono className="dt-cell-sub">{s.hostname}</Mono>
         </div>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      priority: 1,
+      sortValue: (s) => (s.enabled ? 1 : 0),
+      render: (s) => (
+        <StatusPill
+          variant={s.enabled ? "ok" : "neutral"}
+          label={s.enabled ? "enabled" : "disabled"}
+        />
+      ),
+    },
+    {
+      key: "tunnel",
+      header: "Tunnel",
+      priority: 2,
+      render: (s) => {
+        const tunnel = tunnels[s.id];
+        if (tunnel?.public_url) {
+          return (
+            <span className="dt-cell-inline">
+              <Mono truncate={180}>{tunnel.public_url}</Mono>
+              <CopyButton value={tunnel.public_url} label="Copy tunnel URL" />
+              <IconButton
+                icon={Power}
+                label="Stop tunnel"
+                variant="danger"
+                onClick={() => handleStopTunnel(s)}
+              />
+            </span>
+          );
+        }
+        if (tunnel) {
+          return (
+            <span className="dt-cell-inline">
+              <StatusPill variant="pending" label="starting" />
+              <IconButton
+                icon={Power}
+                label="Stop tunnel"
+                variant="danger"
+                onClick={() => handleStopTunnel(s)}
+              />
+            </span>
+          );
+        }
+        const blocked = !s.enabled || tunnelCli.data?.found === false;
+        return (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={blocked}
+            title={
+              !s.enabled
+                ? "Enable this site first"
+                : tunnelCli.data?.found === false
+                  ? // Now actionable: cloudflared is in the Apps catalog.
+                    "cloudflared was not found — install it from the Apps page"
+                  : "Start a public tunnel to this site"
+            }
+            onClick={() => handleStartTunnel(s)}
+          >
+            Start
+          </Button>
+        );
+      },
+    },
+    {
+      key: "backend",
+      header: "Backend",
+      priority: 3,
+      wrap: true,
+      sortValue: (s) => backendLabel(s),
+      render: (s) => (
+        <span className="dt-cell-inline">
+          <Badge tone="neutral">{s.backend.type}</Badge>
+          <Mono truncate={280}>{backendLabel(s)}</Mono>
+        </span>
+      ),
+    },
+    {
+      key: "ssl",
+      header: "SSL expires",
+      priority: 3,
+      mono: true,
+      sortValue: (s) => s.ssl_not_after ?? "",
+      render: (s) => s.ssl_not_after ?? "—",
+    },
+    {
+      key: "actions",
+      header: "",
+      priority: 1,
+      align: "end",
+      width: "1px",
+      render: (s) => (
+        /* Was up to six inline buttons — the widest action column in the app.
+           Open and Enable stay; the rest move into the overflow. */
+        <ActionGroup>
+          <IconButton
+            icon={ExternalLink}
+            label="Open in browser"
+            onClick={() => void openUrl(`https://${s.hostname}`)}
+          />
+          <IconButton
+            icon={Power}
+            label={s.enabled ? "Disable" : "Enable"}
+            onClick={() => handleToggle(s)}
+          />
+          <Menu
+            items={[
+              ...(s.backend.type === "laravel"
+                ? [
+                    {
+                      key: "perms",
+                      label: "Fix permissions",
+                      icon: Wrench,
+                      onClick: () => handleFixPermissions(s),
+                    },
+                    {
+                      key: "php",
+                      label: "PHP version…",
+                      icon: FileCode,
+                      onClick: () => setPhpModalSite(s),
+                    },
+                    {
+                      key: "node",
+                      label: "Node version…",
+                      icon: Hexagon,
+                      onClick: () => setNodeModalSite(s),
+                    },
+                  ]
+                : []),
+              {
+                key: "delete",
+                label: "Delete site",
+                icon: Trash2,
+                danger: true,
+                separatorBefore: true,
+                onClick: () => handleRemove(s),
+              },
+            ]}
+          />
+        </ActionGroup>
+      ),
+    },
+  ];
 
-        {message && <p className="muted">{message}</p>}
-        {error && <p className="field-error">{error}</p>}
+  return (
+    <Stack gap={5}>
+      {message && (
+        <Callout tone="success" onDismiss={() => setMessage(null)}>
+          {message}
+        </Callout>
+      )}
+      {error && (
+        <Callout tone="danger" onDismiss={() => setError(null)}>
+          {error}
+        </Callout>
+      )}
 
-        {sites.length === 0 ? (
-          <p className="empty-state">No sites yet — click "Add site" to get started.</p>
-        ) : (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Hostname</th>
-                  <th>Backend</th>
-                  <th>SSL expires</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {sites.map((site) => (
-                  <tr key={site.id}>
-                    <td>{site.name}</td>
-                    <td>{site.hostname}</td>
-                    <td className="wrap">{backendLabel(site)}</td>
-                    <td>{site.ssl_not_after ?? "—"}</td>
-                    <td>
-                      <StatusPill ok={site.enabled} label={site.enabled ? "enabled" : "disabled"} />
-                    </td>
-                    <td>
-                      <div className="form-row" style={{ marginTop: 0 }}>
-                        <button className="icon-button secondary" onClick={() => openUrl(`https://${site.hostname}`)}>
-                          Open
-                        </button>
-                        <button className="icon-button secondary" onClick={() => handleToggle(site)}>
-                          {site.enabled ? "Disable" : "Enable"}
-                        </button>
-                        {site.backend.type === "laravel" && (
-                          <button className="icon-button secondary" onClick={() => handleFixPermissions(site)}>
-                            Fix permissions
-                          </button>
-                        )}
-                        <button className="icon-button danger" onClick={() => handleRemove(site)}>
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <Section
+        title="Sites"
+        padding="none"
+        actions={
+          <>
+            <Button
+              variant="secondary"
+              icon={FolderPlus}
+              onClick={() => setShowNewProjectModal(true)}
+            >
+              New project
+            </Button>
+            <Button variant="primary" icon={Plus} onClick={() => setShowAddModal(true)}>
+              Add site
+            </Button>
+          </>
+        }
+        isEmpty={!sites.loading && rows.length === 0}
+        empty={{
+          icon: Globe,
+          title: "No sites yet",
+          description:
+            "Add a site to get an nginx vhost and a locally-trusted HTTPS certificate.",
+          action: (
+            <Button variant="primary" icon={Plus} onClick={() => setShowAddModal(true)}>
+              Add site
+            </Button>
+          ),
+        }}
+      >
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(s) => s.id}
+          loading={sites.loading}
+          defaultSort={{ key: "name", dir: "asc" }}
+          minWidth={620}
+          caption="Configured nginx sites"
+        />
+      </Section>
 
       {showAddModal && (
-        <Modal title="Add a site" onClose={() => setShowAddModal(false)}>
+        <Modal size="md" title="Add a site" icon={Plus} onClose={() => setShowAddModal(false)}>
           <AddSiteForm
             onAdded={() => {
               setShowAddModal(false);
-              refresh();
+              void sites.refresh();
             }}
+            onCancel={() => setShowAddModal(false)}
           />
         </Modal>
       )}
-    </div>
+
+      {showNewProjectModal && (
+        <Modal
+          size="md"
+          title="New Laravel project"
+          icon={FolderPlus}
+          onClose={() => setShowNewProjectModal(false)}
+        >
+          <NewProjectForm
+            onCreated={() => {
+              setShowNewProjectModal(false);
+              void sites.refresh();
+            }}
+            onCancel={() => setShowNewProjectModal(false)}
+          />
+        </Modal>
+      )}
+
+      {phpModalSite && (
+        <PhpVersionModal
+          site={phpModalSite}
+          onClose={() => setPhpModalSite(null)}
+          onSaved={() => {
+            setPhpModalSite(null);
+            void sites.refresh();
+          }}
+        />
+      )}
+
+      {nodeModalSite && (
+        <NodeVersionModal
+          site={nodeModalSite}
+          onClose={() => setNodeModalSite(null)}
+          onWritten={(msg) => {
+            setNodeModalSite(null);
+            setMessage(msg);
+          }}
+        />
+      )}
+    </Stack>
   );
 }

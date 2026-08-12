@@ -1,6 +1,20 @@
-import { FormEvent, useState } from "react";
-import Modal from "../../../components/Modal";
-import Select, { SelectOption } from "../../../components/Select";
+import { useState } from "react";
+import {
+  Button,
+  Callout,
+  Field,
+  Form,
+  FormRow,
+  Modal,
+  ModalFooter,
+  Mono,
+  SelectOption,
+  Select,
+  Stack,
+  Switch,
+  TextInput,
+} from "../../../ui";
+import { CircleCheck, Database, WandSparkles } from "../../../ui/icons";
 import { createDatabase, CreateDatabaseResult, DbKind, suggestPort } from "../api";
 import { generatePassword } from "../utils";
 
@@ -56,7 +70,13 @@ const DEFAULT_USERNAME: Record<DbKind, string> = {
   redis: "",
 };
 
-export default function CreateDatabaseModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+export default function CreateDatabaseModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<DbKind>("mysql");
   const [version, setVersion] = useState(VERSION_OPTIONS.mysql[0].value);
@@ -68,7 +88,6 @@ export default function CreateDatabaseModal({ onClose, onCreated }: { onClose: (
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CreateDatabaseResult | null>(null);
-  const [copied, setCopied] = useState(false);
 
   function handleKindChange(next: string) {
     const nextKind = next as DbKind;
@@ -85,15 +104,13 @@ export default function CreateDatabaseModal({ onClose, onCreated }: { onClose: (
     else setUiPort(String(suggestion));
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     setError(null);
     const portNum = Number(port);
     if (!name.trim() || !portNum) {
-      setError("name and port are required");
+      setError("Name and port are both required.");
       return;
     }
-    const uiPortNum = withUi ? Number(uiPort) || null : null;
     setBusy(true);
     try {
       const created = await createDatabase({
@@ -104,168 +121,209 @@ export default function CreateDatabaseModal({ onClose, onCreated }: { onClose: (
         username: username.trim() || null,
         password: password.trim() || null,
         withUi,
-        uiPort: uiPortNum,
+        uiPort: withUi ? Number(uiPort) || null : null,
       });
       setResult(created);
       onCreated();
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
 
-  async function copyText(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   if (result) {
     return (
-      <Modal title="Database created" onClose={onClose}>
-        <p className="muted">{result.message}</p>
-        {result.username && (
-          <div className="form-field">
-            <label>Username</label>
-            <input readOnly value={result.username} />
-          </div>
-        )}
-        <div className="form-field">
-          <label>Password</label>
-          <div className="form-row">
-            <input readOnly value={result.password} />
-            <button type="button" onClick={() => copyText(result.password)}>
-              {copied ? "Copied!" : "Copy"}
-            </button>
-          </div>
-        </div>
-        <p className="muted">
-          Connect on <code>localhost:{result.db_port}</code>
-          {result.ui_port && (
-            <>
-              {" "}
-              — admin UI at <code>localhost:{result.ui_port}</code>
-            </>
+      <Modal
+        size="sm"
+        title="Database created"
+        icon={CircleCheck}
+        onClose={onClose}
+        footer={
+          <ModalFooter>
+            <Button variant="primary" onClick={onClose}>
+              Done
+            </Button>
+          </ModalFooter>
+        }
+      >
+        <Stack gap={5}>
+          <Callout tone="success">{result.message}</Callout>
+
+          {result.username && (
+            <Field label="Username">
+              <Mono variant="chip" copyable>
+                {result.username}
+              </Mono>
+            </Field>
           )}
-          . This password is saved in DevSuite's compose file — use "Reveal password" later if you lose it.
-        </p>
-        <div className="form-row">
-          <button onClick={onClose}>Done</button>
-        </div>
+
+          <Field label="Password">
+            <Mono variant="chip" copyable>
+              {result.password}
+            </Mono>
+          </Field>
+
+          <Field label="Connect on">
+            <Mono variant="chip" copyable>
+              {`localhost:${result.db_port}`}
+            </Mono>
+          </Field>
+
+          {result.ui_port && (
+            <Field label="Admin UI">
+              <Mono variant="chip" copyable>
+                {`localhost:${result.ui_port}`}
+              </Mono>
+            </Field>
+          )}
+
+          <Callout tone="info">
+            This password is saved in DevsPro's compose file — use{" "}
+            <strong>Reveal password</strong> later if you lose it.
+          </Callout>
+        </Stack>
       </Modal>
     );
   }
 
   return (
-    <Modal title="Create a database" onClose={onClose}>
-      <form onSubmit={handleSubmit}>
-        <div className="form-field">
-          <label>Type</label>
-          <Select value={kind} onChange={handleKindChange} options={KIND_OPTIONS} />
-        </div>
-
-        <div className="form-field">
-          <label>Version</label>
-          <Select value={version} onChange={setVersion} options={VERSION_OPTIONS[kind]} />
-        </div>
-
-        <div className="form-field">
-          <label htmlFor="db-name">Name</label>
-          <input
-            id="db-name"
-            placeholder="e.g. myapp_db"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            autoFocus
-          />
-        </div>
-
-        <div className="form-field">
-          <label htmlFor="db-port">Port</label>
-          <div className="form-row">
-            <input
-              id="db-port"
-              placeholder={String(DEFAULT_PORTS[kind])}
-              value={port}
-              onChange={(e) => setPort(e.target.value)}
-              style={{ maxWidth: "100px" }}
-            />
-            <button type="button" className="secondary" onClick={() => handleSuggestPort("db")}>
-              Suggest port
-            </button>
-          </div>
-        </div>
-
-        {kind !== "redis" && (
-          <div className="form-field">
-            <label htmlFor="db-username">Username</label>
-            <input
-              id="db-username"
-              placeholder={DEFAULT_USERNAME[kind]}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </div>
-        )}
-
-        <div className="form-field">
-          <label htmlFor="db-password">Password</label>
-          <div className="form-row">
-            <input
-              id="db-password"
-              placeholder="leave blank to auto-generate"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <button type="button" className="secondary" onClick={() => setPassword(generatePassword())}>
-              Generate
-            </button>
-          </div>
-        </div>
-
-        <div className="form-field">
-          <label style={{ display: "flex", alignItems: "center", gap: "0.4em" }}>
-            <input
-              type="checkbox"
-              style={{ width: "auto" }}
-              checked={withUi}
-              onChange={(e) => setWithUi(e.target.checked)}
-            />
-            Also start {UI_LABEL[kind]} (admin UI)
-          </label>
-        </div>
-
-        {withUi && (
-          <div className="form-field">
-            <label htmlFor="ui-port">Admin UI port</label>
-            <div className="form-row">
-              <input
-                id="ui-port"
-                placeholder={String(Number(port || DEFAULT_PORTS[kind]) + 1)}
-                value={uiPort}
-                onChange={(e) => setUiPort(e.target.value)}
-                style={{ maxWidth: "100px" }}
+    <Modal
+      size="md"
+      title="Create a database"
+      icon={Database}
+      onClose={onClose}
+      footer={
+        <ModalFooter>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={busy} onClick={handleSubmit}>
+            Create
+          </Button>
+        </ModalFooter>
+      }
+    >
+      <Form onSubmit={handleSubmit}>
+        <Stack gap={5}>
+          <FormRow align="end">
+            <Field label="Type" htmlFor="db-kind">
+              <Select
+                id="db-kind"
+                value={kind}
+                onChange={handleKindChange}
+                options={KIND_OPTIONS}
               />
-              <button type="button" className="secondary" onClick={() => handleSuggestPort("ui")}>
-                Suggest port
-              </button>
-            </div>
-          </div>
-        )}
+            </Field>
+            <Field label="Version" htmlFor="db-version">
+              <Select
+                id="db-version"
+                value={version}
+                onChange={setVersion}
+                options={VERSION_OPTIONS[kind]}
+              />
+            </Field>
+          </FormRow>
 
-        {error && <p className="field-error">{error}</p>}
+          <Field label="Name" htmlFor="db-name" required>
+            <TextInput
+              id="db-name"
+              placeholder="e.g. myapp_db"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              autoFocus
+            />
+          </Field>
 
-        <div className="form-row">
-          <button type="submit" disabled={busy}>
-            {busy ? "Creating…" : "Create"}
-          </button>
-        </div>
-      </form>
+          <Field label="Port" htmlFor="db-port" required>
+            <FormRow>
+              <TextInput
+                id="db-port"
+                mono
+                inputMode="numeric"
+                className="field-input-narrow"
+                placeholder={String(DEFAULT_PORTS[kind])}
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
+              />
+              <Button
+                variant="secondary"
+                icon={WandSparkles}
+                onClick={() => handleSuggestPort("db")}
+              >
+                Suggest
+              </Button>
+            </FormRow>
+          </Field>
+
+          {kind !== "redis" && (
+            <Field label="Username" htmlFor="db-username">
+              <TextInput
+                id="db-username"
+                mono
+                placeholder={DEFAULT_USERNAME[kind]}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </Field>
+          )}
+
+          <Field
+            label="Password"
+            htmlFor="db-password"
+            hint="Leave blank to auto-generate one."
+          >
+            <FormRow>
+              <TextInput
+                id="db-password"
+                mono
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="u-flex-1"
+              />
+              <Button
+                variant="secondary"
+                icon={WandSparkles}
+                onClick={() => setPassword(generatePassword())}
+              >
+                Generate
+              </Button>
+            </FormRow>
+          </Field>
+
+          <Switch
+            checked={withUi}
+            onChange={setWithUi}
+            label={`Also start ${UI_LABEL[kind]}`}
+            description="A browser-based admin UI for this database."
+          />
+
+          {withUi && (
+            <Field label="Admin UI port" htmlFor="ui-port">
+              <FormRow>
+                <TextInput
+                  id="ui-port"
+                  mono
+                  inputMode="numeric"
+                  className="field-input-narrow"
+                  placeholder={String(Number(port || DEFAULT_PORTS[kind]) + 1)}
+                  value={uiPort}
+                  onChange={(e) => setUiPort(e.target.value)}
+                />
+                <Button
+                  variant="secondary"
+                  icon={WandSparkles}
+                  onClick={() => handleSuggestPort("ui")}
+                >
+                  Suggest
+                </Button>
+              </FormRow>
+            </Field>
+          )}
+
+          {error && <Callout tone="danger">{error}</Callout>}
+        </Stack>
+      </Form>
     </Modal>
   );
 }

@@ -1,25 +1,28 @@
-import { useState } from "react";
-import Modal from "../../../components/Modal";
+import { Button, CodeBlock, CopyButton, Modal, ModalFooter } from "../../../ui";
+import { Terminal } from "../../../ui/icons";
 
-export default function CommandModal({ command, onClose }: { command: string; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  }
-
+export default function CommandModal({
+  command,
+  onClose,
+}: {
+  command: string;
+  onClose: () => void;
+}) {
   return (
-    <Modal title="Full command" onClose={onClose}>
-      <pre className="log-viewer">{command}</pre>
-      <div className="form-row">
-        <button onClick={handleCopy}>{copied ? "Copied!" : "Copy"}</button>
-      </div>
+    <Modal
+      size="md"
+      title="Full command"
+      icon={Terminal}
+      onClose={onClose}
+      footer={
+        <ModalFooter start={<CopyButton value={command} label="Copy command" size="md" />}>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </ModalFooter>
+      }
+    >
+      <CodeBlock>{command}</CodeBlock>
     </Modal>
   );
 }

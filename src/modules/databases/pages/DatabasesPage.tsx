@@ -1,12 +1,49 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import StatusPill from "../../../components/StatusPill";
-import Modal from "../../../components/Modal";
+import { open } from "@tauri-apps/plugin-dialog";
 import { useConfirm } from "../../../app/ConfirmContext";
-import CreateDatabaseModal from "../components/CreateDatabaseModal";
-import ManageUsersModal from "../components/ManageUsersModal";
+import { useModule } from "../../../app/ModuleRegistry";
+import BackupResultModal from "../components/BackupResultModal";
 import ChangePasswordModal from "../components/ChangePasswordModal";
-import { Credentials, DevsuiteContainer, getDatabaseCredentials, listDatabases, removeDatabase } from "../api";
+import CreateDatabaseModal from "../components/CreateDatabaseModal";
+import CredentialsModal from "../components/CredentialsModal";
+import ManageUsersModal from "../components/ManageUsersModal";
+import {
+  ActionGroup,
+  Badge,
+  Button,
+  Callout,
+  Column,
+  DataTable,
+  IconButton,
+  Menu,
+  Page,
+  Section,
+  Stack,
+  StatusPill,
+  statusOf,
+  useResource,
+} from "../../../ui";
+import {
+  Database,
+  Download,
+  ExternalLink,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Upload,
+  Users,
+} from "../../../ui/icons";
+import {
+  backupDatabase,
+  Credentials,
+  DevsuiteContainer,
+  getDatabaseCredentials,
+  listDatabases,
+  removeDatabase,
+  restoreDatabase,
+} from "../api";
 import { parsePortMappings } from "../../docker/utils";
 
 interface Group {
@@ -15,7 +52,9 @@ interface Group {
   ui?: DevsuiteContainer;
 }
 
-function inferKind(image: string): "mysql" | "postgres" | "mongo" | "redis" | null {
+type Kind = "mysql" | "postgres" | "mongo" | "redis";
+
+function inferKind(image: string): Kind | null {
   if (image.startsWith("mysql")) return "mysql";
   if (image.startsWith("postgres")) return "postgres";
   if (image.startsWith("mongo")) return "mongo";
@@ -45,28 +84,25 @@ function groupContainers(containers: DevsuiteContainer[]): Group[] {
 
 export default function DatabasesPage() {
   const confirmAction = useConfirm();
-  const [containers, setContainers] = useState<DevsuiteContainer[]>([]);
+  const module = useModule("databases");
+  const databases = useResource(listDatabases);
+
   const [showCreate, setShowCreate] = useState(false);
   const [busyBase, setBusyBase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [credentialsFor, setCredentialsFor] = useState<{ base: string; creds: Credentials; fallbackUsername: string | null } | null>(
+  const [notice, setNotice] = useState<string | null>(null);
+  const [credentialsFor, setCredentialsFor] = useState<{
+    base: string;
+    creds: Credentials;
+    fallbackUsername: string | null;
+  } | null>(null);
+  const [usersFor, setUsersFor] = useState<string | null>(null);
+  const [changingAdminPasswordFor, setChangingAdminPasswordFor] = useState<string | null>(
     null,
   );
-  const [usersFor, setUsersFor] = useState<string | null>(null);
-  const [changingAdminPasswordFor, setChangingAdminPasswordFor] = useState<string | null>(null);
-
-  async function refresh() {
-    setError(null);
-    try {
-      setContainers(await listDatabases());
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  useEffect(() => {
-    refresh();
-  }, []);
+  const [backupResult, setBackupResult] = useState<{ base: string; path: string } | null>(
+    null,
+  );
 
   async function handleReveal(g: Group) {
     setBusyBase(g.base);
@@ -75,7 +111,7 @@ export default function DatabasesPage() {
       const fallbackUsername = g.db ? inferDefaultUsername(g.db.image) : null;
       setCredentialsFor({ base: g.base, creds, fallbackUsername });
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyBase(null);
     }
@@ -90,7 +126,7 @@ export default function DatabasesPage() {
   async function handleOpenUi(g: Group, hostPort: number) {
     const kind = g.db ? inferKind(g.db.image) : null;
     if (!g.db || (kind !== "mysql" && kind !== "postgres")) {
-      openUrl(`http://localhost:${hostPort}`);
+      void openUrl(`http://localhost:${hostPort}`);
       return;
     }
     try {
@@ -98,191 +134,310 @@ export default function DatabasesPage() {
       const username = creds.username ?? inferDefaultUsername(g.db.image) ?? "";
       const driverParam = kind === "postgres" ? "pgsql" : "server";
       const params = new URLSearchParams({ [driverParam]: g.base, username, db: g.base });
-      openUrl(`http://localhost:${hostPort}/?${params.toString()}`);
+      void openUrl(`http://localhost:${hostPort}/?${params.toString()}`);
     } catch {
-      openUrl(`http://localhost:${hostPort}`);
+      void openUrl(`http://localhost:${hostPort}`);
     }
   }
 
   async function handleRemove(base: string, deleteData: boolean) {
     const ok = await confirmAction(
       deleteData
-        ? `Permanently delete "${base}" and its data volume? This cannot be undone.`
-        : `Remove "${base}"? The container(s) are removed but data on disk is kept.`,
-      { confirmLabel: deleteData ? "Delete everything" : "Remove", danger: true },
+        ? `"${base}" and its data volume will be permanently deleted. This cannot be undone.`
+        : `The container(s) for "${base}" are removed, but data on disk is kept.`,
+      {
+        title: deleteData ? "Delete database and its data?" : "Remove database?",
+        confirmLabel: deleteData ? "Delete everything" : "Remove",
+        danger: true,
+      },
     );
     if (!ok) return;
+
     setBusyBase(base);
     setError(null);
     try {
       await removeDatabase(base, deleteData);
-      await refresh();
+      await databases.refresh();
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyBase(null);
     }
   }
 
-  const groups = groupContainers(containers);
+  async function handleBackup(base: string) {
+    setBusyBase(base);
+    setError(null);
+    setNotice(null);
+    try {
+      setBackupResult({ base, path: await backupDatabase(base) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyBase(null);
+    }
+  }
+
+  async function handleRestore(base: string) {
+    const selected = await open({
+      multiple: false,
+      title: `Select a backup file to restore into "${base}"`,
+    });
+    if (!selected || Array.isArray(selected)) return;
+
+    const ok = await confirmAction(
+      `Restoring from ${selected} overwrites the current data in "${base}". This cannot be undone.`,
+      { title: "Restore from backup?", confirmLabel: "Restore", danger: true },
+    );
+    if (!ok) return;
+
+    setBusyBase(base);
+    setError(null);
+    setNotice(null);
+    try {
+      setNotice(await restoreDatabase(base, selected));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyBase(null);
+    }
+  }
+
+  const groups = groupContainers(databases.data ?? []);
+
+  const columns: Column<Group>[] = [
+    {
+      key: "name",
+      header: "Name",
+      priority: 1,
+      sortValue: (g) => g.base,
+      render: (g) => {
+        const kind = g.db ? inferKind(g.db.image) : null;
+        return (
+          <span className="dt-cell-inline">
+            <span className="dt-strong">{g.base}</span>
+            {/* The engine was previously invisible in the table — you had to
+                open a dialog to find out what kind of database a row was. */}
+            {kind && (
+              <Badge tone="neutral" icon={Database}>
+                {kind}
+              </Badge>
+            )}
+          </span>
+        );
+      },
+    },
+    {
+      key: "db",
+      header: "Database",
+      priority: 1,
+      render: (g) =>
+        g.db ? (
+          <span className="dt-cell-inline">
+            <StatusPill
+              variant={g.db.state === "running" ? "ok" : "bad"}
+              label={g.db.state}
+            />
+            {parsePortMappings(g.db.ports).map((m) => (
+              <Badge key={m.hostPort} mono>
+                :{m.hostPort}
+              </Badge>
+            ))}
+          </span>
+        ) : (
+          <span className="u-muted">—</span>
+        ),
+    },
+    {
+      key: "ui",
+      header: "Admin UI",
+      priority: 2,
+      render: (g) =>
+        g.ui ? (
+          <span className="dt-cell-inline">
+            <StatusPill
+              variant={g.ui.state === "running" ? "ok" : "bad"}
+              label={g.ui.state}
+            />
+            {parsePortMappings(g.ui.ports).map((m) => (
+              <Button
+                key={m.hostPort}
+                size="sm"
+                variant="secondary"
+                icon={ExternalLink}
+                onClick={() => handleOpenUi(g, m.hostPort)}
+              >
+                :{m.hostPort}
+              </Button>
+            ))}
+          </span>
+        ) : (
+          <span className="u-muted">none</span>
+        ),
+    },
+    {
+      key: "actions",
+      header: "",
+      priority: 1,
+      align: "end",
+      width: "1px",
+      render: (g) => {
+        const busy = busyBase === g.base;
+        return (
+          <ActionGroup>
+            <IconButton
+              icon={KeyRound}
+              label="Reveal password"
+              disabled={busy}
+              onClick={() => handleReveal(g)}
+            />
+            <IconButton
+              icon={Users}
+              label="Manage users"
+              disabled={busy}
+              onClick={() => setUsersFor(g.base)}
+            />
+            <Menu
+              items={[
+                {
+                  key: "backup",
+                  label: "Back up",
+                  icon: Download,
+                  disabled: busy,
+                  onClick: () => handleBackup(g.base),
+                },
+                {
+                  key: "restore",
+                  label: "Restore from file…",
+                  icon: Upload,
+                  disabled: busy,
+                  onClick: () => handleRestore(g.base),
+                },
+                {
+                  key: "remove",
+                  label: "Remove (keep data)",
+                  icon: Trash2,
+                  separatorBefore: true,
+                  disabled: busy,
+                  onClick: () => handleRemove(g.base, false),
+                },
+                {
+                  key: "delete",
+                  label: "Delete + data",
+                  icon: Trash2,
+                  danger: true,
+                  disabled: busy,
+                  onClick: () => handleRemove(g.base, true),
+                },
+              ]}
+            />
+          </ActionGroup>
+        );
+      },
+    },
+  ];
 
   return (
-    <div>
-      <h1>Databases</h1>
-      <section className="card">
-        <div className="card-header">
-          <h2>DevSuite space</h2>
-          <div className="topbar-spacer" />
-          <button className="secondary" onClick={refresh}>
+    <Page
+      title={module.label}
+      icon={module.icon}
+      status={statusOf(databases)}
+      description={
+        <>
+          Managed in DevsPro's own docker-compose project ("devsuite") — separate from
+          any other compose stacks you run yourself.
+        </>
+      }
+      actions={
+        <>
+          <Button
+            variant="secondary"
+            icon={RefreshCw}
+            loading={databases.refreshing}
+            onClick={databases.refresh}
+          >
             Refresh
-          </button>
-          <button onClick={() => setShowCreate(true)}>+ Create database</button>
-        </div>
+          </Button>
+          <Button variant="primary" icon={Plus} onClick={() => setShowCreate(true)}>
+            Create database
+          </Button>
+        </>
+      }
+    >
+      <Stack gap={5}>
+        {/* Load-bearing: explains why the admin UI still asks for a password
+            after "Open" pre-fills everything else. */}
+        <Callout tone="info">
+          For MySQL/Postgres, <strong>Open</strong> pre-fills the server, username, and
+          database on Adminer's login page — but never the password, since Adminer
+          deliberately never accepts one via URL or env var for security. Use{" "}
+          <strong>Reveal password</strong> to copy it in, once per session. Mongo/Redis's
+          UIs connect automatically with no login form.
+        </Callout>
 
-        <p className="muted">
-          Managed in DevSuite's own docker-compose project ("devsuite") — separate from any other compose stacks
-          you run yourself.
-        </p>
-        <p className="muted">
-          For MySQL/Postgres, "Open" on the admin UI pre-fills the server, username, and database on Adminer's
-          login page — but never the password, since Adminer deliberately never accepts one via URL or env var
-          for security. Use "Reveal password" to copy it in, once per session. Mongo/Redis's UIs connect
-          automatically with no login form.
-        </p>
-
-        {error && <p className="field-error">{error}</p>}
-
-        {groups.length === 0 ? (
-          <p className="empty-state">No databases yet — click "Create database" to get started.</p>
-        ) : (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Database</th>
-                  <th>Admin UI</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {groups.map((g) => {
-                  const busy = busyBase === g.base;
-                  const dbMappings = g.db ? parsePortMappings(g.db.ports) : [];
-                  const uiMappings = g.ui ? parsePortMappings(g.ui.ports) : [];
-                  return (
-                    <tr key={g.base}>
-                      <td>{g.base}</td>
-                      <td>
-                        {g.db ? (
-                          <div className="form-row" style={{ marginTop: 0 }}>
-                            <StatusPill ok={g.db.state === "running"} label={g.db.state} />
-                            {dbMappings.map((m) => (
-                              <button
-                                key={m.hostPort}
-                                className="icon-button secondary"
-                                onClick={() => openUrl(`http://localhost:${m.hostPort}`)}
-                              >
-                                :{m.hostPort}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                      <td>
-                        {g.ui ? (
-                          <div className="form-row" style={{ marginTop: 0 }}>
-                            <StatusPill ok={g.ui.state === "running"} label={g.ui.state} />
-                            {uiMappings.map((m) => (
-                              <button
-                                key={m.hostPort}
-                                className="icon-button secondary"
-                                onClick={() => handleOpenUi(g, m.hostPort)}
-                              >
-                                Open :{m.hostPort}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="muted">none</span>
-                        )}
-                      </td>
-                      <td>
-                        <div className="form-row" style={{ marginTop: 0 }}>
-                          <button className="icon-button secondary" disabled={busy} onClick={() => handleReveal(g)}>
-                            Reveal password
-                          </button>
-                          <button className="icon-button secondary" disabled={busy} onClick={() => setUsersFor(g.base)}>
-                            Manage users
-                          </button>
-                          <button className="icon-button secondary" disabled={busy} onClick={() => handleRemove(g.base, false)}>
-                            Remove
-                          </button>
-                          <button className="icon-button danger" disabled={busy} onClick={() => handleRemove(g.base, true)}>
-                            Delete + data
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        {notice && (
+          <Callout tone="success" onDismiss={() => setNotice(null)}>
+            {notice}
+          </Callout>
         )}
-      </section>
+        {error && (
+          <Callout tone="danger" onDismiss={() => setError(null)}>
+            {error}
+          </Callout>
+        )}
+
+        <Section
+          title="DevsPro space"
+          padding="none"
+          isEmpty={!databases.loading && groups.length === 0}
+          empty={{
+            icon: Database,
+            title: "No databases yet",
+            description:
+              "Create one to get a database container plus an admin UI, managed together.",
+            action: (
+              <Button variant="primary" icon={Plus} onClick={() => setShowCreate(true)}>
+                Create database
+              </Button>
+            ),
+          }}
+        >
+          <DataTable
+            columns={columns}
+            rows={groups}
+            rowKey={(g) => g.base}
+            loading={databases.loading}
+            defaultSort={{ key: "name", dir: "asc" }}
+            caption="Databases managed by DevsPro"
+          />
+        </Section>
+      </Stack>
 
       {showCreate && (
         <CreateDatabaseModal
           onClose={() => setShowCreate(false)}
-          onCreated={refresh}
+          onCreated={databases.refresh}
         />
       )}
 
       {usersFor && <ManageUsersModal base={usersFor} onClose={() => setUsersFor(null)} />}
 
       {credentialsFor && (
-        <Modal title={`Credentials — ${credentialsFor.base}`} onClose={() => setCredentialsFor(null)}>
-          {(() => {
-            const username = credentialsFor.creds.username ?? credentialsFor.fallbackUsername;
-            return (
-              <>
-                <div className="form-field">
-                  <label>Username</label>
-                  <input readOnly value={username ?? "(no username — Redis uses password only)"} />
-                </div>
-                <div className="form-field">
-                  <label>Password</label>
-                  {credentialsFor.creds.password ? (
-                    <div className="form-row">
-                      <input readOnly value={credentialsFor.creds.password} />
-                      <button
-                        onClick={async () => {
-                          try {
-                            await navigator.clipboard.writeText(credentialsFor.creds.password!);
-                          } catch {
-                            // clipboard unavailable — value is still visible to copy manually
-                          }
-                        }}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="empty-state">Could not find a password for this service.</p>
-                  )}
-                </div>
-                <div className="form-row">
-                  <button className="secondary" onClick={() => setChangingAdminPasswordFor(credentialsFor.base)}>
-                    Change password
-                  </button>
-                </div>
-              </>
-            );
-          })()}
-        </Modal>
+        <CredentialsModal
+          base={credentialsFor.base}
+          credentials={credentialsFor.creds}
+          fallbackUsername={credentialsFor.fallbackUsername}
+          onClose={() => setCredentialsFor(null)}
+          onChangePassword={() => setChangingAdminPasswordFor(credentialsFor.base)}
+        />
+      )}
+
+      {backupResult && (
+        <BackupResultModal
+          base={backupResult.base}
+          path={backupResult.path}
+          onClose={() => setBackupResult(null)}
+        />
       )}
 
       {changingAdminPasswordFor && (
@@ -295,6 +450,6 @@ export default function DatabasesPage() {
           }}
         />
       )}
-    </div>
+    </Page>
   );
 }

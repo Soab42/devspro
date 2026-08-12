@@ -1,13 +1,37 @@
-import { FormEvent, useEffect, useState } from "react";
-import Modal from "../../../components/Modal";
+import { useState } from "react";
 import { useConfirm } from "../../../app/ConfirmContext";
+import {
+  ActionGroup,
+  Button,
+  Callout,
+  Column,
+  DataTable,
+  Field,
+  Form,
+  FormRow,
+  IconButton,
+  Modal,
+  ModalFooter,
+  Section,
+  Stack,
+  TextInput,
+  useResource,
+} from "../../../ui";
+import { KeyRound, Trash2, Users, WandSparkles } from "../../../ui/icons";
 import { createDatabaseUser, dropDatabaseUser, listDatabaseUsers } from "../api";
 import { generatePassword } from "../utils";
 import ChangePasswordModal from "./ChangePasswordModal";
 
-export default function ManageUsersModal({ base, onClose }: { base: string; onClose: () => void }) {
+export default function ManageUsersModal({
+  base,
+  onClose,
+}: {
+  base: string;
+  onClose: () => void;
+}) {
   const confirmAction = useConfirm();
-  const [users, setUsers] = useState<string[] | null>(null);
+  const users = useResource(() => listDatabaseUsers(base));
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -16,23 +40,9 @@ export default function ManageUsersModal({ base, onClose }: { base: string; onCl
   const [message, setMessage] = useState<string | null>(null);
   const [changingPasswordFor, setChangingPasswordFor] = useState<string | null>(null);
 
-  async function refresh() {
-    setError(null);
-    try {
-      setUsers(await listDatabaseUsers(base));
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  useEffect(() => {
-    refresh();
-  }, []);
-
-  async function handleCreate(e: FormEvent) {
-    e.preventDefault();
+  async function handleCreate() {
     if (!username.trim() || !password.trim()) {
-      setError("username and password are required");
+      setError("Username and password are both required.");
       return;
     }
     setBusy(true);
@@ -42,88 +52,150 @@ export default function ManageUsersModal({ base, onClose }: { base: string; onCl
       setMessage(await createDatabaseUser(base, username.trim(), password.trim()));
       setUsername("");
       setPassword("");
-      await refresh();
+      await users.refresh();
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
 
   async function handleDrop(user: string) {
-    const ok = await confirmAction(`Remove database user "${user}"? Anything still connecting with it will stop working.`, {
-      confirmLabel: "Remove user",
-      danger: true,
-    });
+    const ok = await confirmAction(
+      `Anything still connecting as "${user}" will stop working.`,
+      { title: "Remove database user?", confirmLabel: "Remove user", danger: true },
+    );
     if (!ok) return;
+
     setBusyUser(user);
     setError(null);
     try {
       setMessage(await dropDatabaseUser(base, user));
-      await refresh();
+      await users.refresh();
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyUser(null);
     }
   }
 
-  return (
-    <Modal title={`Users — ${base}`} onClose={onClose}>
-      {users === null ? (
-        <p className="empty-state">Loading…</p>
-      ) : users.length === 0 ? (
-        <p className="empty-state">No extra users yet — the admin account is managed from "Reveal password".</p>
-      ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {users.map((u) => (
-            <li
-              key={u}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "0.4em 0",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <span>{u}</span>
-              <div className="form-row" style={{ marginTop: 0 }}>
-                <button className="icon-button secondary" onClick={() => setChangingPasswordFor(u)}>
-                  Change password
-                </button>
-                <button className="icon-button danger" disabled={busyUser === u} onClick={() => handleDrop(u)}>
-                  {busyUser === u ? "Removing…" : "Remove"}
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+  const columns: Column<string>[] = [
+    {
+      key: "name",
+      header: "Username",
+      priority: 1,
+      mono: true,
+      sortValue: (u) => u,
+      render: (u) => u,
+    },
+    {
+      key: "actions",
+      header: "",
+      priority: 1,
+      align: "end",
+      width: "1px",
+      render: (u) => (
+        <ActionGroup>
+          <IconButton
+            icon={KeyRound}
+            label="Change password"
+            onClick={() => setChangingPasswordFor(u)}
+          />
+          <IconButton
+            icon={Trash2}
+            label="Remove user"
+            variant="danger"
+            loading={busyUser === u}
+            onClick={() => handleDrop(u)}
+          />
+        </ActionGroup>
+      ),
+    },
+  ];
 
-      <form onSubmit={handleCreate} style={{ marginTop: "1em" }}>
-        <h3 style={{ fontSize: "0.9em", margin: "0 0 0.4em" }}>Add a user</h3>
-        <div className="form-field">
-          <label htmlFor="new-user-name">Username</label>
-          <input id="new-user-name" value={username} onChange={(e) => setUsername(e.target.value)} />
-        </div>
-        <div className="form-field">
-          <label htmlFor="new-user-password">Password</label>
-          <div className="form-row">
-            <input id="new-user-password" value={password} onChange={(e) => setPassword(e.target.value)} />
-            <button type="button" className="secondary" onClick={() => setPassword(generatePassword())}>
-              Generate
-            </button>
-          </div>
-        </div>
-        {error && <p className="field-error">{error}</p>}
-        {message && <p className="muted">{message}</p>}
-        <div className="form-row">
-          <button type="submit" disabled={busy}>
-            {busy ? "Creating…" : "Add user"}
-          </button>
-        </div>
-      </form>
+  return (
+    <Modal
+      size="lg"
+      title={`Users — ${base}`}
+      icon={Users}
+      onClose={onClose}
+      footer={
+        <ModalFooter>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </ModalFooter>
+      }
+    >
+      <Stack gap={5}>
+        {error && (
+          <Callout tone="danger" onDismiss={() => setError(null)}>
+            {error}
+          </Callout>
+        )}
+        {message && (
+          <Callout tone="success" onDismiss={() => setMessage(null)}>
+            {message}
+          </Callout>
+        )}
+
+        <Section title="Existing users" padding="none" headingLevel={3}>
+          <DataTable
+            columns={columns}
+            rows={users.data ?? []}
+            rowKey={(u) => u}
+            loading={users.loading}
+            minWidth={320}
+            caption={`Database users for ${base}`}
+            empty={{
+              icon: Users,
+              title: "No extra users yet",
+              description:
+                'The admin account is managed from "Reveal password" on the database row.',
+            }}
+          />
+        </Section>
+
+        <Section title="Add a user" headingLevel={3}>
+          <Form onSubmit={handleCreate}>
+            <Stack gap={4}>
+              <Field label="Username" htmlFor="new-user-name" required>
+                <TextInput
+                  id="new-user-name"
+                  mono
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </Field>
+
+              <Field label="Password" htmlFor="new-user-password" required>
+                <FormRow>
+                  <TextInput
+                    id="new-user-password"
+                    mono
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="u-flex-1"
+                  />
+                  <Button
+                    variant="secondary"
+                    icon={WandSparkles}
+                    onClick={() => setPassword(generatePassword())}
+                  >
+                    Generate
+                  </Button>
+                </FormRow>
+              </Field>
+
+              <FormRow className="form-actions">
+                <Button type="submit" variant="primary" loading={busy}>
+                  Add user
+                </Button>
+              </FormRow>
+            </Stack>
+          </Form>
+        </Section>
+      </Stack>
 
       {changingPasswordFor && (
         <ChangePasswordModal

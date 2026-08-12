@@ -1,15 +1,32 @@
-import { FormEvent, useState } from "react";
+import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import StatusPill from "../../../components/StatusPill";
-import Select from "../../../components/Select";
+import {
+  Button,
+  Callout,
+  Field,
+  Form,
+  FormRow,
+  Mono,
+  Select,
+  SegmentedControl,
+  Spinner,
+  Stack,
+  StatusPill,
+  TextInput,
+} from "../../../ui";
+import { WandSparkles } from "../../../ui/icons";
 import {
   addLaravelSite,
   addPortSite,
   detectPhpFpm,
   hostnameConflict,
+  listPhpVersions,
+  PhpFpmVersion,
   suggestPort,
   validateLaravelProject,
 } from "../api";
+
+const SYSTEM_DEFAULT = "";
 
 type BackendKind = "port" | "laravel";
 
@@ -25,14 +42,24 @@ function slugForHostname(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export default function AddSiteForm({ onAdded }: { onAdded: () => void }) {
+export default function AddSiteForm({
+  onAdded,
+  onCancel,
+}: {
+  onAdded: () => void;
+  onCancel: () => void;
+}) {
   const [name, setName] = useState("");
   const [hostname, setHostname] = useState("");
   const [kind, setKind] = useState<BackendKind>("port");
   const [port, setPort] = useState("");
   const [projectPath, setProjectPath] = useState("");
-  const [projectStatus, setProjectStatus] = useState<"idle" | "checking" | "ok" | "invalid">("idle");
+  const [projectStatus, setProjectStatus] = useState<
+    "idle" | "checking" | "ok" | "invalid"
+  >("idle");
   const [phpFpmMissing, setPhpFpmMissing] = useState(false);
+  const [phpVersions, setPhpVersions] = useState<PhpFpmVersion[]>([]);
+  const [phpVersion, setPhpVersion] = useState(SYSTEM_DEFAULT);
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,14 +78,20 @@ export default function AddSiteForm({ onAdded }: { onAdded: () => void }) {
     setKind(next);
     setError(null);
     if (next === "laravel") {
-      const detection = await detectPhpFpm();
+      const [detection, versions] = await Promise.all([detectPhpFpm(), listPhpVersions()]);
       setPhpFpmMissing(!detection.found);
+      setPhpVersions(versions);
     }
   }
 
   async function handleBrowseFolder() {
-    const selected = await open({ directory: true, multiple: false, title: "Select your Laravel project folder" });
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: "Select your Laravel project folder",
+    });
     if (!selected || Array.isArray(selected)) return;
+
     setProjectPath(selected);
     setProjectStatus("checking");
 
@@ -72,111 +105,183 @@ export default function AddSiteForm({ onAdded }: { onAdded: () => void }) {
     try {
       await validateLaravelProject(selected);
       setProjectStatus("ok");
+      setError(null);
     } catch (e) {
       setProjectStatus("invalid");
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     setError(null);
     if (!name.trim() || !hostname.trim()) {
-      setError("name and hostname are required");
+      setError("Name and hostname are both required.");
       return;
     }
+
     setBusy(true);
     try {
       if (kind === "port") {
         const portNum = Number(port);
         if (!portNum) {
-          setError("port is required");
+          setError("A port is required.");
           setBusy(false);
           return;
         }
         await addPortSite(name.trim(), hostname.trim(), portNum);
       } else {
         if (!projectPath || projectStatus !== "ok") {
-          setError("choose a valid Laravel project folder first");
+          setError("Choose a valid Laravel project folder first.");
           setBusy(false);
           return;
         }
-        await addLaravelSite(name.trim(), hostname.trim(), projectPath);
+        await addLaravelSite(
+          name.trim(),
+          hostname.trim(),
+          projectPath,
+          phpVersion || null,
+        );
       }
       onAdded();
     } catch (e) {
-      setError(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div className="form-field">
-        <label htmlFor="site-name">Name</label>
-        <input id="site-name" placeholder="My App" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-      </div>
+    <Form onSubmit={handleSubmit}>
+      <Stack gap={5}>
+        <Field label="Name" htmlFor="site-name" required>
+          <TextInput
+            id="site-name"
+            placeholder="My App"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+        </Field>
 
-      <div className="form-field">
-        <label htmlFor="site-hostname">Hostname</label>
-        <input
-          id="site-hostname"
-          placeholder="myapp.test"
-          value={hostname}
-          onChange={(e) => setHostname(e.target.value)}
-          onBlur={handleHostnameBlur}
-        />
-      </div>
+        <Field
+          label="Hostname"
+          htmlFor="site-hostname"
+          required
+          error={
+            conflict
+              ? `${hostname} already resolves to something else in /etc/hosts, outside DevsPro's block.`
+              : undefined
+          }
+        >
+          <TextInput
+            id="site-hostname"
+            mono
+            placeholder="myapp.test"
+            value={hostname}
+            invalid={conflict}
+            onChange={(e) => setHostname(e.target.value)}
+            onBlur={handleHostnameBlur}
+          />
+        </Field>
 
-      <div className="form-field">
-        <label htmlFor="site-kind">Backend</label>
-        <Select
-          id="site-kind"
-          value={kind}
-          onChange={(v) => handleSelectKind(v as BackendKind)}
-          options={[
-            { value: "port", label: "Proxy to a port" },
-            { value: "laravel", label: "Laravel project (auto)" },
-          ]}
-        />
-      </div>
+        {/* Two mutually exclusive modes — a segmented control says that far
+            better than a dropdown of two items. */}
+        <Field label="Backend">
+          <SegmentedControl
+            ariaLabel="Backend type"
+            size="md"
+            value={kind}
+            onChange={handleSelectKind}
+            options={[
+              { value: "port", label: "Proxy to a port" },
+              { value: "laravel", label: "Laravel project" },
+            ]}
+          />
+        </Field>
 
-      {kind === "port" ? (
-        <div className="form-row">
-          <input placeholder="Port" value={port} onChange={(e) => setPort(e.target.value)} style={{ maxWidth: "90px" }} />
-          <button type="button" className="icon-button secondary" onClick={handleSuggestPort}>
-            Suggest port
-          </button>
-        </div>
-      ) : (
-        <div className="form-row">
-          <button type="button" className="icon-button secondary" onClick={handleBrowseFolder}>
-            Choose folder…
-          </button>
-          {projectStatus === "ok" && <StatusPill ok label="Laravel project detected" />}
-          {projectStatus === "invalid" && <StatusPill ok={false} label="not a Laravel project" />}
-        </div>
-      )}
-      {kind === "laravel" && projectPath && <p className="muted">{projectPath}</p>}
+        {kind === "port" ? (
+          <Field label="Port" htmlFor="site-port" required>
+            <FormRow>
+              <TextInput
+                id="site-port"
+                mono
+                inputMode="numeric"
+                className="field-input-narrow"
+                placeholder="3000"
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
+              />
+              <Button
+                variant="secondary"
+                icon={WandSparkles}
+                onClick={handleSuggestPort}
+              >
+                Suggest
+              </Button>
+            </FormRow>
+          </Field>
+        ) : (
+          <Field
+            label="Project folder"
+            required
+            hint={projectPath ? undefined : "Pick the folder containing artisan."}
+          >
+            <Stack gap={3}>
+              <FormRow>
+                <Button variant="secondary" onClick={handleBrowseFolder}>
+                  Choose folder…
+                </Button>
+                {/* Validation state, not a status: spinner while checking, then
+                    a pass/fail pill rather than a green "ok" for both. */}
+                {projectStatus === "checking" && <Spinner label="Checking project" />}
+                {projectStatus === "ok" && (
+                  <StatusPill variant="ok" label="Laravel project" />
+                )}
+                {projectStatus === "invalid" && (
+                  <StatusPill variant="bad" label="not a Laravel project" />
+                )}
+              </FormRow>
+              {projectPath && <Mono truncate>{projectPath}</Mono>}
+            </Stack>
+          </Field>
+        )}
 
-      {kind === "laravel" && phpFpmMissing && (
-        <p className="field-error">
-          PHP-FPM was not found — install it first (e.g. <code>sudo apt install php8.3-fpm</code>).
-        </p>
-      )}
-      {conflict && (
-        <p className="field-error">
-          Warning: {hostname} already resolves to something else in /etc/hosts outside of DevSuite's block.
-        </p>
-      )}
-      {error && <p className="field-error">{error}</p>}
+        {kind === "laravel" && phpVersions.length > 0 && (
+          <Field label="PHP version" htmlFor="site-php-version">
+            <Select
+              id="site-php-version"
+              value={phpVersion}
+              onChange={setPhpVersion}
+              options={[
+                { value: SYSTEM_DEFAULT, label: "System default" },
+                ...phpVersions.map((v) => ({
+                  value: v.version,
+                  label: `PHP ${v.version}`,
+                })),
+              ]}
+            />
+          </Field>
+        )}
 
-      <div className="form-row">
-        <button type="submit" disabled={busy}>
-          {busy ? "Waiting for admin password…" : "Add site"}
-        </button>
-      </div>
-    </form>
+        {kind === "laravel" && phpFpmMissing && (
+          <Callout tone="warning">
+            PHP-FPM was not found — install it first, e.g.{" "}
+            <Mono variant="chip">sudo apt install php8.3-fpm</Mono>.
+          </Callout>
+        )}
+
+        {error && <Callout tone="danger">{error}</Callout>}
+
+        <FormRow className="form-actions">
+          {busy && <span className="u-muted">Waiting for your admin password…</span>}
+          <Button variant="secondary" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" loading={busy}>
+            Add site
+          </Button>
+        </FormRow>
+      </Stack>
+    </Form>
   );
 }

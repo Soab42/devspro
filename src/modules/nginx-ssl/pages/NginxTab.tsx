@@ -1,64 +1,92 @@
-import { useEffect, useState } from "react";
-import StatusPill from "../../../components/StatusPill";
-import { detectNginx, installNginx, NginxDetection } from "../api";
+import { useState } from "react";
+import { Button, Callout, Mono, Section, Stack, StatusPill } from "../../../ui";
+import { Download, RefreshCw, Server } from "../../../ui/icons";
+import type { Resource } from "../../../ui";
+import { installNginx, NginxDetection } from "../api";
 
-export default function NginxTab() {
-  const [nginx, setNginx] = useState<NginxDetection | null>(null);
+export default function NginxTab({ nginx }: { nginx: Resource<NginxDetection> }) {
   const [busy, setBusy] = useState(false);
+  // Success and failure were previously the same `message` string rendered as
+  // the same grey paragraph, so a failed install looked exactly like a
+  // successful one. They are now separate states with distinct tones.
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  async function refresh() {
-    setNginx(await detectNginx());
-  }
-
-  useEffect(() => {
-    refresh();
-  }, []);
+  const detection = nginx.data;
 
   async function handleInstall() {
     setBusy(true);
     setMessage(null);
+    setError(null);
     try {
       setMessage(await installNginx());
-      await refresh();
+      await nginx.refresh();
     } catch (e) {
-      setMessage(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <section className="card">
-      <div className="card-header">
-        <h2>Nginx</h2>
-        {nginx && <StatusPill ok={nginx.found} label={nginx.found ? "detected" : "not found"} />}
-      </div>
-
-      {nginx?.found ? (
-        <p className="muted">
-          {nginx.version} — config at <code>{nginx.config_path ?? "unknown"}</code>
-        </p>
-      ) : (
-        <p className="muted">
-          Not found on this machine.
-          {nginx?.linux_package_manager
-            ? ` Click below to install it via ${nginx.linux_package_manager} (will prompt for your admin password).`
-            : " Install it manually, then recheck — e.g. sudo apt install nginx on Debian/Ubuntu or brew install nginx on macOS."}
-        </p>
-      )}
-
-      <div className="form-row">
-        {!nginx?.found && nginx?.linux_package_manager && (
-          <button onClick={handleInstall} disabled={busy}>
-            {busy ? "Waiting for admin password…" : `Install nginx via ${nginx.linux_package_manager}`}
-          </button>
-        )}
-        <button className="secondary" onClick={refresh}>
+    <Section
+      title="Nginx"
+      icon={Server}
+      meta={
+        detection && (
+          <StatusPill
+            variant={detection.found ? "ok" : "bad"}
+            label={detection.found ? "detected" : "not found"}
+          />
+        )
+      }
+      actions={
+        <Button
+          variant="secondary"
+          icon={RefreshCw}
+          loading={nginx.refreshing}
+          onClick={nginx.refresh}
+        >
           Recheck
-        </button>
-      </div>
-      {message && <p className="muted">{message}</p>}
-    </section>
+        </Button>
+      }
+    >
+      <Stack gap={4}>
+        {detection?.found ? (
+          <p className="u-muted">
+            {detection.version} — config at{" "}
+            <Mono variant="chip" copyable>
+              {detection.config_path ?? "unknown"}
+            </Mono>
+          </p>
+        ) : (
+          <p className="u-muted">
+            Not found on this machine.
+            {detection?.linux_package_manager
+              ? ` Install it via ${detection.linux_package_manager} below — this prompts for your admin password.`
+              : " Install it manually, then recheck — e.g. sudo apt install nginx on Debian/Ubuntu, or brew install nginx on macOS."}
+          </p>
+        )}
+
+        {!detection?.found && detection?.linux_package_manager && (
+          <div>
+            <Button
+              variant="primary"
+              icon={Download}
+              loading={busy}
+              onClick={handleInstall}
+            >
+              {`Install nginx via ${detection.linux_package_manager}`}
+            </Button>
+            {busy && (
+              <p className="u-muted nginx-hint">Waiting for your admin password…</p>
+            )}
+          </div>
+        )}
+
+        {message && <Callout tone="success">{message}</Callout>}
+        {error && <Callout tone="danger">{error}</Callout>}
+      </Stack>
+    </Section>
   );
 }

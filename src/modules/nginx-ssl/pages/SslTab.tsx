@@ -1,27 +1,26 @@
-import { useEffect, useState } from "react";
-import StatusPill from "../../../components/StatusPill";
-import { caEnsure, caInstall, caStatus, CaStatus } from "../api";
+import { useState } from "react";
+import { Button, Callout, Section, Stack, StatusPill } from "../../../ui";
+import { ShieldCheck } from "../../../ui/icons";
+import type { Resource } from "../../../ui";
+import { caEnsure, caInstall, CaStatus } from "../api";
 
-export default function SslTab() {
-  const [ca, setCa] = useState<CaStatus | null>(null);
+export default function SslTab({ ca }: { ca: Resource<CaStatus> }) {
   const [busy, setBusy] = useState(false);
+  // Same fix as NginxTab: distinct success and failure states.
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  async function refresh() {
-    setCa(await caStatus());
-  }
-
-  useEffect(() => {
-    refresh();
-  }, []);
+  const status = ca.data;
 
   async function handleCreate() {
     setBusy(true);
     setMessage(null);
+    setError(null);
     try {
-      setCa(await caEnsure());
+      ca.setData(await caEnsure());
+      setMessage("Local CA created.");
     } catch (e) {
-      setMessage(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -30,44 +29,66 @@ export default function SslTab() {
   async function handleInstall() {
     setBusy(true);
     setMessage(null);
+    setError(null);
     try {
       setMessage(await caInstall());
+      await ca.refresh();
     } catch (e) {
-      setMessage(String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <section className="card">
-      <div className="card-header">
-        <h2>Local trusted CA</h2>
-        {ca && <StatusPill ok={ca.exists} label={ca.exists ? "created" : "not created"} />}
-      </div>
-
-      {ca?.exists ? (
-        <p className="muted">
-          Expires {ca.not_after ?? "unknown"}. Install it into your system and browser trust stores so sites
-          show a valid padlock.
-        </p>
-      ) : (
-        <p className="muted">No local CA yet — created automatically the first time you add a site, or right now.</p>
-      )}
-
-      <div className="form-row">
-        {!ca?.exists && (
-          <button onClick={handleCreate} disabled={busy}>
-            {busy ? "Working…" : "Create local CA"}
-          </button>
+    <Section
+      title="Local trusted CA"
+      icon={ShieldCheck}
+      meta={
+        status && (
+          <StatusPill
+            variant={status.exists ? "ok" : "neutral"}
+            label={status.exists ? "created" : "not created"}
+          />
+        )
+      }
+    >
+      <Stack gap={4}>
+        {status?.exists ? (
+          <p className="u-muted">
+            Expires {status.not_after ?? "unknown"}. Install it into your system and
+            browser trust stores so sites show a valid padlock.
+          </p>
+        ) : (
+          <p className="u-muted">
+            No local CA yet — one is created automatically the first time you add a site,
+            or you can create it now.
+          </p>
         )}
-        {ca?.exists && (
-          <button onClick={handleInstall} disabled={busy}>
-            {busy ? "Waiting for admin password…" : "Install into system trust store"}
-          </button>
-        )}
-      </div>
-      {message && <p className="muted">{message}</p>}
-    </section>
+
+        <div>
+          {status?.exists ? (
+            <Button
+              variant="primary"
+              icon={ShieldCheck}
+              loading={busy}
+              onClick={handleInstall}
+            >
+              Install into system trust store
+            </Button>
+          ) : (
+            <Button variant="primary" loading={busy} onClick={handleCreate}>
+              Create local CA
+            </Button>
+          )}
+          {busy && status?.exists && (
+            <p className="u-muted nginx-hint">Waiting for your admin password…</p>
+          )}
+        </div>
+
+        {message && <Callout tone="success">{message}</Callout>}
+        {error && <Callout tone="danger">{error}</Callout>}
+      </Stack>
+    </Section>
   );
 }

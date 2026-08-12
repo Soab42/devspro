@@ -56,6 +56,10 @@ export const changeAdminPassword = (name: string, newPassword: string) =>
 export const changeUserPassword = (name: string, username: string, newPassword: string) =>
   invoke<string>("databases_change_user_password", { name, username, newPassword });
 
+export const backupDatabase = (name: string) => invoke<string>("databases_backup", { name });
+export const restoreDatabase = (name: string, backupPath: string) =>
+  invoke<string>("databases_restore", { name, backupPath });
+
 // Reused from the nginx/SSL module's generic free-port scanner — same command,
 // no need for a second implementation of "is this port free".
 export const suggestPort = (start: number) => invoke<number | null>("nginx_ssl_suggest_port", { start });

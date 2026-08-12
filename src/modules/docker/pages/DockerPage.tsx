@@ -1,79 +1,106 @@
-import { useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import StatusPill from "../../../components/StatusPill";
 import LogsModal from "../components/LogsModal";
 import PortsModal from "../components/PortsModal";
 import { useConfirm } from "../../../app/ConfirmContext";
-import { Container, detectDocker, DockerDetection, listContainers, restartContainer, startContainer, stopContainer } from "../api";
+import { useModule } from "../../../app/ModuleRegistry";
+import {
+  ActionGroup,
+  Badge,
+  Button,
+  Callout,
+  Column,
+  DataTable,
+  IconButton,
+  Menu,
+  Mono,
+  Page,
+  SearchInput,
+  Section,
+  SegmentedControl,
+  Stack,
+  StatusPill,
+  Toolbar,
+  statusOf,
+  useResource,
+} from "../../../ui";
+import {
+  Container as ContainerIcon,
+  ExternalLink,
+  Network,
+  Play,
+  RefreshCw,
+  RotateCw,
+  ScrollText,
+  SearchX,
+  Square,
+} from "../../../ui/icons";
+import {
+  Container,
+  detectDocker,
+  listContainers,
+  restartContainer,
+  startContainer,
+  stopContainer,
+} from "../api";
+import { dockerBlockedStatus } from "../blocked";
 import { parsePortMappings } from "../utils";
 
 type StateFilter = "all" | "running" | "stopped";
-type SortKey = "name" | "image" | "state" | "status";
 
 export default function DockerPage() {
   const confirmAction = useConfirm();
-  const [detection, setDetection] = useState<DockerDetection | null>(null);
-  const [containers, setContainers] = useState<Container[]>([]);
+  const module = useModule("docker");
+
+  const detection = useResource(detectDocker);
+  const dockerUsable = Boolean(detection.data?.found && detection.data.daemon_reachable);
+  const containers = useResource(listContainers, { enabled: dockerUsable });
+
   const [busyId, setBusyId] = useState<string | null>(null);
   const [logsFor, setLogsFor] = useState<Container | null>(null);
   const [portsFor, setPortsFor] = useState<Container | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /* Action failures are shown inline, NOT through Page's status — routing them
+     there would blank the whole table because one Stop button failed. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState<StateFilter>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
-  async function refresh() {
-    const d = await detectDocker();
-    setDetection(d);
-    if (d.found && d.daemon_reachable) {
-      try {
-        setContainers(await listContainers());
-      } catch (e) {
-        setError(String(e));
-      }
-    }
-  }
+  const refreshAll = useCallback(async () => {
+    await detection.refresh();
+    await containers.refresh();
+  }, [detection.refresh, containers.refresh]);
 
-  useEffect(() => {
-    refresh();
-  }, []);
+  const rows = useMemo(() => containers.data ?? [], [containers.data]);
 
-  async function handleAction(action: (id: string) => Promise<string>, id: string, verb: string, name: string) {
-    const ok = await confirmAction(`${verb} "${name}"?`, { confirmLabel: verb });
+  async function runAction(
+    action: (id: string) => Promise<string>,
+    container: Container,
+    verb: string,
+  ) {
+    const ok = await confirmAction(
+      `This will ${verb.toLowerCase()} the container "${container.name}".`,
+      { title: `${verb} container?`, confirmLabel: verb },
+    );
     if (!ok) return;
-    setBusyId(id);
-    setError(null);
+
+    setBusyId(container.id);
+    setActionError(null);
     try {
-      await action(id);
-      await refresh();
+      await action(container.id);
+      await refreshAll();
     } catch (e) {
-      setError(String(e));
+      setActionError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyId(null);
     }
   }
 
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
-  }
-
-  function sortIndicator(key: SortKey) {
-    if (sortKey !== key) return null;
-    return sortDir === "asc" ? " ▲" : " ▼";
-  }
-
-  const stopped = containers.filter((c) => c.state !== "running");
-  const runningCount = containers.filter((c) => c.state === "running").length;
-  const stoppedCount = containers.length - runningCount;
+  const runningCount = rows.filter((c) => c.state === "running").length;
+  const stoppedCount = rows.length - runningCount;
+  const stopped = rows.filter((c) => c.state !== "running");
 
   const query = search.trim().toLowerCase();
-  const filtered = containers.filter((c) => {
+  const visible = rows.filter((c) => {
     if (stateFilter === "running" && c.state !== "running") return false;
     if (stateFilter === "stopped" && c.state === "running") return false;
     if (!query) return true;
@@ -84,251 +111,256 @@ export default function DockerPage() {
     );
   });
 
-  const visible = [...filtered].sort((a, b) => {
-    const cmp = a[sortKey].localeCompare(b[sortKey]);
-    return sortDir === "asc" ? cmp : -cmp;
-  });
+  const columns: Column<Container>[] = [
+    {
+      key: "name",
+      header: "Name",
+      priority: 1,
+      sortValue: (c) => c.name,
+      render: (c) => <span className="dt-strong">{c.name}</span>,
+    },
+    {
+      key: "state",
+      header: "State",
+      priority: 1,
+      sortValue: (c) => c.state,
+      render: (c) => (
+        <StatusPill variant={c.state === "running" ? "ok" : "bad"} label={c.state} />
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      priority: 2,
+      sortValue: (c) => c.status,
+      render: (c) => <span className="u-muted">{c.status}</span>,
+    },
+    {
+      key: "ports",
+      header: "Ports",
+      priority: 2,
+      mono: true,
+      render: (c) => (c.ports ? <Mono truncate>{c.ports}</Mono> : <span className="u-muted">—</span>),
+    },
+    {
+      key: "image",
+      header: "Image",
+      priority: 3,
+      mono: true,
+      sortValue: (c) => c.image,
+      render: (c) => <Mono truncate>{c.image}</Mono>,
+    },
+    {
+      key: "actions",
+      header: "",
+      priority: 1,
+      align: "end",
+      width: "1px",
+      render: (c) => {
+        const running = c.state === "running";
+        const busy = busyId === c.id;
+        const mappings = running ? parsePortMappings(c.ports) : [];
 
-  if (!detection?.found) {
-    return (
-      <div>
-        <h1>Docker</h1>
-        <section className="card">
-          <div className="card-header">
-            <h2>Docker</h2>
-            <StatusPill ok={false} label="not found" />
-          </div>
-          <p className="muted">
-            Docker isn't installed on this machine. Install it from{" "}
-            <a href="https://docs.docker.com/engine/install/" target="_blank" rel="noreferrer">
-              docs.docker.com
-            </a>{" "}
-            and recheck.
-          </p>
-          <button className="secondary" onClick={refresh}>
-            Recheck
-          </button>
-        </section>
-      </div>
-    );
-  }
+        return (
+          <ActionGroup>
+            {running ? (
+              <IconButton
+                icon={Square}
+                label="Stop"
+                loading={busy}
+                onClick={() => runAction(stopContainer, c, "Stop")}
+              />
+            ) : (
+              <IconButton
+                icon={Play}
+                label="Start"
+                loading={busy}
+                onClick={() => runAction(startContainer, c, "Start")}
+              />
+            )}
+            <IconButton
+              icon={RotateCw}
+              label="Restart"
+              disabled={busy}
+              onClick={() => runAction(restartContainer, c, "Restart")}
+            />
+            {/* Six inline buttons per row made the action column wider than the
+                data; only the lifecycle verbs stay inline now. */}
+            <Menu
+              items={[
+                {
+                  key: "logs",
+                  label: "View logs",
+                  icon: ScrollText,
+                  onClick: () => setLogsFor(c),
+                },
+                {
+                  key: "ports",
+                  label: "Manage ports",
+                  icon: Network,
+                  onClick: () => setPortsFor(c),
+                },
+                ...mappings.map((m) => ({
+                  key: `open-${m.hostPort}`,
+                  label: `Open :${m.hostPort}`,
+                  icon: ExternalLink,
+                  onClick: () => void openUrl(`http://localhost:${m.hostPort}`),
+                  separatorBefore: m === mappings[0],
+                })),
+              ]}
+            />
+          </ActionGroup>
+        );
+      },
+    },
+  ];
 
-  if (!detection.daemon_reachable) {
-    return (
-      <div>
-        <h1>Docker</h1>
-        <section className="card">
-          <div className="card-header">
-            <h2>Docker</h2>
-            <StatusPill ok={false} label="daemon unreachable" />
-          </div>
-          <p className="muted">{detection.error ?? "Could not reach the Docker daemon."}</p>
-          <p className="muted">
-            If this mentions permission denied, make sure your user is in the <code>docker</code> group (
-            <code>sudo usermod -aG docker $USER</code>, then log out and back in) — this app never runs Docker
-            commands elevated.
-          </p>
-          <button className="secondary" onClick={refresh}>
-            Recheck
-          </button>
-        </section>
-      </div>
-    );
-  }
+  const attentionColumns: Column<Container>[] = [
+    { key: "name", header: "Name", priority: 1, render: (c) => c.name },
+    {
+      key: "state",
+      header: "State",
+      priority: 1,
+      render: (c) => <StatusPill variant="bad" label={c.state} />,
+    },
+    {
+      key: "status",
+      header: "Status",
+      priority: 2,
+      render: (c) => <span className="u-muted">{c.status}</span>,
+    },
+    {
+      key: "actions",
+      header: "",
+      priority: 1,
+      align: "end",
+      width: "1px",
+      render: (c) => (
+        <ActionGroup>
+          <Button
+            size="sm"
+            variant="primary"
+            icon={Play}
+            loading={busyId === c.id}
+            onClick={() => runAction(startContainer, c, "Start")}
+          >
+            Start
+          </Button>
+        </ActionGroup>
+      ),
+    },
+  ];
 
   return (
-    <div>
-      <h1>Docker</h1>
+    <Page
+      title={module.label}
+      icon={module.icon}
+      status={statusOf(detection, dockerBlockedStatus(detection.data, refreshAll))}
+      meta={detection.data?.version && <Badge mono>{detection.data.version}</Badge>}
+      actions={
+        <Button
+          variant="secondary"
+          icon={RefreshCw}
+          loading={containers.refreshing}
+          onClick={refreshAll}
+        >
+          Refresh
+        </Button>
+      }
+    >
+      <Stack gap={5}>
+        {actionError && (
+          <Callout tone="danger" onDismiss={() => setActionError(null)}>
+            {actionError}
+          </Callout>
+        )}
 
-      {stopped.length > 0 && (
-        <section className="card">
-          <div className="card-header">
-            <h2>Needs attention</h2>
-            <StatusPill ok={false} label={`${stopped.length} not running`} />
-          </div>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>State</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {stopped.map((c) => (
-                  <tr key={c.id}>
-                    <td>{c.name}</td>
-                    <td>
-                      <StatusPill ok={false} label={c.state} />
-                    </td>
-                    <td className="wrap">{c.status}</td>
-                    <td>
-                      <button
-                        className="icon-button"
-                        disabled={busyId === c.id}
-                        onClick={() => handleAction(startContainer, c.id, "Start", c.name)}
+        {stopped.length > 0 && (
+          <Section
+            title="Needs attention"
+            meta={<StatusPill variant="warn" label={`${stopped.length} not running`} />}
+            padding="none"
+          >
+            <DataTable
+              columns={attentionColumns}
+              rows={stopped}
+              rowKey={(c) => c.id}
+              caption="Containers that are not running"
+            />
+          </Section>
+        )}
+
+        <Section
+          title="Containers"
+          padding="none"
+          toolbar={
+            rows.length > 0 && (
+              <Toolbar
+                end={
+                  <SegmentedControl
+                    ariaLabel="Filter by state"
+                    value={stateFilter}
+                    onChange={setStateFilter}
+                    options={[
+                      { value: "all", label: "All", count: rows.length },
+                      { value: "running", label: "Running", count: runningCount },
+                      { value: "stopped", label: "Stopped", count: stoppedCount },
+                    ]}
+                  />
+                }
+              >
+                <SearchInput
+                  value={search}
+                  onChange={setSearch}
+                  placeholder="Search name, image, or status"
+                />
+              </Toolbar>
+            )
+          }
+        >
+          <DataTable
+            columns={columns}
+            rows={visible}
+            rowKey={(c) => c.id}
+            loading={containers.loading}
+            defaultSort={{ key: "name", dir: "asc" }}
+            caption="Docker containers"
+            empty={
+              rows.length === 0
+                ? {
+                    icon: ContainerIcon,
+                    title: "No containers",
+                    description: "Nothing is running or stopped on this daemon yet.",
+                  }
+                : {
+                    icon: SearchX,
+                    title: "No matches",
+                    description: "No containers match the current search and filter.",
+                    action: (
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setSearch("");
+                          setStateFilter("all");
+                        }}
                       >
-                        {busyId === c.id ? "Starting…" : "Start"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      <section className="card">
-        <div className="card-header">
-          <h2>Containers</h2>
-          <StatusPill ok label={`${detection.version ?? ""}`} />
-          <div className="topbar-spacer" />
-          <button className="secondary" onClick={refresh}>
-            Refresh
-          </button>
-        </div>
-
-        {error && <p className="field-error">{error}</p>}
-
-        {containers.length > 0 && (
-          <>
-            <div className="form-row">
-              <button
-                type="button"
-                className={stateFilter === "all" ? "icon-button" : "icon-button secondary"}
-                onClick={() => setStateFilter("all")}
-              >
-                All ({containers.length})
-              </button>
-              <button
-                type="button"
-                className={stateFilter === "running" ? "icon-button" : "icon-button secondary"}
-                onClick={() => setStateFilter("running")}
-              >
-                Running ({runningCount})
-              </button>
-              <button
-                type="button"
-                className={stateFilter === "stopped" ? "icon-button" : "icon-button secondary"}
-                onClick={() => setStateFilter("stopped")}
-              >
-                Stopped ({stoppedCount})
-              </button>
-            </div>
-
-            <div className="form-row">
-              <input
-                placeholder="Search by name, image, or status"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-          </>
-        )}
-
-        {containers.length === 0 ? (
-          <p className="empty-state">No containers found.</p>
-        ) : visible.length === 0 ? (
-          <p className="empty-state">No containers match the current filter.</p>
-        ) : (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th className="sortable" onClick={() => toggleSort("name")}>
-                    Name{sortIndicator("name")}
-                  </th>
-                  <th className="sortable" onClick={() => toggleSort("image")}>
-                    Image{sortIndicator("image")}
-                  </th>
-                  <th className="sortable" onClick={() => toggleSort("state")}>
-                    State{sortIndicator("state")}
-                  </th>
-                  <th className="sortable" onClick={() => toggleSort("status")}>
-                    Status{sortIndicator("status")}
-                  </th>
-                  <th>Ports</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((c) => {
-                  const running = c.state === "running";
-                  const busy = busyId === c.id;
-                  const mappings = parsePortMappings(c.ports);
-                  return (
-                    <tr key={c.id}>
-                      <td>{c.name}</td>
-                      <td className="wrap">{c.image}</td>
-                      <td>
-                        <StatusPill ok={running} label={c.state} />
-                      </td>
-                      <td className="wrap">{c.status}</td>
-                      <td className="wrap">{c.ports || "—"}</td>
-                      <td>
-                        <div className="form-row" style={{ marginTop: 0 }}>
-                          {running &&
-                            mappings.map((m) => (
-                              <button
-                                key={`${m.containerPort}/${m.proto}`}
-                                className="icon-button secondary"
-                                onClick={() => openUrl(`http://localhost:${m.hostPort}`)}
-                              >
-                                Open :{m.hostPort}
-                              </button>
-                            ))}
-                          {running ? (
-                            <button
-                              className="icon-button secondary"
-                              disabled={busy}
-                              onClick={() => handleAction(stopContainer, c.id, "Stop", c.name)}
-                            >
-                              {busy ? "Stopping…" : "Stop"}
-                            </button>
-                          ) : (
-                            <button
-                              className="icon-button"
-                              disabled={busy}
-                              onClick={() => handleAction(startContainer, c.id, "Start", c.name)}
-                            >
-                              {busy ? "Starting…" : "Start"}
-                            </button>
-                          )}
-                          <button
-                            className="icon-button secondary"
-                            disabled={busy}
-                            onClick={() => handleAction(restartContainer, c.id, "Restart", c.name)}
-                          >
-                            Restart
-                          </button>
-                          <button className="icon-button secondary" onClick={() => setLogsFor(c)}>
-                            Logs
-                          </button>
-                          <button className="icon-button secondary" onClick={() => setPortsFor(c)}>
-                            Ports
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+                        Clear filters
+                      </Button>
+                    ),
+                  }
+            }
+          />
+        </Section>
+      </Stack>
 
       {logsFor && <LogsModal container={logsFor} onClose={() => setLogsFor(null)} />}
       {portsFor && (
         <PortsModal
           container={portsFor}
           onClose={() => setPortsFor(null)}
-          onChanged={refresh}
+          onChanged={refreshAll}
         />
       )}
-    </div>
+    </Page>
   );
 }

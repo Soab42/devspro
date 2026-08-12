@@ -1,0 +1,20 @@
+/* The log output should fill the window rather than sitting in a short box with
+   the rest of the page empty beneath it. Every ancestor in the chain needs
+   min-height: 0, or the flex child refuses to shrink and overflows instead. */
+.logs-stack {
+  height: 100%;
+  min-height: 0;
+}
+
+.logs-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  color: var(--color-text-muted);
+}
+
+.logs-output {
+  flex: 1;
+  min-height: 0;
+}
