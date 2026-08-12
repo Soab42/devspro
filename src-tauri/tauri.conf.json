@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "devsuite",
+  "productName": "DevsPro",
   "version": "0.1.0",
   "identifier": "com.soab.devsuite",
   "build": {
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "devsuite",
-        "width": 800,
-        "height": 600
+        "title": "DevsPro",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 640,
+        "minHeight": 480
       }
     ],
     "security": {
@@ -23,13 +25,36 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "rpm"],
+    "publisher": "soab42",
+    "copyright": "Copyright (c) 2026 soab42",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
+    "homepage": "https://github.com/Soab42/devspro",
+    "category": "DeveloperTool",
+    "shortDescription": "Local development environment manager.",
+    "longDescription": "DevsPro manages a local development environment from one window: nginx sites with locally-trusted HTTPS, Docker containers, databases, background workers, a mail catcher, log tails, and listening ports.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "externalBin": ["binaries/ldm-helper"],
+    "linux": {
+      "deb": {
+        "depends": ["pkexec | policykit-1"],
+        "files": {
+          "/usr/share/polkit-1/actions/com.soab.devsuite.policy": "policy/com.soab.devsuite.policy"
+        }
+      },
+      "rpm": {
+        "depends": ["polkit"],
+        "files": {
+          "/usr/share/polkit-1/actions/com.soab.devsuite.policy": "policy/com.soab.devsuite.policy"
+        }
+      }
+    }
   }
 }
