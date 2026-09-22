@@ -4,6 +4,12 @@
 //! `nginx_ssl::sites::nginx_ssl_add_site` rather than re-implementing any of
 //! it here. This module only owns what's specific to "create the project
 //! files in the first place."
+//!
+//! `wizard` builds on this: the same skeleton step, followed by site, hosts,
+//! database, `.env` and artisan steps, each reported individually.
+
+pub mod env_patch;
+pub mod wizard;
 
 use super::nginx_ssl::{laravel, sites};
 use sites::Site;
@@ -11,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, State};
 
-fn valid_project_name(name: &str) -> bool {
+pub(crate) fn valid_project_name(name: &str) -> bool {
     if name.is_empty() || name.len() > 100 {
         return false;
     }
@@ -21,7 +27,7 @@ fn valid_project_name(name: &str) -> bool {
     ok_chars && !name.starts_with('-') && !name.starts_with('_')
 }
 
-fn which(bin: &str) -> bool {
+pub(crate) fn which(bin: &str) -> bool {
     Command::new("which")
         .arg(bin)
         .output()
@@ -29,28 +35,24 @@ fn which(bin: &str) -> bool {
         .unwrap_or(false)
 }
 
-#[tauri::command]
-pub fn scaffold_create_laravel_project(
-    app: AppHandle,
-    db: State<crate::db::Db>,
-    parent_dir: String,
-    project_name: String,
-    hostname: String,
-) -> Result<Site, String> {
-    let project_name = project_name.trim().to_string();
-    if !valid_project_name(&project_name) {
+/// Runs `composer create-project laravel/laravel` into `<parent_dir>/<project_name>`
+/// and returns that path. Pure "make the files exist" — no site registration —
+/// so both the one-shot command and the wizard can share it.
+pub fn create_laravel_skeleton(parent_dir: &str, project_name: &str) -> Result<PathBuf, String> {
+    let project_name = project_name.trim();
+    if !valid_project_name(project_name) {
         return Err(
             "project name must be 1-100 characters of letters, numbers, - or _, and can't start with - or _"
                 .to_string(),
         );
     }
 
-    let parent = Path::new(&parent_dir);
+    let parent = Path::new(parent_dir);
     if !parent.is_dir() {
         return Err(format!("{parent_dir} is not a directory"));
     }
 
-    let target: PathBuf = parent.join(&project_name);
+    let target: PathBuf = parent.join(project_name);
     if target.exists() {
         return Err(format!(
             "{} already exists — choose a different project name or parent folder",
@@ -99,6 +101,19 @@ pub fn scaffold_create_laravel_project(
             target.display()
         ));
     }
+    Ok(target)
+}
+
+#[tauri::command]
+pub fn scaffold_create_laravel_project(
+    app: AppHandle,
+    db: State<crate::db::Db>,
+    parent_dir: String,
+    project_name: String,
+    hostname: String,
+) -> Result<Site, String> {
+    let project_name = project_name.trim().to_string();
+    let target = create_laravel_skeleton(&parent_dir, &project_name)?;
 
     // Delegate the entire registration step — the project directory already
     // exists on disk at this point, so a failure here (e.g. hostname taken)

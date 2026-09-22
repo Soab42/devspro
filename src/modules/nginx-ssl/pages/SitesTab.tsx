@@ -420,7 +420,7 @@ export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
       {showNewProjectModal && (
         <Modal
           size="md"
-          title="New Laravel project"
+          title="New project"
           icon={FolderPlus}
           onClose={() => setShowNewProjectModal(false)}
         >

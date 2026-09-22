@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { WizardPlan, WizardStepReport } from "./utils";
 
 export interface NginxDetection {
   found: boolean;
@@ -127,6 +128,14 @@ export const writeNvmrc = (projectPath: string, version: string) =>
 
 export const scaffoldCreateLaravelProject = (parentDir: string, projectName: string, hostname: string) =>
   invoke<Site>("scaffold_create_laravel_project", { parentDir, projectName, hostname });
+
+/**
+ * Runs the whole New Project set-up in one call. Returns per-step results:
+ * the backend stops at the first failure but reports the steps that already
+ * completed, so the UI can show which ones do not need redoing.
+ */
+export const scaffoldWizardRun = (plan: WizardPlan) =>
+  invoke<WizardStepReport[]>("scaffold_wizard_run", { plan });
 
 export interface TunnelDetection {
   found: boolean;
