@@ -23,7 +23,12 @@ pub struct Db(pub Mutex<Connection>);
 /// would reintroduce the same shifting problem the moment a second module added
 /// one.
 fn later_migrations() -> Vec<&'static str> {
-    vec![crate::modules::nginx_ssl::sites::MIGRATION_SITE_LIMITS]
+    vec![
+        crate::modules::nginx_ssl::sites::MIGRATION_SITE_LIMITS,
+        crate::modules::scheduled::MIGRATION_SCHEDULED_TASKS,
+        crate::modules::ssh::hosts::MIGRATION_SSH_HOSTS,
+        crate::modules::http_client::MIGRATION_HTTP_REQUESTS,
+    ]
 }
 
 fn all_migrations() -> Vec<&'static str> {
@@ -45,7 +50,7 @@ pub fn open(app_data_dir: &Path) -> rusqlite::Result<Connection> {
     Ok(conn)
 }
 
-fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
     let current_version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let current_version = current_version as usize;
 

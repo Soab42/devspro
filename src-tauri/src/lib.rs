@@ -5,15 +5,21 @@ mod modules;
 mod tray;
 
 use modules::apps;
+use modules::backup;
 use modules::databases;
 use modules::docker;
 use modules::env_diff;
+use modules::hosts_file;
+use modules::http_client;
 use modules::logs;
 use modules::mailcatcher;
 use modules::nginx_ssl::{ca, laravel, nginx, php_fpm, ports, sites};
 use modules::processes;
+use modules::redis;
 use modules::scaffold;
+use modules::scheduled;
 use modules::settings;
+use modules::ssh;
 use modules::system;
 use modules::tunnel;
 use modules::workers;
@@ -43,6 +49,7 @@ pub fn run() {
             app.manage(system::SystemState::default());
             app.manage(tunnel::TunnelState::default());
             app.manage(workers::WorkersState::default());
+            app.manage(ssh::SshState::default());
 
             tray::setup(app.handle())?;
 
@@ -66,6 +73,9 @@ pub fn run() {
             elevate_ping,
             settings::settings_get,
             settings::settings_set,
+            backup::backup_export,
+            backup::backup_inspect,
+            backup::backup_import,
             tray::autostart_set_enabled,
             tray::autostart_is_enabled,
             auth::auth_has_profile,
@@ -94,6 +104,7 @@ pub fn run() {
             sites::nginx_ssl_reissue_site_cert,
             sites::nginx_ssl_remove_site,
             scaffold::scaffold_create_laravel_project,
+            scaffold::wizard::scaffold_wizard_run,
             docker::docker_detect,
             docker::docker_list_containers,
             docker::docker_start,
@@ -110,6 +121,16 @@ pub fn run() {
             docker::docker_write_compose,
             env_diff::env_diff_read_file,
             env_diff::env_diff_write_file,
+            hosts_file::hosts_file_read,
+            hosts_file::hosts_file_add,
+            hosts_file::hosts_file_remove,
+            hosts_file::hosts_file_update,
+            hosts_file::hosts_file_missing_sites,
+            http_client::http_send,
+            http_client::http_history_list,
+            http_client::http_history_save,
+            http_client::http_history_delete,
+            http_client::http_history_clear,
             logs::logs_list_sources,
             logs::logs_tail,
             mailcatcher::mailcatcher_detect_docker,
@@ -119,6 +140,13 @@ pub fn run() {
             mailcatcher::mailcatcher_remove,
             processes::processes_list_ports,
             processes::processes_kill,
+            redis::redis_ping,
+            redis::redis_scan,
+            redis::redis_get,
+            redis::redis_delete,
+            redis::redis_flush_db,
+            redis::redis_laravel_queues,
+            redis::redis_peek_job,
             apps::apps_list,
             apps::apps_install_batch,
             apps::apps_list_nvm_versions,
@@ -134,6 +162,12 @@ pub fn run() {
             databases::databases_change_user_password,
             databases::databases_backup,
             databases::databases_restore,
+            databases::databases_create_database,
+            databases::browse::databases_list_databases,
+            databases::browse::databases_list_tables,
+            databases::browse::databases_table_rows,
+            databases::browse::databases_query,
+            databases::browse::databases_dump,
             system::system_info_snapshot,
             tunnel::tunnel_detect,
             tunnel::tunnel_start,
@@ -147,6 +181,33 @@ pub fn run() {
             workers::workers_stop,
             workers::workers_restart,
             workers::workers_logs,
+            ssh::hosts::ssh_hosts_list,
+            ssh::hosts::ssh_hosts_save,
+            ssh::hosts::ssh_hosts_delete,
+            ssh::keys::ssh_keys_list,
+            ssh::keys::ssh_keys_generate,
+            ssh::keys::ssh_keys_delete,
+            ssh::keys::ssh_keys_install_on_host,
+            ssh::pty::pty_open,
+            ssh::pty::pty_write,
+            ssh::pty::pty_resize,
+            ssh::pty::pty_close,
+            ssh::sftp::sftp_connect,
+            ssh::sftp::sftp_trust_host,
+            ssh::sftp::sftp_disconnect,
+            ssh::sftp::sftp_home,
+            ssh::sftp::sftp_list,
+            ssh::sftp::sftp_mkdir,
+            ssh::sftp::sftp_rename,
+            ssh::sftp::sftp_delete,
+            ssh::sftp::sftp_download,
+            ssh::sftp::sftp_upload,
+            scheduled::scheduled_list,
+            scheduled::scheduled_save,
+            scheduled::scheduled_delete,
+            scheduled::scheduled_set_enabled,
+            scheduled::scheduled_run_now,
+            scheduled::scheduled_logs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -156,6 +217,7 @@ pub fn run() {
             // URL alive) after DevsPro itself has quit.
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 tunnel::kill_all(app_handle.state::<tunnel::TunnelState>());
+                ssh::pty::kill_all(&app_handle.state::<ssh::SshState>());
             }
         });
 }

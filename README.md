@@ -8,15 +8,21 @@ React + Rust.
 | Module | |
 | --- | --- |
 | **Dashboard** | Live CPU, memory, GPU, storage and network, with a health summary |
-| **Nginx & SSL** | Add sites (proxy-to-port or Laravel), each with a locally-trusted HTTPS certificate from a CA it manages for you. Optional public Cloudflare tunnel per site |
+| **Nginx & SSL** | Add sites (proxy-to-port or Laravel), each with a locally-trusted HTTPS certificate from a CA it manages for you. Optional public Cloudflare tunnel per site. A New Project wizard scaffolds Laravel, adds the site, creates a database, writes `.env` and runs migrations in one go, reporting each step |
 | **Docker** | Containers: start, stop, restart, logs, and remap published ports |
-| **Databases** | MySQL / PostgreSQL / MongoDB / Redis in DevsPro's own compose project, each with an admin UI, plus users, backup and restore |
+| **Databases** | MySQL / PostgreSQL / MongoDB / Redis in DevsPro's own compose project, each with an admin UI, plus users, backup and restore; a browser for MySQL/Postgres (tables, paginated rows, read-only SQL console, dump/restore to file) |
 | **Mail Catcher** | Mailpit in a container, so outgoing mail from local apps lands somewhere you can read it |
 | **Workers** | Any shell command kept running in the background — a Laravel queue worker, say |
+| **Scheduled tasks** | Recurring commands (`php artisan schedule:run` every minute, say) written to your crontab inside a block DevsPro manages, with each run's output |
+| **Redis** | Browse keys by pattern with typed values, and watch Laravel queues (pending / delayed / reserved) with a peek at the next job's payload — native or Docker, over RESP directly |
 | **Processes** | What is listening on which port, and stop it |
 | **Logs** | Tail nginx access/error and Laravel logs per site |
 | **Apps** | Install common dev tooling: nginx, Docker, PHP, Node/nvm, cloudflared… |
+| **SSH** | Saved hosts, an in-app terminal (local or ssh), an SFTP file browser, and key generation / install on host |
 | **Env Diff** | Compare two `.env` files by variable — missing, new and changed values, wherever they sit in the file — and copy them across |
+| **Settings** | Theme, autostart and tray behaviour, plus Backup & restore: export sites, workers, preferences and the root CA as one JSON file and import them on another machine |
+| **Hosts file** | Edit `/etc/hosts` entry by entry, with DevsPro-written lines told apart from system ones, and one-click entries for nginx sites that are missing theirs |
+| **HTTP client** | Send a request (any method, headers, body) to any URL and read the status, headers and body back; local HTTPS sites are trusted via the app's own root CA, and every request is kept in a history to rerun |
 
 ## Install
 

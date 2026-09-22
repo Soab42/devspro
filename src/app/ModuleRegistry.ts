@@ -4,13 +4,19 @@ import DashboardPage from "../modules/dashboard/pages/DashboardPage";
 import DatabasesPage from "../modules/databases/pages/DatabasesPage";
 import DockerPage from "../modules/docker/pages/DockerPage";
 import EnvDiffPage from "../modules/env-diff/pages/EnvDiffPage";
+import HostsPage from "../modules/hosts/pages/HostsPage";
+import HttpPage from "../modules/http/pages/HttpPage";
 import LogsPage from "../modules/logs/pages/LogsPage";
 import MailCatcherPage from "../modules/mailcatcher/pages/MailCatcherPage";
 import NginxSslDashboard from "../modules/nginx-ssl/pages/Dashboard";
 import ProcessesPage from "../modules/processes/pages/ProcessesPage";
 import SettingsPage from "../modules/settings/SettingsPage";
+import SshPage from "../modules/ssh/pages/SshPage";
+import RedisPage from "../modules/redis/pages/RedisPage";
+import ScheduledPage from "../modules/scheduled/pages/ScheduledPage";
 import WorkersPage from "../modules/workers/pages/WorkersPage";
 import {
+  BookUser,
   Container,
   Database,
   FileDiff,
@@ -20,8 +26,12 @@ import {
   Network,
   Package,
   ScrollText,
+  Send,
   Settings,
+  SquareTerminal,
   Workflow,
+  CalendarClock,
+  DatabaseZap,
 } from "../ui/icons";
 import type { LucideIcon } from "../ui/icons";
 
@@ -107,6 +117,22 @@ export const modules: ModuleDefinition[] = [
     Component: WorkersPage,
   },
   {
+    id: "scheduled",
+    label: "Scheduled tasks",
+    icon: CalendarClock,
+    group: "services",
+    path: "/scheduled",
+    Component: ScheduledPage,
+  },
+  {
+    id: "redis",
+    label: "Redis",
+    icon: DatabaseZap,
+    group: "services",
+    path: "/redis",
+    Component: RedisPage,
+  },
+  {
     id: "processes",
     label: "Processes",
     icon: Network,
@@ -123,6 +149,14 @@ export const modules: ModuleDefinition[] = [
     Component: LogsPage,
   },
   {
+    id: "http",
+    label: "HTTP client",
+    icon: Send,
+    group: "monitoring",
+    path: "/http",
+    Component: HttpPage,
+  },
+  {
     id: "apps",
     label: "Apps",
     icon: Package,
@@ -137,6 +171,22 @@ export const modules: ModuleDefinition[] = [
     group: "system",
     path: "/env-diff",
     Component: EnvDiffPage,
+  },
+  {
+    id: "hosts",
+    label: "Hosts file",
+    icon: BookUser,
+    group: "system",
+    path: "/hosts",
+    Component: HostsPage,
+  },
+  {
+    id: "ssh",
+    label: "SSH",
+    icon: SquareTerminal,
+    group: "system",
+    path: "/ssh",
+    Component: SshPage,
   },
   {
     id: "settings",

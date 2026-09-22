@@ -31,10 +31,22 @@ export {
   Package, // Apps
   Network, // Processes
   Workflow, // Workers
+  CalendarClock, // Scheduled tasks
+  DatabaseZap, // Redis module
+  Boxes, // Redis: the Keys tab
+  Send, // HTTP client
   Settings, // Settings
+
+  /* ---- ssh ---- */
+  SquareTerminal, // SSH module
+  Folder, // SFTP directory entry
+  File, // SFTP file entry
+  ArrowUp, // SFTP: go to the parent directory
+  Unplug, // disconnect an SFTP session
 
   /* ---- env diff ---- */
   FileDiff, // Env Diff module
+  BookUser, // Hosts file module
   ArrowRight, // copy a variable to the right-hand file
   ArrowLeft, // copy a variable to the left-hand file
 
@@ -64,6 +76,8 @@ export {
   ChevronDown, // sort descending, and the Select caret
   ChevronsUpDown, // sortable but unsorted
   ChevronRight, // disclosure
+  ChevronLeft, // previous page (database browser)
+  Table2, // a database table (database browser)
   Ellipsis, // overflow menu
   Menu, // sidebar drawer toggle
   PanelLeftClose,
