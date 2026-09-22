@@ -15,6 +15,7 @@ import {
 } from "../../ui";
 import { Monitor, Server, ShieldCheck } from "../../ui/icons";
 import { autostartIsEnabled, autostartSetEnabled, getSetting, setSetting } from "./api";
+import BackupRestoreSection from "./components/BackupRestoreSection";
 
 export default function SettingsPage() {
   const module = useModule("settings");
@@ -130,6 +131,8 @@ export default function SettingsPage() {
             )}
           </Stack>
         </Section>
+
+        <BackupRestoreSection />
 
         <Section title="About">
           <Stack gap={4}>

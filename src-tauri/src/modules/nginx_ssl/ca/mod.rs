@@ -118,8 +118,25 @@ pub(super) fn root_cert_file(certs_dir: &Path) -> PathBuf {
     root_cert_path(certs_dir)
 }
 
+/// The files that make up the root CA on disk. Exposed for the backup module,
+/// which moves the CA between machines and must not know the filenames itself —
+/// if they ever change here, the backup follows without a second edit.
+pub struct RootCaFiles {
+    pub cert: PathBuf,
+    pub key: PathBuf,
+    pub expiry: PathBuf,
+}
+
+pub fn root_ca_files(certs_dir: &Path) -> RootCaFiles {
+    RootCaFiles {
+        cert: root_cert_path(certs_dir),
+        key: root_key_path(certs_dir),
+        expiry: root_expiry_path(certs_dir),
+    }
+}
+
 #[cfg(unix)]
-fn write_private(path: &Path, contents: &str) -> Result<(), String> {
+pub(crate) fn write_private(path: &Path, contents: &str) -> Result<(), String> {
     use std::os::unix::fs::OpenOptionsExt;
     let mut file = fs::OpenOptions::new()
         .write(true)
@@ -134,7 +151,7 @@ fn write_private(path: &Path, contents: &str) -> Result<(), String> {
 }
 
 #[cfg(not(unix))]
-fn write_private(path: &Path, contents: &str) -> Result<(), String> {
+pub(crate) fn write_private(path: &Path, contents: &str) -> Result<(), String> {
     fs::write(path, contents).map_err(|e| format!("failed to write {path:?}: {e}"))
 }
 
