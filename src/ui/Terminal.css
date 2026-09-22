@@ -1,0 +1,64 @@
+/* Full-height layout for a terminal page. Every ancestor between the scroll
+   container and the terminal needs min-height: 0, or the flex child refuses to
+   shrink and the panel overflows the window instead of scrolling inside xterm.
+   Same technique as the Logs page, kept here because the terminal is the only
+   thing that needs it. */
+.term-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+}
+
+.term-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.term-toolbar-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+.term-panel {
+  flex: 1;
+  min-height: 24rem;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  /* Room for the cursor's outline and the scrollbar without clipping. */
+  padding: var(--space-3) 0 var(--space-3) var(--space-3);
+}
+
+.term-host {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.term-hidden {
+  display: none;
+}
+
+/* xterm sizes its own canvas; these make the host and the viewport agree. */
+.term-host .xterm {
+  height: 100%;
+}
+
+.term-host .xterm .xterm-viewport {
+  scrollbar-width: thin;
+}
+
+.term-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

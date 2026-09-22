@@ -56,6 +56,8 @@ export interface DataTableProps<T> {
   empty?: EmptyStateProps;
   rowClassName?: (row: T) => string | undefined;
   onRowClick?: (row: T) => void;
+  /** Open/drill-in gesture, e.g. entering a directory in a file browser. */
+  onRowDoubleClick?: (row: T) => void;
   stickyHeader?: boolean;
   density?: "compact" | "normal";
   /** Screen-reader caption describing the table. */
@@ -77,6 +79,7 @@ export function DataTable<T>({
   empty,
   rowClassName,
   onRowClick,
+  onRowDoubleClick,
   stickyHeader = true,
   density = "normal",
   caption,
@@ -191,6 +194,7 @@ export function DataTable<T>({
                   .filter(Boolean)
                   .join(" ")}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onDoubleClick={onRowDoubleClick ? () => onRowDoubleClick(row) : undefined}
               >
                 {columns.map((column) => (
                   <td key={column.key} className={cellClasses(column, "dt-td")}>
