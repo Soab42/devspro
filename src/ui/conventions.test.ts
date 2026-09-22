@@ -150,7 +150,9 @@ describe("styling discipline", () => {
       (f) => f.path,
     );
     expect(moduleStyles.sort()).toEqual([
+      "modules/browser/pages/BrowserPage.css",
       "modules/dashboard/pages/DashboardPage.css",
+      "modules/file-manager/pages/FileManagerPage.css",
       "modules/logs/pages/LogsPage.css",
     ]);
   });

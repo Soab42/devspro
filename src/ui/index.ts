@@ -48,6 +48,9 @@ export type { MonoProps, CodeBlockProps, CopyButtonProps } from "./Mono";
 export { Stack, EmptyState, Toolbar } from "./Layout";
 export type { StackProps, EmptyStateProps, ToolbarProps } from "./Layout";
 
+export { SplitView, SideList } from "./SplitView";
+export type { SplitViewProps, SideListProps, SideListItem } from "./SplitView";
+
 export { Card } from "./Card";
 export type { CardProps, CardPadding } from "./Card";
 

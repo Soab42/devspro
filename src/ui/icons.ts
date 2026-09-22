@@ -44,6 +44,24 @@ export {
   ArrowUp, // SFTP: go to the parent directory
   Unplug, // disconnect an SFTP session
 
+  /* ---- file manager ---- */
+  Files, // File Manager module
+  House, // place: home
+  Image, // place: pictures
+  Music, // place: music
+  Film, // place: videos
+  FilePlus, // new empty file
+  LayoutGrid, // icon view
+  List, // list view
+  SquareArrowOutUpRight, // open with the default app
+
+  /* ---- browser ---- */
+  AppWindow, // Browser module
+  Compass, // Safari-style skin
+  Flame, // Firefox-style skin
+  ZoomIn,
+  ZoomOut,
+
   /* ---- env diff ---- */
   FileDiff, // Env Diff module
   BookUser, // Hosts file module
