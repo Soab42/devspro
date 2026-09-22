@@ -20,6 +20,12 @@ pub enum Operation {
     /// arbitrary.
     WriteFile { path: String, contents: String },
     RemoveFile { path: String },
+    /// Full overwrite of exactly `/etc/hosts` — the destination is fixed inside
+    /// the helper, so it deliberately sits outside the `allowed_write_prefix`
+    /// gate rather than widening that prefix to `/etc`. The helper writes
+    /// atomically and refuses contents with no `localhost` line, so a bug in the
+    /// caller cannot leave the machine without its loopback name.
+    WriteHostsFile { contents: String },
     /// Ensures a marker-delimited block exists verbatim inside `file_path` — inserts
     /// it if the markers aren't present, replaces the block's contents if they are.
     /// Used for both the one `include` line in nginx.conf and the whole set of

@@ -13,6 +13,7 @@ enum Operation {
     Ping,
     WriteFile { path: String, contents: String },
     RemoveFile { path: String },
+    WriteHostsFile { contents: String },
     SyncMarkedBlock {
         file_path: String,
         marker_begin: String,
@@ -88,6 +89,43 @@ fn write_file_checked(allowed_prefix: &str, path: &str, contents: &str) -> OpRes
         Err(e) => OpResult {
             success: false,
             message: format!("failed to write {path}: {e}"),
+        },
+    }
+}
+
+const HOSTS_FILE: &str = "/etc/hosts";
+
+/// Replaces /etc/hosts wholesale. The path is fixed here rather than taken from
+/// the manifest, and the write is atomic (temp file + rename, mode preserved) so
+/// a crash mid-write cannot leave a truncated hosts file. Contents without a
+/// `localhost` line are refused: nothing legitimate the app does removes it,
+/// and losing it breaks far more than the app.
+fn write_hosts_file(contents: &str) -> OpResult {
+    let path = Path::new(HOSTS_FILE);
+    if !path.is_file() {
+        return OpResult {
+            success: false,
+            message: format!("{HOSTS_FILE} does not exist — refusing to create it"),
+        };
+    }
+    let has_localhost = contents
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or(""))
+        .any(|l| l.split_whitespace().skip(1).any(|h| h.eq_ignore_ascii_case("localhost")));
+    if !has_localhost {
+        return OpResult {
+            success: false,
+            message: "new hosts contents have no localhost entry — refusing to write".to_string(),
+        };
+    }
+    match atomic_write(path, contents) {
+        Ok(()) => OpResult {
+            success: true,
+            message: format!("wrote {HOSTS_FILE}"),
+        },
+        Err(e) => OpResult {
+            success: false,
+            message: format!("failed to write {HOSTS_FILE}: {e}"),
         },
     }
 }
@@ -458,6 +496,7 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
         },
         Operation::WriteFile { path, contents } => write_file_checked(allowed_prefix, &path, &contents),
         Operation::RemoveFile { path } => remove_file_checked(allowed_prefix, &path),
+        Operation::WriteHostsFile { contents } => write_hosts_file(&contents),
         Operation::SyncMarkedBlock {
             file_path,
             marker_begin,
