@@ -2,6 +2,7 @@ pub mod apps;
 pub mod compose;
 pub mod databases;
 pub mod docker;
+pub mod env_diff;
 pub mod logs;
 pub mod mailcatcher;
 pub mod nginx_ssl;

@@ -3,6 +3,7 @@ import AppsPage from "../modules/apps/pages/AppsPage";
 import DashboardPage from "../modules/dashboard/pages/DashboardPage";
 import DatabasesPage from "../modules/databases/pages/DatabasesPage";
 import DockerPage from "../modules/docker/pages/DockerPage";
+import EnvDiffPage from "../modules/env-diff/pages/EnvDiffPage";
 import LogsPage from "../modules/logs/pages/LogsPage";
 import MailCatcherPage from "../modules/mailcatcher/pages/MailCatcherPage";
 import NginxSslDashboard from "../modules/nginx-ssl/pages/Dashboard";
@@ -12,6 +13,7 @@ import WorkersPage from "../modules/workers/pages/WorkersPage";
 import {
   Container,
   Database,
+  FileDiff,
   Globe,
   LayoutDashboard,
   Mail,
@@ -127,6 +129,14 @@ export const modules: ModuleDefinition[] = [
     group: "system",
     path: "/apps",
     Component: AppsPage,
+  },
+  {
+    id: "env-diff",
+    label: "Env Diff",
+    icon: FileDiff,
+    group: "system",
+    path: "/env-diff",
+    Component: EnvDiffPage,
   },
   {
     id: "settings",

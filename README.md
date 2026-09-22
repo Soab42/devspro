@@ -16,6 +16,7 @@ React + Rust.
 | **Processes** | What is listening on which port, and stop it |
 | **Logs** | Tail nginx access/error and Laravel logs per site |
 | **Apps** | Install common dev tooling: nginx, Docker, PHP, Node/nvm, cloudflared… |
+| **Env Diff** | Compare two `.env` files by variable — missing, new and changed values, wherever they sit in the file — and copy them across |
 
 ## Install
 

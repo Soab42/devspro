@@ -7,6 +7,7 @@ mod tray;
 use modules::apps;
 use modules::databases;
 use modules::docker;
+use modules::env_diff;
 use modules::logs;
 use modules::mailcatcher;
 use modules::nginx_ssl::{ca, laravel, nginx, php_fpm, ports, sites};
@@ -88,7 +89,9 @@ pub fn run() {
             sites::nginx_ssl_add_site,
             sites::nginx_ssl_set_site_enabled,
             sites::nginx_ssl_set_site_php_version,
+            sites::nginx_ssl_set_site_limits,
             sites::nginx_ssl_fix_laravel_permissions,
+            sites::nginx_ssl_reissue_site_cert,
             sites::nginx_ssl_remove_site,
             scaffold::scaffold_create_laravel_project,
             docker::docker_detect,
@@ -98,6 +101,15 @@ pub fn run() {
             docker::docker_restart,
             docker::docker_logs,
             docker::docker_change_port,
+            docker::docker_bulk_action,
+            docker::docker_compose_project_action,
+            docker::docker_compose_up_file,
+            docker::docker_compose_validate,
+            docker::docker_read_container_compose,
+            docker::docker_read_project_compose,
+            docker::docker_write_compose,
+            env_diff::env_diff_read_file,
+            env_diff::env_diff_write_file,
             logs::logs_list_sources,
             logs::logs_tail,
             mailcatcher::mailcatcher_detect_docker,
