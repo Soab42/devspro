@@ -9,6 +9,7 @@
 //! which is the common case and why this module has no `elevate` involvement.
 
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use std::process::Command;
 
 #[derive(Debug, Serialize)]
@@ -19,21 +20,13 @@ pub struct DockerDetection {
     pub error: Option<String>,
 }
 
+/// Two subprocess spawns down to one: the `which docker` probe is gone, because
+/// spawning `docker` already answers the same question. `Err(NotFound)` from
+/// `output()` *is* "the binary isn't on PATH", and every other spawn error is
+/// something the caller needs to see rather than have reported as a missing
+/// Docker. This runs on every page open and used to run again after every
+/// container action, so the saved spawn is not free.
 pub fn detect() -> DockerDetection {
-    let binary_found = Command::new("which")
-        .arg("docker")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !binary_found {
-        return DockerDetection {
-            found: false,
-            daemon_reachable: false,
-            version: None,
-            error: None,
-        };
-    }
-
     match Command::new("docker")
         .args(["version", "--format", "{{.Server.Version}}"])
         .output()
@@ -44,11 +37,18 @@ pub fn detect() -> DockerDetection {
             version: Some(String::from_utf8_lossy(&out.stdout).trim().to_string()),
             error: None,
         },
+        // Ran, but refused: docker is installed and the daemon is not answering.
         Ok(out) => DockerDetection {
             found: true,
             daemon_reachable: false,
             version: None,
             error: Some(String::from_utf8_lossy(&out.stderr).trim().to_string()),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => DockerDetection {
+            found: false,
+            daemon_reachable: false,
+            version: None,
+            error: None,
         },
         Err(e) => DockerDetection {
             found: true,
@@ -73,6 +73,8 @@ struct RawContainer {
     status: String,
     #[serde(rename = "Ports")]
     ports: String,
+    #[serde(rename = "Labels", default)]
+    labels: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -83,6 +85,26 @@ pub struct Container {
     pub state: String,
     pub status: String,
     pub ports: String,
+    /// The `com.docker.compose.project` label, i.e. the stack this container
+    /// belongs to. `None` for a plain `docker run` container, which the UI groups
+    /// under "Standalone" rather than hiding.
+    pub compose_project: Option<String>,
+    pub compose_service: Option<String>,
+}
+
+/// `docker ps` renders labels as one flat `k=v,k=v` string, so this is a split
+/// rather than real parsing. Fine for the two compose labels read here — both are
+/// identifiers that cannot contain a comma. Deliberately NOT used for
+/// `com.docker.compose.project.config_files`, which holds paths and *is*
+/// comma-separated when a stack has several files; that one is read per-project
+/// via `docker inspect` (see `project_compose_file`) where it arrives unambiguous.
+fn label(labels: &str, key: &str) -> Option<String> {
+    labels
+        .split(',')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(k, _)| k.trim() == key)
+        .map(|(_, v)| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 pub fn list_containers() -> Result<Vec<Container>, String> {
@@ -108,6 +130,8 @@ pub fn list_containers() -> Result<Vec<Container>, String> {
                 state: raw.state,
                 status: raw.status,
                 ports: raw.ports,
+                compose_project: label(&raw.labels, "com.docker.compose.project"),
+                compose_service: label(&raw.labels, "com.docker.compose.service"),
             })
         })
         .collect()
@@ -148,6 +172,51 @@ pub fn docker_stop(id: String) -> Result<String, String> {
 #[tauri::command]
 pub fn docker_restart(id: String) -> Result<String, String> {
     run_action("restart", &id)
+}
+
+/// One container's outcome within a bulk run. Bulk actions return this per id
+/// instead of a `Result` for the batch: stopping nine of ten containers is a
+/// materially different outcome from stopping none, and the caller has to be able
+/// to say which one failed.
+#[derive(Debug, Serialize)]
+pub struct ActionOutcome {
+    pub id: String,
+    pub success: bool,
+    pub message: String,
+}
+
+/// Applies a lifecycle verb to many containers.
+///
+/// Sequential, not parallel. `docker stop` is mostly a 10-second wait on SIGTERM,
+/// so fanning out would genuinely be faster — but the daemon serialises much of
+/// this anyway, and a predictable order makes a partial failure legible ("these
+/// three succeeded, then this one failed") rather than interleaved noise.
+fn bulk(action: &str, ids: &[String]) -> Vec<ActionOutcome> {
+    ids.iter()
+        .map(|id| match run_action(action, id) {
+            Ok(message) => ActionOutcome {
+                id: id.clone(),
+                success: true,
+                message,
+            },
+            Err(message) => ActionOutcome {
+                id: id.clone(),
+                success: false,
+                message,
+            },
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn docker_bulk_action(action: String, ids: Vec<String>) -> Result<Vec<ActionOutcome>, String> {
+    // The verb reaches the `docker` argv, so it is checked against a fixed list
+    // rather than passed through — the frontend is not the right place for that
+    // guarantee to live.
+    if !matches!(action.as_str(), "start" | "stop" | "restart") {
+        return Err(format!("unsupported bulk action: {action}"));
+    }
+    Ok(bulk(&action, &ids))
 }
 
 struct ComposeInfo {
@@ -286,9 +355,323 @@ pub fn docker_change_port(id: String, container_port: u16, new_host_port: u16) -
     change_port(&id, container_port, new_host_port)
 }
 
+/// Locates the compose file backing a running stack, by asking any one of its
+/// containers where it came from. Compose records this on every container it
+/// creates, so there is no need for this app to keep its own registry of stacks —
+/// the source of truth is the daemon, and it stays correct even when the stack was
+/// started from a terminal.
+///
+/// The catch: a stack with **no** containers left (a `down` was run) has nothing
+/// to inspect and so disappears from this lookup entirely. That is why
+/// `docker_compose_up_file` takes an explicit path — it is how a stack gets
+/// started again once it is no longer represented on the daemon.
+fn project_compose_file(project: &str) -> Result<String, String> {
+    let output = Command::new("docker")
+        .args([
+            "ps",
+            "-a",
+            "--filter",
+            &format!("label=com.docker.compose.project={project}"),
+            "--format",
+            "{{.ID}}",
+        ])
+        .output()
+        .map_err(|e| format!("failed to run docker: {e}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let ids = String::from_utf8_lossy(&output.stdout);
+    let id = ids
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .ok_or_else(|| format!("no containers left for stack '{project}' — use \"Load compose file\" to start it again"))?;
+
+    Ok(compose_info(id)?.compose_file)
+}
+
+/// Runs a compose subcommand against a file, from that file's own directory.
+///
+/// The working directory matters: relative `build:`, `env_file:` and bind-mount
+/// paths inside a compose file resolve against it, and this app's cwd is wherever
+/// the desktop launcher happened to start it. Without this, a stack that works
+/// perfectly from a terminal fails here with a confusing missing-path error.
+fn run_compose(compose_file: &str, project: Option<&str>, args: &[&str]) -> Result<String, String> {
+    let dir = std::path::Path::new(compose_file)
+        .parent()
+        .ok_or_else(|| format!("could not determine the directory of {compose_file}"))?
+        .to_path_buf();
+
+    let mut full: Vec<&str> = Vec::new();
+    if let Some(project) = project {
+        full.extend(["-p", project]);
+    }
+    full.extend(["-f", compose_file]);
+    full.extend(args);
+
+    let output = super::compose::build(&full)?
+        .current_dir(&dir)
+        .output()
+        .map_err(|e| format!("failed to run docker compose: {e}"))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    // Compose reports its progress ("Container x  Started") on stderr even when it
+    // succeeds, so that — not stdout — is what's worth showing back.
+    let report = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Ok(if report.is_empty() {
+        "done".to_string()
+    } else {
+        report
+    })
+}
+
+/// Lifecycle verbs for a whole stack.
+///
+/// `up` is the interesting one, and the answer to "update from there": it
+/// re-reads the compose file and recreates only the services whose definition
+/// actually changed. Editing the file and hitting Update is therefore the way to
+/// apply a change, where `restart` would just bounce the containers with their
+/// old definition still in force.
+#[tauri::command]
+pub fn docker_compose_project_action(project: String, action: String) -> Result<String, String> {
+    let compose_file = project_compose_file(&project)?;
+    // Same reasoning as `docker_bulk_action`: the verb lands in argv, so the
+    // allowed set is fixed here rather than trusted from the caller.
+    let args: &[&str] = match action.as_str() {
+        "up" => &["up", "-d", "--remove-orphans"],
+        "start" => &["start"],
+        "stop" => &["stop"],
+        "restart" => &["restart"],
+        "pull" => &["pull"],
+        // Containers and the default network go; named volumes deliberately do
+        // not. `down -v` would delete database data, which is not something a
+        // menu item should be able to do without a far louder confirmation than
+        // this app currently shows.
+        "down" => &["down", "--remove-orphans"],
+        other => return Err(format!("unsupported compose action: {other}")),
+    };
+    run_compose(&compose_file, Some(&project), args)
+}
+
+/// Brings up a stack from a compose file the user picked, including one that has
+/// no containers on the daemon yet — the entry point for a stack this app has
+/// never seen. Compose derives the project name from the containing directory,
+/// exactly as it would from a terminal, so a stack loaded here and one started by
+/// hand are the same stack rather than two competing copies.
+#[tauri::command]
+pub fn docker_compose_up_file(path: String) -> Result<String, String> {
+    let file = std::path::Path::new(&path);
+    if !file.is_file() {
+        return Err(format!("{path} is not a file"));
+    }
+    run_compose(&path, None, &["up", "-d", "--remove-orphans"])
+}
+
+/// The compose file behind a container or a stack, with its text, ready to edit.
+///
+/// `service` is `Some` only when the source was a single container: both entry
+/// points open the *same whole file*, and the service name is what narrows the
+/// apply afterwards to `up -d <service>` instead of the whole stack.
+#[derive(Debug, Serialize)]
+pub struct ComposeSource {
+    pub path: String,
+    pub contents: String,
+    pub project: Option<String>,
+    pub service: Option<String>,
+}
+
+fn read_compose_source(
+    compose_file: String,
+    project: Option<String>,
+    service: Option<String>,
+) -> Result<ComposeSource, String> {
+    let contents = std::fs::read_to_string(&compose_file)
+        .map_err(|e| format!("could not read {compose_file}: {e}"))?;
+    Ok(ComposeSource {
+        path: compose_file,
+        contents,
+        project,
+        service,
+    })
+}
+
+#[tauri::command]
+pub fn docker_read_container_compose(id: String) -> Result<ComposeSource, String> {
+    let info = compose_info(&id)?;
+    // Read the project off the container rather than deriving it from the
+    // directory: a stack started with `-p` has a name the directory doesn't
+    // predict, and applying under the wrong one would create a second copy of
+    // every container instead of updating these.
+    let project = inspect_label(&id, "com.docker.compose.project")?;
+    read_compose_source(info.compose_file, project, Some(info.service))
+}
+
+#[tauri::command]
+pub fn docker_read_project_compose(project: String) -> Result<ComposeSource, String> {
+    let compose_file = project_compose_file(&project)?;
+    read_compose_source(compose_file, Some(project), None)
+}
+
+fn inspect_label(id: &str, label: &str) -> Result<Option<String>, String> {
+    let output = Command::new("docker")
+        .args([
+            "inspect",
+            id,
+            "--format",
+            &format!("{{{{index .Config.Labels \"{label}\"}}}}"),
+        ])
+        .output()
+        .map_err(|e| format!("failed to inspect container: {e}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(if value.is_empty() || value == "<no value>" {
+        None
+    } else {
+        Some(value)
+    })
+}
+
+/// Validates *proposed* contents by parsing them where they would actually live.
+///
+/// The check has to run from the real file's own directory, and under the real
+/// file's name, or it reports failures the saved file wouldn't have: relative
+/// `build:` / `env_file:` / bind-mount paths resolve against the compose file's
+/// directory, and a `.env` beside it is picked up automatically. So the candidate
+/// goes into a sibling temp file rather than `/tmp`.
+///
+/// Validating before writing (not after) is the point: a rejected edit leaves the
+/// user's working compose file exactly as it was.
+fn validate_contents(compose_file: &Path, contents: &str) -> Result<(), String> {
+    let dir = compose_file
+        .parent()
+        .ok_or_else(|| format!("could not determine the directory of {}", compose_file.display()))?;
+    // Dot-prefixed and pid-suffixed: compose globs no such name, and two windows
+    // saving at once don't collide.
+    let probe = dir.join(format!(".devspro-compose-check-{}.yml", std::process::id()));
+    std::fs::write(&probe, contents)
+        .map_err(|e| format!("could not write a temporary file next to the compose file: {e}"))?;
+
+    let probe_arg = probe.to_string_lossy().to_string();
+    let result = super::compose::build(&["-f", &probe_arg, "config", "--quiet"])
+        .and_then(|mut cmd| {
+            cmd.current_dir(dir)
+                .output()
+                .map_err(|e| format!("failed to run docker compose: {e}"))
+        });
+    // Before the `?`, always — a probe left behind would show up in the user's
+    // repo, and on the failure path is exactly when it would be forgotten.
+    let _ = std::fs::remove_file(&probe);
+
+    let output = result?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Compose names the probe file in its errors; the user never saw that name.
+    Err(stderr.trim().replace(&probe_arg, &compose_file.to_string_lossy()))
+}
+
+/// Writes edited compose contents and applies them.
+///
+/// `service: Some(..)` recreates just that one service; `None` brings the whole
+/// stack up. Either way it is `up -d`, which re-reads the file and recreates only
+/// what changed — `restart` would bounce the containers with their old definition
+/// still in force.
+#[tauri::command]
+pub fn docker_write_compose(
+    path: String,
+    contents: String,
+    project: Option<String>,
+    service: Option<String>,
+) -> Result<String, String> {
+    let file = Path::new(&path);
+    if !file.is_file() {
+        return Err(format!("{path} is not a file"));
+    }
+    validate_contents(file, &contents)?;
+    std::fs::write(file, &contents).map_err(|e| format!("could not write {path}: {e}"))?;
+
+    let mut args = vec!["up", "-d"];
+    match &service {
+        // No `--remove-orphans` here: scoped to one service, compose would treat
+        // every *other* service in the stack as an orphan and remove it.
+        Some(service) => args.push(service),
+        None => args.push("--remove-orphans"),
+    }
+    let report = run_compose(&path, project.as_deref(), &args).map_err(|e| {
+        format!("saved {path}, but applying it failed: {e}\n\nThe file is valid; the containers are unchanged.")
+    })?;
+
+    Ok(match &service {
+        Some(service) => format!("Saved {path} and recreated {service}.\n{report}"),
+        None => format!("Saved {path} and applied it to the stack.\n{report}"),
+    })
+}
+
+/// Validates a compose file without changing anything — `config` parses it,
+/// resolves variables, and fails on anything malformed. Used to catch a bad file
+/// before the user is left reading a half-finished `up`.
+#[tauri::command]
+pub fn docker_compose_validate(path: String) -> Result<String, String> {
+    let file = std::path::Path::new(&path);
+    if !file.is_file() {
+        return Err(format!("{path} is not a file"));
+    }
+    let dir = file.parent().unwrap_or(std::path::Path::new("."));
+    let output = super::compose::build(&["-f", &path, "config", "--quiet"])?
+        .current_dir(dir)
+        .output()
+        .map_err(|e| format!("failed to run docker compose: {e}"))?;
+    if output.status.success() {
+        Ok("compose file is valid".to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const COMPOSE_LABELS: &str = "com.docker.compose.config-hash=abc123,\
+com.docker.compose.project=databases,com.docker.compose.service=redis,\
+com.docker.compose.version=1.29.2";
+
+    #[test]
+    fn label_reads_compose_project_and_service() {
+        assert_eq!(
+            label(COMPOSE_LABELS, "com.docker.compose.project"),
+            Some("databases".to_string())
+        );
+        assert_eq!(
+            label(COMPOSE_LABELS, "com.docker.compose.service"),
+            Some("redis".to_string())
+        );
+    }
+
+    #[test]
+    fn label_does_not_prefix_match() {
+        // "com.docker.compose.project" must not pick up the value of
+        // "com.docker.compose.project.config_files", which is a different label
+        // that happens to start with the same text.
+        let labels = "com.docker.compose.project.config_files=/a.yml,com.docker.compose.project=stack";
+        assert_eq!(
+            label(labels, "com.docker.compose.project"),
+            Some("stack".to_string())
+        );
+    }
+
+    #[test]
+    fn label_returns_none_for_plain_containers() {
+        assert_eq!(label("", "com.docker.compose.project"), None);
+        assert_eq!(label("maintainer=someone", "com.docker.compose.project"), None);
+        // An empty value is as good as absent — it must not group as "".
+        assert_eq!(label("com.docker.compose.project=", "com.docker.compose.project"), None);
+    }
 
     #[test]
     fn rewrite_port_mapping_replaces_matching_container_port() {
