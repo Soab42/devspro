@@ -55,6 +55,8 @@ import {
   stopContainer,
 } from "../api";
 import { dockerBlockedStatus } from "../blocked";
+import { listPorts } from "../../processes/api";
+import { describeStartCollisions, startCollisions } from "../../dashboard/portConflicts";
 import { ContainerGroup, groupContainers, summarizeOutcomes } from "../utils";
 
 type StateFilter = "all" | "running" | "stopped";
@@ -66,6 +68,10 @@ export default function DockerPage() {
   const detection = useResource(detectDocker);
   const dockerUsable = Boolean(detection.data?.found && detection.data.daemon_reachable);
   const containers = useResource(listContainers, { enabled: dockerUsable });
+  /* Listening sockets, for the "this port is already taken" warning shown
+     before a start. Not polled: refreshed with the container list, which is
+     the moment the answer can have changed. */
+  const listening = useResource(listPorts, { enabled: dockerUsable });
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -81,6 +87,9 @@ export default function DockerPage() {
      there would blank the whole table because one Stop button failed. */
   const [actionError, setActionError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  /* A port collision is a warning, never a block: the user may be about to
+     stop the other process, or the container may bind a different address. */
+  const [portWarning, setPortWarning] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState<StateFilter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -91,13 +100,15 @@ export default function DockerPage() {
      the wait before the table caught up. Detection is refreshed by the toolbar's
      Refresh button, which is where "did the daemon come back?" is actually
      being asked. */
-  const refreshAfterAction = containers.refresh;
+  const refreshAfterAction = useCallback(async () => {
+    await Promise.all([containers.refresh(), listening.refresh()]);
+  }, [containers.refresh, listening.refresh]);
 
   const refreshAll = useCallback(async () => {
     // Both in flight at once: neither depends on the other's result, and
     // `containers` is already gated on `enabled`.
-    await Promise.all([detection.refresh(), containers.refresh()]);
-  }, [detection.refresh, containers.refresh]);
+    await Promise.all([detection.refresh(), containers.refresh(), listening.refresh()]);
+  }, [detection.refresh, containers.refresh, listening.refresh]);
 
   const rows = useMemo(() => containers.data ?? [], [containers.data]);
 
@@ -166,10 +177,33 @@ export default function DockerPage() {
     });
   }, []);
 
+  /* Names the processes sitting on the host ports of the stopped containers
+     among `targets`, shows them as a warning Callout, and returns a sentence to
+     append to the confirm body — or "" when nothing collides. */
+  const warnPortCollisions = useCallback(
+    (targets: Container[]): string => {
+      const held = (listening.data ?? []).map((p) => ({
+        port: p.port,
+        pid: p.pid,
+        process: p.process_name,
+      }));
+      const found = startCollisions(targets, held, rows);
+      if (found.length === 0) {
+        setPortWarning(null);
+        return "";
+      }
+      const text = describeStartCollisions(found);
+      setPortWarning(`Port already in use: ${text}.`);
+      return ` Warning: ${text}.`;
+    },
+    [listening.data, rows],
+  );
+
   const runAction = useCallback(
     async (action: (id: string) => Promise<string>, container: Container, verb: string) => {
+      const warning = verb === "Start" ? warnPortCollisions([container]) : "";
       const ok = await confirmAction(
-        `This will ${verb.toLowerCase()} the container "${container.name}".`,
+        `This will ${verb.toLowerCase()} the container "${container.name}".${warning}`,
         { title: `${verb} container?`, confirmLabel: verb },
       );
       if (!ok) return;
@@ -185,7 +219,7 @@ export default function DockerPage() {
         setBusyId(null);
       }
     },
-    [confirmAction, refreshAfterAction],
+    [confirmAction, refreshAfterAction, warnPortCollisions],
   );
 
   /* The verb-keyed entry point GroupTable calls. A stable identity matters here:
@@ -206,11 +240,12 @@ export default function DockerPage() {
 
   async function runBulk(action: BulkAction, targets: Container[], label: string) {
     if (targets.length === 0) return;
+    const warning = action === "start" ? warnPortCollisions(targets) : "";
     const ok = await confirmAction(
       `This will ${action} ${targets.length} container(s): ${targets
         .slice(0, 5)
         .map((c) => c.name)
-        .join(", ")}${targets.length > 5 ? `, and ${targets.length - 5} more` : ""}.`,
+        .join(", ")}${targets.length > 5 ? `, and ${targets.length - 5} more` : ""}.${warning}`,
       { title: `${label}?`, confirmLabel: label, danger: action === "stop" },
     );
     if (!ok) return;
@@ -237,10 +272,12 @@ export default function DockerPage() {
 
   async function runComposeAction(group: ContainerGroup, action: ComposeAction, label: string) {
     const destructive = action === "down";
+    const warning =
+      action === "up" || action === "start" ? warnPortCollisions(group.containers) : "";
     const ok = await confirmAction(
       destructive
         ? `This removes the containers and network for "${group.label}". Named volumes — including database data — are kept.`
-        : `This runs docker compose ${action} on the "${group.label}" stack.`,
+        : `This runs docker compose ${action} on the "${group.label}" stack.${warning}`,
       { title: `${label} ${group.label}?`, confirmLabel: label, danger: destructive },
     );
     if (!ok) return;
@@ -299,6 +336,11 @@ export default function DockerPage() {
         {actionError && (
           <Callout tone="danger" onDismiss={() => setActionError(null)}>
             {actionError}
+          </Callout>
+        )}
+        {portWarning && (
+          <Callout tone="warning" title="Port conflict" onDismiss={() => setPortWarning(null)}>
+            {portWarning}
           </Callout>
         )}
 

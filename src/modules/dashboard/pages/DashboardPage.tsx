@@ -1,4 +1,5 @@
-import { ReactNode, useCallback, useEffect, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useModule } from "../../../app/ModuleRegistry";
 import {
   Badge,
@@ -9,6 +10,7 @@ import {
   Meter,
   Mono,
   Page,
+  Section,
   SegmentedControl,
   Sparkline,
   Stack,
@@ -23,15 +25,20 @@ import {
   Gpu,
   HardDrive,
   MemoryStick,
+  Network,
   Server,
   ShieldCheck,
   TriangleAlert,
 } from "../../../ui/icons";
-import { fetchSystemSnapshot, SystemSnapshot } from "../api";
+import { fetchPortClaims, fetchSystemSnapshot, SystemSnapshot } from "../api";
+import { Claimant, findPortConflicts, PortConflict } from "../portConflicts";
 import { formatBytes, formatKb, formatRate, formatUptime, percent } from "../utils";
 import "./DashboardPage.css";
 
 const POLL_MS = 2000;
+/* Port claims change on the order of seconds, not milliseconds, and the fetch
+   spawns `ss` plus `docker ps`; polling it at the metrics rate would be waste. */
+const PORT_POLL_MS = 10000;
 const HISTORY_LENGTH = 30;
 
 type Facet = "all" | "cpu" | "memory" | "gpu" | "storage";
@@ -52,6 +59,11 @@ function pushHistory(history: number[], value: number): number[] {
 export default function DashboardPage() {
   const module = useModule("dashboard");
   const snapshot = useResource(fetchSystemSnapshot, { pollMs: POLL_MS });
+  const claims = useResource(fetchPortClaims, { pollMs: PORT_POLL_MS });
+  const conflicts = useMemo(
+    () => (claims.data ? findPortConflicts(claims.data) : []),
+    [claims.data],
+  );
   const [facet, setFacet] = useState<Facet>("all");
 
   const [cpuHistory, setCpuHistory] = useState<number[]>([]);
@@ -113,6 +125,7 @@ export default function DashboardPage() {
           {snapshot.error && <Callout tone="warning">{snapshot.error}</Callout>}
 
           <HealthStrip snapshot={data} />
+          {conflicts.length > 0 && <PortConflictsSection conflicts={conflicts} />}
           <KpiRow
             snapshot={data}
             cpuHistory={cpuHistory}
@@ -180,6 +193,72 @@ function HealthStrip({ snapshot }: { snapshot: SystemSnapshot }) {
       </div>
     </div>
   );
+}
+
+/* -------------------------------------------------------------- conflicts -- */
+
+const CLAIMANT_LINK: Record<Claimant["kind"], string> = {
+  process: "/processes",
+  container: "/docker",
+  site: "/nginx-ssl",
+};
+
+/**
+ * Rendered only when there is something to say. Sites all listen on 80/443,
+ * so a container publishing 443 would otherwise list every site by name;
+ * they are collapsed to a count and one link instead.
+ */
+function PortConflictsSection({ conflicts }: { conflicts: PortConflict[] }) {
+  return (
+    <Section
+      title="Port conflicts"
+      icon={Network}
+      meta={<Badge tone="warning">{conflicts.length}</Badge>}
+      description="The same host port is claimed by more than one owner. A stopped container or site on one of these ports will fail to start."
+    >
+      <ul className="dash-conflicts">
+        {conflicts.map((c) => (
+          <li key={`${c.port}/${c.proto}`} className="dash-conflict">
+            <Mono className="dash-conflict-port">
+              :{c.port}
+              {c.proto === "udp" ? "/udp" : ""}
+            </Mono>
+            <div className="dash-conflict-claimants">
+              {claimantRows(c.claimants).map((row) => (
+                <Link key={row.key} to={row.to} className="dash-conflict-claimant">
+                  <Badge tone={row.tone}>{row.kind}</Badge>
+                  <span>{row.label}</span>
+                  {row.detail && <span className="dash-conflict-detail">{row.detail}</span>}
+                </Link>
+              ))}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+function claimantRows(claimants: Claimant[]) {
+  const rows: { key: string; to: string; tone: "neutral" | "info" | "accent"; kind: string; label: string; detail?: string }[] = [];
+  const sites = claimants.filter((c) => c.kind === "site");
+  for (const c of claimants) {
+    if (c.kind === "site") continue;
+    rows.push({
+      key: `${c.kind}:${c.label}:${c.detail ?? ""}`,
+      to: CLAIMANT_LINK[c.kind],
+      tone: c.kind === "process" ? "info" : "accent",
+      kind: c.kind,
+      label: c.label,
+      detail: c.detail,
+    });
+  }
+  if (sites.length === 1) {
+    rows.push({ key: "site", to: CLAIMANT_LINK.site, tone: "neutral", kind: "site", label: sites[0].label });
+  } else if (sites.length > 1) {
+    rows.push({ key: "sites", to: CLAIMANT_LINK.site, tone: "neutral", kind: "sites", label: `${sites.length} nginx sites` });
+  }
+  return rows;
 }
 
 /* ------------------------------------------------------------------- KPIs -- */

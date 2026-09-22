@@ -1,4 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listContainers } from "../docker/api";
+import { listSites } from "../nginx-ssl/api";
+import { listPorts } from "../processes/api";
+import { PortClaimsInput, SITE_LISTEN_PORTS } from "./portConflicts";
 
 export interface CpuInfo {
   model: string;
@@ -58,3 +62,27 @@ export interface SystemSnapshot {
 }
 
 export const fetchSystemSnapshot = () => invoke<SystemSnapshot>("system_info_snapshot");
+
+/**
+ * Everything on this machine that claims a host port, gathered for
+ * `findPortConflicts`. Fetched as one resource so the dashboard has a single
+ * (slow) poll for it rather than three. Each source is optional: Docker may not
+ * be installed and nginx may have no sites, and a missing source must not hide
+ * the conflicts the others can still reveal — hence `allSettled`, not `all`.
+ */
+export const fetchPortClaims = async (): Promise<PortClaimsInput> => {
+  const [ports, containers, sites] = await Promise.allSettled([
+    listPorts(),
+    listContainers(),
+    listSites(),
+  ]);
+  const settled = <T,>(r: PromiseSettledResult<T[]>): T[] => (r.status === "fulfilled" ? r.value : []);
+  return {
+    listening: settled(ports).map((p) => ({ port: p.port, pid: p.pid, process: p.process_name })),
+    containers: settled(containers).map((c) => ({ name: c.name, ports: c.ports, state: c.state })),
+    sites: settled(sites).map((s) => ({
+      name: s.name,
+      ports: s.enabled ? [...SITE_LISTEN_PORTS] : [],
+    })),
+  };
+};
