@@ -19,6 +19,8 @@ React + Rust.
 | **Logs** | Tail nginx access/error and Laravel logs per site |
 | **Apps** | Install common dev tooling: nginx, Docker, PHP, Node/nvm, cloudflared… |
 | **SSH** | Saved hosts, an in-app terminal (local or ssh), an SFTP file browser, and key generation / install on host |
+| **Files** | A Finder-style explorer: places down the side, back/forward and a path bar, list or icon view, filter, hidden files, and per-item open / edit in the app / reveal / rename / move to trash |
+| **Browser** | A small tabbed browser with Chrome, Safari and Firefox-style frames to switch between; pages render in a native webview so local `.test` sites and anything else load as they would in a real browser |
 | **Env Diff** | Compare two `.env` files by variable — missing, new and changed values, wherever they sit in the file — and copy them across |
 | **Settings** | Theme, autostart and tray behaviour, plus Backup & restore: export sites, workers, preferences and the root CA as one JSON file and import them on another machine |
 | **Hosts file** | Edit `/etc/hosts` entry by entry, with DevsPro-written lines told apart from system ones, and one-click entries for nginx sites that are missing theirs |

@@ -6,9 +6,11 @@ mod tray;
 
 use modules::apps;
 use modules::backup;
+use modules::browser;
 use modules::databases;
 use modules::docker;
 use modules::env_diff;
+use modules::file_manager;
 use modules::hosts_file;
 use modules::http_client;
 use modules::logs;
@@ -121,6 +123,27 @@ pub fn run() {
             docker::docker_write_compose,
             env_diff::env_diff_read_file,
             env_diff::env_diff_write_file,
+            file_manager::fm_places,
+            file_manager::fm_list,
+            file_manager::fm_stat,
+            file_manager::fm_mkdir,
+            file_manager::fm_create_file,
+            file_manager::fm_rename,
+            file_manager::fm_trash,
+            file_manager::fm_read_file,
+            file_manager::fm_write_file,
+            file_manager::fm_open,
+            browser::browser_open,
+            browser::browser_navigate,
+            browser::browser_back,
+            browser::browser_forward,
+            browser::browser_reload,
+            browser::browser_stop,
+            browser::browser_set_bounds,
+            browser::browser_set_visible,
+            browser::browser_set_zoom,
+            browser::browser_close,
+            browser::browser_list,
             hosts_file::hosts_file_read,
             hosts_file::hosts_file_add,
             hosts_file::hosts_file_remove,

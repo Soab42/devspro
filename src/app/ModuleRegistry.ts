@@ -1,9 +1,11 @@
 import { ComponentType } from "react";
 import AppsPage from "../modules/apps/pages/AppsPage";
+import BrowserPage from "../modules/browser/pages/BrowserPage";
 import DashboardPage from "../modules/dashboard/pages/DashboardPage";
 import DatabasesPage from "../modules/databases/pages/DatabasesPage";
 import DockerPage from "../modules/docker/pages/DockerPage";
 import EnvDiffPage from "../modules/env-diff/pages/EnvDiffPage";
+import FileManagerPage from "../modules/file-manager/pages/FileManagerPage";
 import HostsPage from "../modules/hosts/pages/HostsPage";
 import HttpPage from "../modules/http/pages/HttpPage";
 import LogsPage from "../modules/logs/pages/LogsPage";
@@ -16,10 +18,12 @@ import RedisPage from "../modules/redis/pages/RedisPage";
 import ScheduledPage from "../modules/scheduled/pages/ScheduledPage";
 import WorkersPage from "../modules/workers/pages/WorkersPage";
 import {
+  AppWindow,
   BookUser,
   Container,
   Database,
   FileDiff,
+  Files,
   Globe,
   LayoutDashboard,
   Mail,
@@ -163,6 +167,22 @@ export const modules: ModuleDefinition[] = [
     group: "system",
     path: "/apps",
     Component: AppsPage,
+  },
+  {
+    id: "file-manager",
+    label: "Files",
+    icon: Files,
+    group: "system",
+    path: "/files",
+    Component: FileManagerPage,
+  },
+  {
+    id: "browser",
+    label: "Browser",
+    icon: AppWindow,
+    group: "monitoring",
+    path: "/browser",
+    Component: BrowserPage,
   },
   {
     id: "env-diff",

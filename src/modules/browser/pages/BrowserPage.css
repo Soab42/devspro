@@ -1,0 +1,300 @@
+/* The browser frame. Three skins rearrange and reshape the same three rows
+   (tabs, nav, content); nothing here changes what the rows do. */
+.browser {
+  display: flex;
+  flex-direction: column;
+  min-height: 70vh;
+  flex: 1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+
+/* ---- tabs ---- */
+.browser-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) 0;
+  background-color: var(--color-surface-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-height: 2.5rem;
+}
+
+.browser-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 1 200px;
+  min-width: 96px;
+  height: 2rem;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  color: var(--color-text-secondary);
+  transition: var(--transition-colors);
+}
+
+.browser-tab:hover {
+  background-color: var(--color-hover);
+}
+
+.browser-tab-active,
+.browser-tab-active:hover {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
+.browser-tab-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.browser-tab-button:focus-visible,
+.browser-tab-close:focus-visible,
+.browser-tab-new:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.browser-tab-favicon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+.browser-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-tab-close,
+.browser-tab-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-right: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.browser-tab-close:hover,
+.browser-tab-new:hover {
+  background-color: var(--color-active);
+  color: var(--color-text);
+}
+
+.browser-tab-new {
+  margin: 0 0 var(--space-1) var(--space-1);
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+/* ---- nav ---- */
+.browser-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.browser-nav-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.browser-zoom {
+  font-size: var(--text-2xs);
+  color: var(--color-text-secondary);
+  padding: 0 var(--space-1);
+}
+
+.browser-address {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-2);
+  transition: var(--transition-colors);
+}
+
+.browser-address:focus-within {
+  background-color: var(--color-surface);
+  border-color: var(--color-accent-border);
+  box-shadow: var(--shadow-focus);
+}
+
+.browser-address-icon {
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+
+.browser-address-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  outline: none;
+}
+
+.browser-address-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* ---- progress ---- */
+.browser-progress {
+  height: 2px;
+  background: transparent;
+}
+
+.browser-progress-active {
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  background-size: 50% 100%;
+  animation: browser-progress 1.2s linear infinite;
+}
+
+@keyframes browser-progress {
+  from { background-position: -50% 0; }
+  to { background-position: 150% 0; }
+}
+
+.browser-spin {
+  animation: browser-spin 1s linear infinite;
+}
+
+@keyframes browser-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---- content: the native webview is parked exactly over this box ---- */
+.browser-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg);
+}
+
+/* ================================================================ skins == */
+
+/* Chrome: rounded tabs sitting on a grey strip, merging into a white
+   toolbar; pill-shaped omnibox. That is the default styling above, so the
+   Chrome skin only sharpens the tab shape. */
+.browser-skin-chrome .browser-tab-active {
+  box-shadow: 0 -1px 0 var(--color-border-subtle);
+}
+
+/* Safari: one unified toolbar first, address field centred and narrow with
+   just the host in it, tabs underneath as equal segments. */
+.browser-skin-safari .browser-nav {
+  order: 1;
+  background-color: var(--color-surface-2);
+  border-bottom: 0;
+  justify-content: center;
+}
+
+.browser-skin-safari .browser-address {
+  flex: 0 1 520px;
+  height: var(--control-h-sm);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-3);
+  justify-content: center;
+}
+
+.browser-skin-safari .browser-address-input {
+  text-align: center;
+  font-size: var(--text-xs);
+}
+
+.browser-skin-safari .browser-address:focus-within .browser-address-input {
+  text-align: left;
+}
+
+.browser-skin-safari .browser-tabs {
+  order: 2;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  min-height: 1.875rem;
+  border-top: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.browser-skin-safari .browser-tab {
+  flex: 1 1 0;
+  height: auto;
+  border-radius: 0;
+  border-right: 1px solid var(--color-border-subtle);
+  justify-content: center;
+}
+
+.browser-skin-safari .browser-tab-button {
+  justify-content: center;
+  padding: 0 var(--space-2);
+}
+
+.browser-skin-safari .browser-tab-new {
+  margin: 0 var(--space-1);
+  align-self: center;
+}
+
+.browser-skin-safari .browser-progress {
+  order: 3;
+}
+
+.browser-skin-safari .browser-content {
+  order: 4;
+}
+
+/* Firefox: square-cornered tabs with an accent top edge, a rounded-rectangle
+   address bar with a visible border. */
+.browser-skin-firefox .browser-tab {
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  border-top: 2px solid transparent;
+}
+
+.browser-skin-firefox .browser-tab-active {
+  border-top-color: var(--color-accent);
+}
+
+.browser-skin-firefox .browser-nav {
+  background-color: var(--color-surface-2);
+}
+
+.browser-skin-firefox .browser-address {
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  border-color: var(--color-border);
+}
