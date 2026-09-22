@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useConfirm } from "../../../app/ConfirmContext";
 import { useModule } from "../../../app/ModuleRegistry";
 import BackupResultModal from "../components/BackupResultModal";
+import BrowsePanel from "../components/BrowsePanel";
 import ChangePasswordModal from "../components/ChangePasswordModal";
 import CreateDatabaseModal from "../components/CreateDatabaseModal";
 import CredentialsModal from "../components/CredentialsModal";
@@ -22,6 +23,7 @@ import {
   Stack,
   StatusPill,
   statusOf,
+  Tabs,
   useResource,
 } from "../../../ui";
 import {
@@ -31,6 +33,7 @@ import {
   KeyRound,
   Plus,
   RefreshCw,
+  Table2,
   Trash2,
   Upload,
   Users,
@@ -45,6 +48,9 @@ import {
   restoreDatabase,
 } from "../api";
 import { parsePortMappings } from "../../docker/utils";
+import { isBrowsable } from "../utils";
+
+type PageTab = "manage" | "browse";
 
 interface Group {
   base: string;
@@ -87,6 +93,7 @@ export default function DatabasesPage() {
   const module = useModule("databases");
   const databases = useResource(listDatabases);
 
+  const [tab, setTab] = useState<PageTab>("manage");
   const [showCreate, setShowCreate] = useState(false);
   const [busyBase, setBusyBase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,12 +104,13 @@ export default function DatabasesPage() {
     fallbackUsername: string | null;
   } | null>(null);
   const [usersFor, setUsersFor] = useState<string | null>(null);
-  const [changingAdminPasswordFor, setChangingAdminPasswordFor] = useState<string | null>(
-    null,
-  );
-  const [backupResult, setBackupResult] = useState<{ base: string; path: string } | null>(
-    null,
-  );
+  const [changingAdminPasswordFor, setChangingAdminPasswordFor] = useState<
+    string | null
+  >(null);
+  const [backupResult, setBackupResult] = useState<{
+    base: string;
+    path: string;
+  } | null>(null);
 
   async function handleReveal(g: Group) {
     setBusyBase(g.base);
@@ -133,7 +141,11 @@ export default function DatabasesPage() {
       const creds = await getDatabaseCredentials(g.base);
       const username = creds.username ?? inferDefaultUsername(g.db.image) ?? "";
       const driverParam = kind === "postgres" ? "pgsql" : "server";
-      const params = new URLSearchParams({ [driverParam]: g.base, username, db: g.base });
+      const params = new URLSearchParams({
+        [driverParam]: g.base,
+        username,
+        db: g.base,
+      });
       void openUrl(`http://localhost:${hostPort}/?${params.toString()}`);
     } catch {
       void openUrl(`http://localhost:${hostPort}`);
@@ -146,7 +158,9 @@ export default function DatabasesPage() {
         ? `"${base}" and its data volume will be permanently deleted. This cannot be undone.`
         : `The container(s) for "${base}" are removed, but data on disk is kept.`,
       {
-        title: deleteData ? "Delete database and its data?" : "Remove database?",
+        title: deleteData
+          ? "Delete database and its data?"
+          : "Remove database?",
         confirmLabel: deleteData ? "Delete everything" : "Remove",
         danger: true,
       },
@@ -204,6 +218,9 @@ export default function DatabasesPage() {
   }
 
   const groups = groupContainers(databases.data ?? []);
+  const browsable = groups
+    .filter((g) => g.db && isBrowsable(g.db.image))
+    .map((g) => ({ base: g.base, running: g.db?.state === "running" }));
 
   const columns: Column<Group>[] = [
     {
@@ -344,8 +361,8 @@ export default function DatabasesPage() {
       status={statusOf(databases)}
       description={
         <>
-          Managed in DevsPro's own docker-compose project ("devsuite") — separate from
-          any other compose stacks you run yourself.
+          Managed in DevsPro's own docker-compose project ("devsuite") —
+          separate from any other compose stacks you run yourself.
         </>
       }
       actions={
@@ -358,22 +375,43 @@ export default function DatabasesPage() {
           >
             Refresh
           </Button>
-          <Button variant="primary" icon={Plus} onClick={() => setShowCreate(true)}>
+          <Button
+            variant="primary"
+            icon={Plus}
+            onClick={() => setShowCreate(true)}
+          >
             Create database
           </Button>
         </>
       }
     >
       <Stack gap={5}>
+        <Tabs
+          ariaLabel="Databases view"
+          active={tab}
+          onChange={(id) => setTab(id as PageTab)}
+          tabs={[
+            { id: "manage", label: "Manage", icon: Database },
+            { id: "browse", label: "Browse", icon: Table2 },
+          ]}
+        />
+
+        {tab === "browse" && !databases.loading && (
+          <BrowsePanel connections={browsable} />
+        )}
+
         {/* Load-bearing: explains why the admin UI still asks for a password
             after "Open" pre-fills everything else. */}
-        <Callout tone="info">
-          For MySQL/Postgres, <strong>Open</strong> pre-fills the server, username, and
-          database on Adminer's login page — but never the password, since Adminer
-          deliberately never accepts one via URL or env var for security. Use{" "}
-          <strong>Reveal password</strong> to copy it in, once per session. Mongo/Redis's
-          UIs connect automatically with no login form.
-        </Callout>
+        {tab === "manage" && (
+          <Callout tone="info">
+            For MySQL/Postgres, <strong>Open</strong> pre-fills the server,
+            username, and database on Adminer's login page — but never the
+            password, since Adminer deliberately never accepts one via URL or
+            env var for security. Use <strong>Reveal password</strong> to copy
+            it in, once per session. Mongo/Redis's UIs connect automatically
+            with no login form.
+          </Callout>
+        )}
 
         {notice && (
           <Callout tone="success" onDismiss={() => setNotice(null)}>
@@ -386,31 +424,37 @@ export default function DatabasesPage() {
           </Callout>
         )}
 
-        <Section
-          title="DevsPro space"
-          padding="none"
-          isEmpty={!databases.loading && groups.length === 0}
-          empty={{
-            icon: Database,
-            title: "No databases yet",
-            description:
-              "Create one to get a database container plus an admin UI, managed together.",
-            action: (
-              <Button variant="primary" icon={Plus} onClick={() => setShowCreate(true)}>
-                Create database
-              </Button>
-            ),
-          }}
-        >
-          <DataTable
-            columns={columns}
-            rows={groups}
-            rowKey={(g) => g.base}
-            loading={databases.loading}
-            defaultSort={{ key: "name", dir: "asc" }}
-            caption="Databases managed by DevsPro"
-          />
-        </Section>
+        {tab === "manage" && (
+          <Section
+            title="DevsPro space"
+            padding="none"
+            isEmpty={!databases.loading && groups.length === 0}
+            empty={{
+              icon: Database,
+              title: "No databases yet",
+              description:
+                "Create one to get a database container plus an admin UI, managed together.",
+              action: (
+                <Button
+                  variant="primary"
+                  icon={Plus}
+                  onClick={() => setShowCreate(true)}
+                >
+                  Create database
+                </Button>
+              ),
+            }}
+          >
+            <DataTable
+              columns={columns}
+              rows={groups}
+              rowKey={(g) => g.base}
+              loading={databases.loading}
+              defaultSort={{ key: "name", dir: "asc" }}
+              caption="Databases managed by DevsPro"
+            />
+          </Section>
+        )}
       </Stack>
 
       {showCreate && (
@@ -420,7 +464,9 @@ export default function DatabasesPage() {
         />
       )}
 
-      {usersFor && <ManageUsersModal base={usersFor} onClose={() => setUsersFor(null)} />}
+      {usersFor && (
+        <ManageUsersModal base={usersFor} onClose={() => setUsersFor(null)} />
+      )}
 
       {credentialsFor && (
         <CredentialsModal
@@ -428,7 +474,9 @@ export default function DatabasesPage() {
           credentials={credentialsFor.creds}
           fallbackUsername={credentialsFor.fallbackUsername}
           onClose={() => setCredentialsFor(null)}
-          onChangePassword={() => setChangingAdminPasswordFor(credentialsFor.base)}
+          onChangePassword={() =>
+            setChangingAdminPasswordFor(credentialsFor.base)
+          }
         />
       )}
 
@@ -445,7 +493,9 @@ export default function DatabasesPage() {
           base={changingAdminPasswordFor}
           onClose={() => setChangingAdminPasswordFor(null)}
           onChanged={async () => {
-            const creds = await getDatabaseCredentials(changingAdminPasswordFor);
+            const creds = await getDatabaseCredentials(
+              changingAdminPasswordFor,
+            );
             setCredentialsFor((prev) => (prev ? { ...prev, creds } : prev));
           }}
         />

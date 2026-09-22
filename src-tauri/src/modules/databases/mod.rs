@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tauri::Manager;
 
+pub mod browse;
+
 const PROJECT_NAME: &str = "devsuite";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -973,6 +975,138 @@ pub fn databases_create_user(
     Ok(format!("created user '{username}'"))
 }
 
+// ---------------------------------------------------------------------------
+// Creating a *schema* inside an existing server container — distinct from
+// `databases_create`, which spins up a whole container. Laravel projects
+// usually want their own database on a server that already exists, which is
+// what the New Project wizard asks for. Same docker-exec-into-the-bundled-
+// client approach as user management; no engine driver crates.
+// ---------------------------------------------------------------------------
+
+/// Schema names are interpolated into SQL identifiers (backticks / double
+/// quotes), so the charset is kept narrow enough that quoting can't be broken.
+fn valid_schema_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !name.chars().next().is_some_and(|c| c.is_ascii_digit())
+}
+
+fn mysql_create_database(container: &str, admin_password: &str, db: &str) -> Result<(), String> {
+    let sql = format!("CREATE DATABASE IF NOT EXISTS `{db}`;");
+    let out = docker_exec(container, &["mysql", "-uroot", &format!("-p{admin_password}"), "-e", &sql])?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn postgres_database_exists(container: &str, admin_user: &str, db: &str) -> Result<bool, String> {
+    let sql = format!("SELECT 1 FROM pg_database WHERE datname = '{db}';");
+    let out = docker_exec(container, &["psql", "-U", admin_user, "-d", "postgres", "-t", "-A", "-c", &sql])?;
+    if let Some(err) = command_failed(&out) {
+        return Err(err);
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim() == "1")
+}
+
+fn postgres_create_database(container: &str, admin_user: &str, db: &str) -> Result<(), String> {
+    // Postgres has no CREATE DATABASE IF NOT EXISTS, hence the probe first;
+    // re-running the wizard against the same name should be a no-op, not an
+    // error, to match the MySQL branch.
+    if postgres_database_exists(container, admin_user, db)? {
+        return Ok(());
+    }
+    let sql = format!("CREATE DATABASE \"{db}\";");
+    let out = docker_exec(container, &["psql", "-U", admin_user, "-d", "postgres", "-c", &sql])?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+fn mongo_create_database(container: &str, admin_user: &str, admin_password: &str, db: &str) -> Result<(), String> {
+    // Mongo databases exist once they hold a collection; an empty placeholder
+    // collection is the conventional way to make one appear in `show dbs`.
+    let eval = format!(
+        "const d = db.getSiblingDB('{db}'); if (!d.getCollectionNames().length) d.createCollection('_devspro');"
+    );
+    let out = docker_exec(
+        container,
+        &[
+            "mongosh",
+            "-u",
+            admin_user,
+            "-p",
+            admin_password,
+            "--authenticationDatabase",
+            "admin",
+            "--quiet",
+            "--eval",
+            &eval,
+        ],
+    )?;
+    command_failed(&out).map_or(Ok(()), Err)
+}
+
+/// Creates a database (schema) named `name` on the DevsPro-managed server
+/// `connection` (the compose service name, e.g. `mysql8`). Idempotent: an
+/// existing database of that name is left alone and reported as such.
+#[tauri::command]
+pub fn databases_create_database(app: tauri::AppHandle, connection: String, name: String) -> Result<String, String> {
+    let name = name.trim();
+    if !valid_schema_name(name) {
+        return Err(
+            "database name must be 1-64 letters, numbers or underscores and can't start with a digit".to_string(),
+        );
+    }
+    let (kind, admin_user, admin_password) = admin_context(&app, &connection)?;
+    let container = container_name(&connection);
+    match kind {
+        DbKind::Mysql => mysql_create_database(&container, &admin_password, name),
+        DbKind::Postgres => postgres_create_database(&container, &admin_user, name),
+        DbKind::Mongo => mongo_create_database(&container, &admin_user, &admin_password, name),
+        DbKind::Redis => Err("Redis has no databases to create — it is a key-value store".to_string()),
+    }?;
+    Ok(format!("database '{name}' is ready on {connection}"))
+}
+
+/// The host-side port from a service block's `ports:` mapping (`"3307:3306"`
+/// gives 3307). Only the first mapping counts; DevsPro writes exactly one.
+fn extract_host_port(block: &str) -> Option<u16> {
+    let idx = block.find("ports:")?;
+    let rest = &block[idx + "ports:".len()..];
+    let line = rest.lines().find(|l| l.trim_start().starts_with('-'))?;
+    let mapping = line.trim().trim_start_matches('-').trim().trim_matches('"');
+    mapping.split(':').next()?.trim().parse().ok()
+}
+
+/// What Laravel calls the driver for each engine in `config/database.php`.
+/// Redis is not a `DB_CONNECTION` and is rejected upstream.
+fn laravel_driver(kind: DbKind) -> &'static str {
+    match kind {
+        DbKind::Mysql => "mysql",
+        DbKind::Postgres => "pgsql",
+        DbKind::Mongo => "mongodb",
+        DbKind::Redis => "redis",
+    }
+}
+
+/// The `DB_*` keys a Laravel `.env` needs to reach `db_name` on the managed
+/// server `connection`. Uses the admin credentials on purpose: a local dev
+/// database owned by DevsPro has no second user to hand out, and the admin
+/// password is already shown in the Databases page.
+pub fn laravel_env_for(app: &tauri::AppHandle, connection: &str, db_name: &str) -> Result<Vec<(String, String)>, String> {
+    let (kind, admin_user, admin_password) = admin_context(app, connection)?;
+    let file = compose_file(app)?;
+    let contents = fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
+    let block = service_block_text(&contents, connection)
+        .ok_or_else(|| format!("could not find '{connection}' in the compose file"))?;
+    let port = extract_host_port(&block).ok_or_else(|| format!("could not find the host port for '{connection}'"))?;
+    Ok(vec![
+        ("DB_CONNECTION".to_string(), laravel_driver(kind).to_string()),
+        ("DB_HOST".to_string(), "127.0.0.1".to_string()),
+        ("DB_PORT".to_string(), port.to_string()),
+        ("DB_DATABASE".to_string(), db_name.to_string()),
+        ("DB_USERNAME".to_string(), admin_user),
+        ("DB_PASSWORD".to_string(), admin_password),
+    ])
+}
+
 #[tauri::command]
 pub fn databases_drop_user(app: tauri::AppHandle, name: String, username: String) -> Result<String, String> {
     let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
@@ -1182,18 +1316,31 @@ pub fn databases_backup(app: tauri::AppHandle, name: String) -> Result<String, S
     Ok(path.to_string_lossy().to_string())
 }
 
+/// `database` (optional) targets a database other than the one named after the
+/// service — used by the browser, which lets the user pick any database on the
+/// server. Mongo/Redis restores ignore it since their archives carry their own
+/// scope.
 #[tauri::command]
-pub fn databases_restore(app: tauri::AppHandle, name: String, backup_path: String) -> Result<String, String> {
+pub fn databases_restore(
+    app: tauri::AppHandle,
+    name: String,
+    backup_path: String,
+    database: Option<String>,
+) -> Result<String, String> {
     let path = PathBuf::from(&backup_path);
     if !path.is_file() {
         return Err(format!("backup file not found: {backup_path}"));
     }
     let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
     let container = container_name(&name);
+    let target_db = database.filter(|d| !d.trim().is_empty()).unwrap_or_else(|| name.clone());
+    if !valid_name(&target_db) {
+        return Err(format!("'{target_db}' is not a valid database name"));
+    }
 
     match kind {
-        DbKind::Mysql => mysql_restore(&container, &admin_password, &name, &path),
-        DbKind::Postgres => postgres_restore(&container, &admin_user, &name, &path),
+        DbKind::Mysql => mysql_restore(&container, &admin_password, &target_db, &path),
+        DbKind::Postgres => postgres_restore(&container, &admin_user, &target_db, &path),
         DbKind::Mongo => mongo_restore(&container, &admin_user, &admin_password, &path),
         DbKind::Redis => redis_restore(&container, &path),
     }?;
@@ -1291,5 +1438,30 @@ mod tests {
         assert_eq!(backup_extension(DbKind::Mysql), backup_extension(DbKind::Postgres));
         assert_ne!(backup_extension(DbKind::Mysql), backup_extension(DbKind::Mongo));
         assert_ne!(backup_extension(DbKind::Mysql), backup_extension(DbKind::Redis));
+    }
+
+    #[test]
+    fn valid_schema_name_accepts_identifiers_and_rejects_quoting_hazards() {
+        assert!(valid_schema_name("myapp"));
+        assert!(valid_schema_name("my_app_2"));
+        assert!(!valid_schema_name(""));
+        assert!(!valid_schema_name("2fast"));
+        assert!(!valid_schema_name("my-app"));
+        assert!(!valid_schema_name("a`b"));
+        assert!(!valid_schema_name(&"a".repeat(65)));
+    }
+
+    #[test]
+    fn extract_host_port_reads_the_host_side_of_the_first_mapping() {
+        let spec = db_spec("shop", DbKind::Mysql, "8", None, "pw");
+        let block = render_service_block("shop", 3307, &spec);
+        assert_eq!(extract_host_port(&block), Some(3307));
+        assert_eq!(extract_host_port("  x:\n    image: mysql\n"), None);
+    }
+
+    #[test]
+    fn laravel_driver_names_match_config_database_php() {
+        assert_eq!(laravel_driver(DbKind::Mysql), "mysql");
+        assert_eq!(laravel_driver(DbKind::Postgres), "pgsql");
     }
 }
