@@ -1,6 +1,7 @@
 .shell {
   display: flex;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
   background-color: var(--color-bg);
 }
@@ -319,6 +320,10 @@
 /* -------------------------------------------------------------- content -- */
 .content {
   flex: 1;
+  /* A column flex item defaults to min-height:auto and refuses to shrink below
+     its content, which defeats overflow:auto — the page grew instead of
+     scrolling. Same pairing as .sidebar-nav above. */
+  min-height: 0;
   overflow: auto;
   padding: clamp(1rem, 2vw, 2rem);
 }

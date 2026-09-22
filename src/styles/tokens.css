@@ -170,13 +170,37 @@
   --color-focus-ring: color-mix(in srgb, var(--color-accent) 30%, transparent);
   --overlay: rgba(9, 9, 11, 0.45);
 
+  /* ------------------------------------------------------------- syntax --
+     Code-editor token colours (CodeMirror). Deliberately few: YAML has keys,
+     scalars, numbers, booleans and comments, and a palette that tries to
+     distinguish more than the language actually marks up just adds noise.
+     Hue-matched to the semantic colours above so an editor reads as part of the
+     app rather than as an embedded third-party widget. */
+  --color-syntax-key: #2b46ac;
+  --color-syntax-string: #157f3d;
+  --color-syntax-number: #b25e09;
+  --color-syntax-atom: #8b3fbd;
+  --color-syntax-comment: var(--color-text-muted);
+  --color-syntax-punct: var(--color-text-secondary);
+  --color-syntax-invalid: var(--color-danger);
+
   --color-meter-good: var(--color-accent);
   --color-meter-warn: var(--color-warning);
   --color-meter-crit: var(--color-danger);
 
   /* ---------------------------------------------------------------- shadow -- */
   /* Deliberately minimal: this design leans on 1px borders, not elevation. */
-  --shadow-xs: 0 1px 1px rgba(9, 9, 11, 0.04);
+  /* Blur-free on purpose, and this is load-bearing for scroll performance.
+     `.card` (every Section) carried `0 1px 1px` — a 1px blur — and repainting a
+     blurred shadow on full-width cards cost WebKitGTK ~125ms per scroll frame:
+     measured 138ms/frame scrolling vs a 16ms idle floor, and neutralising this
+     one declaration alone restored 60fps. Blur was the whole cost; the rounded
+     corners, `overflow: hidden` and layer promotion made no difference.
+     A hairline offset with no blur is visually near-identical at these opacities
+     and free to paint. Keep any shadow that lands on scrolling content blur-free
+     — --shadow-md / --shadow-lg below are fine because they are only used on
+     modals, menus and drawers, which don't repaint while the page scrolls. */
+  --shadow-xs: 0 1px 0 rgba(9, 9, 11, 0.05);
   --shadow-sm: 0 1px 2px rgba(9, 9, 11, 0.06), 0 1px 1px rgba(9, 9, 11, 0.04);
   --shadow-md: 0 4px 12px rgba(9, 9, 11, 0.08);
   --shadow-lg: 0 12px 32px rgba(9, 9, 11, 0.16);
@@ -245,9 +269,14 @@
   --color-neutral-text: #a1a1a8;
   --color-neutral-border: #2f2f34;
 
+  --color-syntax-key: #8fa8f5;
+  --color-syntax-string: #7fd39b;
+  --color-syntax-number: #e0a760;
+  --color-syntax-atom: #c99af0;
+
   --overlay: rgba(0, 0, 0, 0.6);
 
-  --shadow-xs: 0 1px 1px rgba(0, 0, 0, 0.4);
+  --shadow-xs: 0 1px 0 rgba(0, 0, 0, 0.45);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 1px 1px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);

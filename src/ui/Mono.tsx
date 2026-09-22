@@ -9,8 +9,9 @@ export interface MonoProps {
   children: ReactNode;
   /** "chip" adds the bordered inset treatment the old <code> element had. */
   variant?: "plain" | "chip";
-  /** true → ellipsis at the container width; a number → max-width in px. */
-  truncate?: boolean | number;
+  /** true → ellipsis at the container width; a number → max-width in px; a
+   * string → any CSS length, so a cap can scale with the window. */
+  truncate?: boolean | number | string;
   copyable?: boolean;
   /** Value placed on the clipboard. Defaults to the text of `children`. */
   copyValue?: string;
@@ -48,7 +49,11 @@ export function Mono({
     <span
       className={classes}
       title={title ?? (typeof children === "string" ? children : undefined)}
-      style={typeof truncate === "number" ? { maxWidth: truncate } : undefined}
+      style={
+        typeof truncate === "number" || typeof truncate === "string"
+          ? { maxWidth: truncate }
+          : undefined
+      }
     >
       <span className="mono-value">{children}</span>
       {copyable && value !== undefined && <CopyButton value={value} />}

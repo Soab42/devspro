@@ -133,7 +133,11 @@ export default function ProcessesPage() {
       priority: 1,
       mono: true,
       align: "end",
-      width: "1px",
+      /* Not `width: "1px"`: combined with the ellipsis hack on `.dt-td`
+         (max-width: 0) that squeezed the column to the header's width, so a
+         five-digit ephemeral port rendered as "436…". A floor wide enough for
+         five digits plus the sort caret, and no ceiling. */
+      minWidth: "6rem",
       sortValue: (p) => p.port,
       render: (p) => p.port,
     },
@@ -177,8 +181,10 @@ export default function ProcessesPage() {
         p.command ? (
           <span className="dt-cell-inline">
             {/* Explicit width: the cell holds a button, so it opts out of the
-                table's own truncation and can't bound this itself. */}
-            <Mono truncate={360}>{p.command}</Mono>
+                table's own truncation and can't bound this itself. Scaled with
+                the window rather than pinned at a narrow-window value — a
+                fixed cap threw away most of a wide display. */}
+            <Mono truncate="clamp(22rem, 48vw, 70rem)">{p.command}</Mono>
             {/* CSS truncation plus an always-available expand, replacing the
                 old character-count heuristic that decided per row whether a
                 "See more" link was warranted. */}

@@ -4,8 +4,6 @@ import {
   Badge,
   Callout,
   Card,
-  Column,
-  DataTable,
   EmptyState,
   Icon,
   Meter,
@@ -25,19 +23,18 @@ import {
   Gpu,
   HardDrive,
   MemoryStick,
-  Network as NetworkIcon,
   Server,
   ShieldCheck,
   TriangleAlert,
 } from "../../../ui/icons";
-import { fetchSystemSnapshot, NetworkInterfaceInfo, SystemSnapshot } from "../api";
+import { fetchSystemSnapshot, SystemSnapshot } from "../api";
 import { formatBytes, formatKb, formatRate, formatUptime, percent } from "../utils";
 import "./DashboardPage.css";
 
 const POLL_MS = 2000;
 const HISTORY_LENGTH = 30;
 
-type Facet = "all" | "cpu" | "memory" | "gpu" | "storage" | "network";
+type Facet = "all" | "cpu" | "memory" | "gpu" | "storage";
 
 const FACETS = [
   { value: "all" as Facet, label: "All" },
@@ -45,7 +42,6 @@ const FACETS = [
   { value: "memory" as Facet, label: "Memory" },
   { value: "gpu" as Facet, label: "GPU" },
   { value: "storage" as Facet, label: "Storage" },
-  { value: "network" as Facet, label: "Network" },
 ];
 
 function pushHistory(history: number[], value: number): number[] {
@@ -130,7 +126,6 @@ export default function DashboardPage() {
             {shows("memory") && <MemoryCard snapshot={data} />}
             {shows("gpu") && <GpuCard snapshot={data} />}
             {shows("storage") && <StorageCard snapshot={data} />}
-            {shows("network") && <NetworkCard snapshot={data} />}
           </div>
         </Stack>
       )}
@@ -248,9 +243,13 @@ function KpiRow({
         icon={Activity}
         label="Network"
         value={formatRate(netThroughput)}
-        sub={`${activeInterfaces.length} active ${
-          activeInterfaces.length === 1 ? "interface" : "interfaces"
-        }`}
+        /* Total throughput only. The per-interface table this used to head was
+           removed: `eth0`/`wlp3s0` names are not what anyone is looking for, and
+           the useful question — which *application* is using the network —
+           cannot be answered from /proc. Linux counts bytes per interface, not
+           per socket, so per-process rates need libpcap capture (what nethogs
+           does) plus root. */
+        sub="up and down, all interfaces"
         history={netHistory}
       />
     </div>
@@ -448,71 +447,3 @@ function StorageCard({ snapshot }: { snapshot: SystemSnapshot }) {
   );
 }
 
-const NETWORK_COLUMNS: Column<NetworkInterfaceInfo>[] = [
-  {
-    key: "name",
-    header: "Interface",
-    priority: 1,
-    mono: true,
-    sortValue: (n) => n.name,
-    render: (n) => n.name,
-  },
-  {
-    key: "down",
-    header: "Down",
-    priority: 1,
-    align: "end",
-    mono: true,
-    sortValue: (n) => n.rx_bytes_per_sec,
-    render: (n) => formatRate(n.rx_bytes_per_sec),
-  },
-  {
-    key: "up",
-    header: "Up",
-    priority: 1,
-    align: "end",
-    mono: true,
-    sortValue: (n) => n.tx_bytes_per_sec,
-    render: (n) => formatRate(n.tx_bytes_per_sec),
-  },
-  {
-    key: "rx",
-    header: "Total received",
-    priority: 2,
-    align: "end",
-    mono: true,
-    sortValue: (n) => n.rx_bytes_total,
-    render: (n) => formatBytes(n.rx_bytes_total),
-  },
-  {
-    key: "tx",
-    header: "Total sent",
-    priority: 2,
-    align: "end",
-    mono: true,
-    sortValue: (n) => n.tx_bytes_total,
-    render: (n) => formatBytes(n.tx_bytes_total),
-  },
-];
-
-function NetworkCard({ snapshot }: { snapshot: SystemSnapshot }) {
-  const activeInterfaces = snapshot.network
-    .filter((n) => n.name !== "lo")
-    .sort(
-      (a, b) =>
-        b.rx_bytes_per_sec + b.tx_bytes_per_sec - (a.rx_bytes_per_sec + a.tx_bytes_per_sec),
-    );
-
-  return (
-    <Card title="Network" icon={NetworkIcon} span={2} padding="none">
-      <DataTable
-        columns={NETWORK_COLUMNS}
-        rows={activeInterfaces}
-        rowKey={(n) => n.name}
-        minWidth={520}
-        caption="Network interfaces"
-        empty={{ icon: NetworkIcon, title: "No network interfaces found" }}
-      />
-    </Card>
-  );
-}

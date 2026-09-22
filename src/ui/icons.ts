@@ -22,6 +22,9 @@ export {
   LayoutDashboard, // Dashboard
   Globe, // Nginx & SSL
   Container, // Docker
+  Layers, // a compose stack (group of containers)
+  FileUp, // load a compose file
+  ArrowUpCircle, // compose up — apply the file's current definition
   Database, // Databases
   ScrollText, // Logs
   Mail, // Mail Catcher
@@ -29,6 +32,11 @@ export {
   Network, // Processes
   Workflow, // Workers
   Settings, // Settings
+
+  /* ---- env diff ---- */
+  FileDiff, // Env Diff module
+  ArrowRight, // copy a variable to the right-hand file
+  ArrowLeft, // copy a variable to the left-hand file
 
   /* ---- dashboard metrics ---- */
   Cpu,
@@ -48,6 +56,7 @@ export {
   FolderPlus, // new project
   Wrench, // fix permissions
   Power, // enable / disable site
+  SlidersHorizontal, // per-site limits (upload size, memory, timeouts)
 
   /* ---- chrome & controls ---- */
   X, // close

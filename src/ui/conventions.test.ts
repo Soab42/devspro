@@ -115,6 +115,7 @@ describe("styling discipline", () => {
     "ui/DataTable.tsx", // per-column width from the column config
     "ui/Layout.tsx", // Stack align/justify pass-through
     "ui/Field.tsx", // SearchInput width supplied by the caller
+    "ui/CodeEditor.tsx", // editor height derives from the caller's `rows`
   ]);
 
   it("inline styles appear only where the value is dynamic", () => {

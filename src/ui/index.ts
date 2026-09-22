@@ -36,6 +36,12 @@ export type {
   CalloutTone,
 } from "./Status";
 
+/* CodeEditor is deliberately NOT re-exported here. It pulls in CodeMirror
+   (~350 kB), and because every module imports its primitives from this barrel,
+   one export line puts that in the initial bundle for every page — which
+   silently undoes the lazy() boundary at its only call site. Import it directly:
+   `import { CodeEditor } from "../../../ui/CodeEditor"`. */
+
 export { Mono, CodeBlock, CopyButton } from "./Mono";
 export type { MonoProps, CodeBlockProps, CopyButtonProps } from "./Mono";
 

@@ -1,5 +1,7 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import type { LucideIcon } from "../icons";
+import { ChevronDown, ChevronRight } from "../icons";
+import { IconButton } from "../Button";
 import { Card, CardPadding } from "../Card";
 import { EmptyState } from "../Layout";
 
@@ -27,6 +29,10 @@ export interface SectionProps {
   empty?: SectionEmpty;
   /** Use 3 when nested under something that already owns an h2, e.g. a Modal. */
   headingLevel?: 2 | 3;
+  /** Adds a disclosure toggle that folds the body away, header kept. */
+  collapsible?: boolean;
+  /** Starting state of a collapsible section. Ignored otherwise. */
+  defaultCollapsed?: boolean;
   className?: string;
   children?: ReactNode;
 }
@@ -49,14 +55,31 @@ export function Section({
   isEmpty = false,
   empty,
   headingLevel = 2,
+  collapsible = false,
+  defaultCollapsed = false,
   className,
   children,
 }: SectionProps) {
+  const [collapsed, setCollapsed] = useState(collapsible && defaultCollapsed);
+  const folded = collapsible && collapsed;
+
+  const toggle = collapsible ? (
+    <IconButton
+      icon={folded ? ChevronRight : ChevronDown}
+      label={folded ? "Expand section" : "Collapse section"}
+      /* Ordered after the section's own verbs so folding sits at the far edge
+         and the primary actions keep the position they have when it is off. */
+      onClick={() => setCollapsed((c) => !c)}
+      aria-expanded={!folded}
+    />
+  ) : undefined;
+
   const headerActions =
-    meta || actions ? (
+    meta || actions || toggle ? (
       <>
         {meta}
         {actions}
+        {toggle}
       </>
     ) : undefined;
 
@@ -66,16 +89,16 @@ export function Section({
       description={description}
       icon={icon}
       actions={headerActions}
-      toolbar={toolbar}
-      footer={footer}
+      toolbar={folded ? undefined : toolbar}
+      footer={folded ? undefined : footer}
       /* An empty state brings its own padding and needs to centre in the full
          width, so drop the card padding when it is showing. */
-      padding={isEmpty ? "none" : padding}
+      padding={folded ? "none" : isEmpty ? "none" : padding}
       span={span}
       headingLevel={headingLevel}
       className={className}
     >
-      {isEmpty && empty ? (
+      {folded ? null : isEmpty && empty ? (
         <EmptyState
           icon={empty.icon}
           title={empty.title}

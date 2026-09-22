@@ -97,6 +97,18 @@
   overflow: visible;
 }
 
+/* Monospace cells opt out too. They hold values that are wrong when clipped —
+   a port, a PID, a byte count, a date — where "436…" reads as a smaller number
+   rather than as truncated text.
+   The `:not(:has(...))` is load-bearing: a mono column holding something long
+   (Docker's port mappings, an image ref, an address) wraps it in
+   `<Mono truncate>`, whose ellipsis is `max-width: 100%` of *this* cell. Lift
+   the ceiling there and it has nothing to be 100% of, so the column expands to
+   its full content and starves every neighbour. Those cells keep the hack. */
+.dt-td.dt-cell-mono:not(:has(.mono-truncate)) {
+  max-width: none;
+}
+
 /* Action columns shrink-wrap their buttons instead of absorbing slack. */
 .dt-td:has(.action-group) {
   width: 1%;
