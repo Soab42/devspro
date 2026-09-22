@@ -5,6 +5,7 @@ import AddSiteForm from "../components/AddSiteForm";
 import NewProjectForm from "../components/NewProjectForm";
 import NodeVersionModal from "../components/NodeVersionModal";
 import PhpVersionModal from "../components/PhpVersionModal";
+import SiteLimitsModal from "../components/SiteLimitsModal";
 import {
   ActionGroup,
   Badge,
@@ -31,12 +32,15 @@ import {
   Hexagon,
   Plus,
   Power,
+  ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   Wrench,
 } from "../../../ui/icons";
 import {
   detectTunnelCli,
   fixLaravelPermissions,
+  reissueSiteCert,
   removeSite,
   setSiteEnabled,
   Site,
@@ -66,6 +70,7 @@ export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
 
   const [phpModalSite, setPhpModalSite] = useState<Site | null>(null);
   const [nodeModalSite, setNodeModalSite] = useState<Site | null>(null);
+  const [limitsModalSite, setLimitsModalSite] = useState<Site | null>(null);
 
   const [tunnels, setTunnels] = useState<Record<string, TunnelStatus>>({});
   const tunnelCli = useResource(detectTunnelCli);
@@ -139,6 +144,17 @@ export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
     setMessage(null);
     try {
       setMessage(await fixLaravelPermissions(site.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleReissueCert(site: Site) {
+    setError(null);
+    setMessage(null);
+    try {
+      setMessage(await reissueSiteCert(site.id));
+      await sites.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -306,6 +322,20 @@ export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
                     },
                   ]
                 : []),
+              /* Outside the laravel-only group: a proxied site still gets
+                 client_max_body_size, the read timeout and raw directives. */
+              {
+                key: "limits",
+                label: "Limits…",
+                icon: SlidersHorizontal,
+                onClick: () => setLimitsModalSite(s),
+              },
+              {
+                key: "reissue",
+                label: "Reissue certificate",
+                icon: ShieldCheck,
+                onClick: () => handleReissueCert(s),
+              },
               {
                 key: "delete",
                 label: "Delete site",
@@ -410,6 +440,17 @@ export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
           onClose={() => setPhpModalSite(null)}
           onSaved={() => {
             setPhpModalSite(null);
+            void sites.refresh();
+          }}
+        />
+      )}
+
+      {limitsModalSite && (
+        <SiteLimitsModal
+          site={limitsModalSite}
+          onClose={() => setLimitsModalSite(null)}
+          onSaved={() => {
+            setLimitsModalSite(null);
             void sites.refresh();
           }}
         />

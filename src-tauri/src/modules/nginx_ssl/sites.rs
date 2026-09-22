@@ -3,6 +3,7 @@
 //! then apply exactly one elevation manifest (write conf, ensure the nginx.conf
 //! include line, resync /etc/hosts, `nginx -t`, reload) per action.
 
+use super::limits::{self, SiteLimits};
 use super::{ca, laravel, nginx, php_fpm};
 use crate::elevate::{self, Operation, OperationManifest};
 use rusqlite::Connection;
@@ -50,8 +51,22 @@ pub fn migrations() -> Vec<&'static str> {
         // picks. Nullable column, so a plain `ALTER TABLE ADD COLUMN` is enough —
         // no NOT NULL constraint to relax, unlike v2's rebuild.
         "ALTER TABLE nginx_ssl_sites ADD COLUMN php_version TEXT;",
+        // NOTHING MORE GOES IN THIS LIST — see `MIGRATION_SITE_LIMITS` below and
+        // the append-only zone in `db::later_migrations`.
     ]
 }
+
+/// Per-site nginx/PHP tuning (upload size, memory, timeouts, raw directives),
+/// stored as one JSON blob rather than a column per setting. The set of knobs is
+/// expected to grow, and each new one would otherwise cost a migration;
+/// `limits::from_column` already degrades unparsable or NULL values to system
+/// defaults, which is exactly the behaviour a new field needs on an old row.
+///
+/// Lives outside `migrations()` because that list is position-indexed and frozen;
+/// it is registered in `db::later_migrations` instead. Adding it to the list above
+/// shifted every later module's migration by one and re-ran them against real
+/// databases.
+pub const MIGRATION_SITE_LIMITS: &str = "ALTER TABLE nginx_ssl_sites ADD COLUMN limits TEXT;";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -75,6 +90,7 @@ pub struct Site {
     pub slug: String,
     pub hostname: String,
     pub backend: Backend,
+    pub limits: SiteLimits,
     pub enabled: bool,
     pub ssl_not_after: Option<String>,
     pub created_at: String,
@@ -104,7 +120,7 @@ fn slugify(name: &str) -> String {
 }
 
 const SITE_COLUMNS: &str =
-    "id, name, slug, hostname, backend_type, port, project_path, php_version, enabled, ssl_not_after, created_at";
+    "id, name, slug, hostname, backend_type, port, project_path, php_version, enabled, ssl_not_after, created_at, limits";
 
 fn row_to_site(row: &rusqlite::Row) -> rusqlite::Result<Site> {
     let backend_type: String = row.get(4)?;
@@ -126,6 +142,7 @@ fn row_to_site(row: &rusqlite::Row) -> rusqlite::Result<Site> {
         slug: row.get(2)?,
         hostname: row.get(3)?,
         backend,
+        limits: limits::from_column(row.get(11)?),
         enabled: row.get::<_, i64>(8)? != 0,
         ssl_not_after: row.get(9)?,
         created_at: row.get(10)?,
@@ -211,7 +228,13 @@ fn backend_target(backend: &Backend) -> Result<nginx::render::BackendTarget, Str
     }
 }
 
-fn render_conf_for(app: &AppHandle, hostname: &str, backend: &Backend, slug: &str) -> Result<String, String> {
+fn render_conf_for(
+    app: &AppHandle,
+    hostname: &str,
+    backend: &Backend,
+    limits: &SiteLimits,
+    slug: &str,
+) -> Result<String, String> {
     let certs_dir = super::certs_dir(app)?;
     let cert_path = certs_dir.join(format!("{hostname}.pem"));
     let key_path = certs_dir.join(format!("{hostname}-key.pem"));
@@ -222,6 +245,7 @@ fn render_conf_for(app: &AppHandle, hostname: &str, backend: &Backend, slug: &st
     Ok(nginx::render::render_site_conf(
         hostname,
         &target,
+        limits,
         &cert_path.to_string_lossy(),
         &key_path.to_string_lossy(),
         &access_log.to_string_lossy(),
@@ -314,7 +338,10 @@ pub fn nginx_ssl_add_site(
     ca::ensure_root_ca(&certs_dir)?;
     let leaf = ca::leaf::issue(&certs_dir, &hostname)?;
 
-    let conf_contents = render_conf_for(&app, &hostname, &backend, &slug)?;
+    // A new site starts at system defaults; tuning is a follow-up edit rather than
+    // another decision to make in the add form.
+    let limits = SiteLimits::default();
+    let conf_contents = render_conf_for(&app, &hostname, &backend, &limits, &slug)?;
     let conf_path = conf_path_string(&app, &slug)?;
     let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
 
@@ -359,6 +386,7 @@ pub fn nginx_ssl_add_site(
         slug,
         hostname,
         backend,
+        limits,
         enabled: true,
         ssl_not_after: Some(leaf.not_after),
         created_at: chrono::Utc::now().to_rfc3339(),
@@ -411,7 +439,7 @@ pub fn nginx_ssl_set_site_enabled(
     let file_op = if enabled {
         Operation::WriteFile {
             path: conf_path,
-            contents: render_conf_for(&app, &site.hostname, &site.backend, &site.slug)?,
+            contents: render_conf_for(&app, &site.hostname, &site.backend, &site.limits, &site.slug)?,
         }
     } else {
         Operation::RemoveFile { path: conf_path }
@@ -483,7 +511,7 @@ pub fn nginx_ssl_set_site_php_version(
     let file_op = if site.enabled {
         Operation::WriteFile {
             path: conf_path,
-            contents: render_conf_for(&app, &site.hostname, &new_backend, &site.slug)?,
+            contents: render_conf_for(&app, &site.hostname, &new_backend, &site.limits, &site.slug)?,
         }
     } else {
         Operation::RemoveFile { path: conf_path }
@@ -514,6 +542,161 @@ pub fn nginx_ssl_set_site_php_version(
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Applies per-site nginx/PHP tuning — upload size, memory, timeouts, and raw
+/// directives. See `limits` for why none of this touches php.ini.
+///
+/// Unlike the sibling setters, this one **rolls the conf back** if nginx rejects
+/// it. The others only ever write values this app generated and already
+/// validated; this one writes a free-text directive box, so a config nginx
+/// refuses is an expected outcome rather than a bug. Without the rollback the
+/// bad conf would stay on disk, and the *next* unrelated save — enabling a site,
+/// switching PHP version — would fail its `nginx -t` on a config the user had
+/// already been told was rejected.
+#[tauri::command]
+pub fn nginx_ssl_set_site_limits(
+    app: AppHandle,
+    db: State<crate::db::Db>,
+    id: String,
+    limits: SiteLimits,
+) -> Result<(), String> {
+    let site = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        find(&conn, &id)?
+    };
+    let limits = limits.validate()?;
+
+    // A disabled site has no conf on disk, so there is nothing to reload or roll
+    // back — persist and let the next enable render it.
+    if !site.enabled {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE nginx_ssl_sites SET limits = ?1 WHERE id = ?2",
+            (limits::to_column(&limits), &id),
+        )
+        .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    let (binary_path, config_path) = require_nginx()?;
+    let conf_path = conf_path_string(&app, &site.slug)?;
+    let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
+    let allowed_write_prefix = allowed_write_prefix(&app)?;
+
+    let previous_conf = render_conf_for(&app, &site.hostname, &site.backend, &site.limits, &site.slug)?;
+    let next_conf = render_conf_for(&app, &site.hostname, &site.backend, &limits, &site.slug)?;
+
+    let apply = |contents: String| OperationManifest {
+        allowed_write_prefix: allowed_write_prefix.clone(),
+        operations: vec![
+            Operation::WriteFile {
+                path: conf_path.clone(),
+                contents,
+            },
+            nginx::cleanup_legacy_include_block_op(&config_path),
+            nginx::include_op(&config_path, &sites_glob).expect("include op built above"),
+            Operation::RunNginxTest {
+                binary_path: binary_path.clone(),
+            },
+            Operation::ReloadNginx {
+                binary_path: binary_path.clone(),
+            },
+        ],
+    };
+
+    let results = elevate::run(&app, apply(next_conf))?;
+    if let Some(failed) = results.iter().find(|r| !r.success) {
+        let reason = failed.message.clone();
+        // Second prompt, but only on the failure path — and the alternative is
+        // leaving nginx holding a config it just rejected.
+        return match elevate::run(&app, apply(previous_conf)) {
+            Ok(_) => Err(format!("nginx rejected these settings, so they were not applied: {reason}")),
+            Err(rollback_err) => Err(format!(
+                "nginx rejected these settings: {reason}\n\nRestoring the previous config also failed: {rollback_err}. Fix the settings and save again, or disable and re-enable the site."
+            )),
+        };
+    }
+
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE nginx_ssl_sites SET limits = ?1 WHERE id = ?2",
+        (limits::to_column(&limits), &id),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Reissues a site's leaf certificate from the root CA currently on disk, then
+/// re-renders and reloads its vhost.
+///
+/// Needed because a leaf is only as good as the CA that signed it: a leaf signed
+/// by an earlier CA (a different name, or a regenerated key) still sits on disk
+/// looking valid, but no browser can build a chain for it, so the site fails TLS
+/// while its neighbours work. Reissuing is the repair, and it is cheap enough to
+/// offer per site rather than making the user remove and re-add one.
+#[tauri::command]
+pub fn nginx_ssl_reissue_site_cert(
+    app: AppHandle,
+    db: State<crate::db::Db>,
+    id: String,
+) -> Result<String, String> {
+    let site = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        find(&conn, &id)?
+    };
+
+    let certs_dir = super::certs_dir(&app)?;
+    ca::ensure_root_ca(&certs_dir)?;
+    let leaf = ca::leaf::issue(&certs_dir, &site.hostname)?;
+
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE nginx_ssl_sites SET ssl_not_after = ?1 WHERE id = ?2",
+            (&leaf.not_after, &id),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // A disabled site has no conf on disk; the new cert is on disk either way and
+    // the next enable will render a vhost pointing at it.
+    if !site.enabled {
+        return Ok(format!(
+            "Reissued the certificate for {}. Enable the site to serve it.",
+            site.hostname
+        ));
+    }
+
+    let (binary_path, config_path) = require_nginx()?;
+    let conf_path = conf_path_string(&app, &site.slug)?;
+    let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
+    let contents = render_conf_for(&app, &site.hostname, &site.backend, &site.limits, &site.slug)?;
+
+    let manifest = OperationManifest {
+        allowed_write_prefix: allowed_write_prefix(&app)?,
+        operations: vec![
+            Operation::WriteFile {
+                path: conf_path,
+                contents,
+            },
+            nginx::cleanup_legacy_include_block_op(&config_path),
+            nginx::include_op(&config_path, &sites_glob)?,
+            Operation::RunNginxTest {
+                binary_path: binary_path.clone(),
+            },
+            Operation::ReloadNginx { binary_path },
+        ],
+    };
+
+    let results = elevate::run(&app, manifest)?;
+    if let Some(failed) = results.iter().find(|r| !r.success) {
+        return Err(failed.message.clone());
+    }
+    Ok(format!(
+        "Reissued the certificate for {} and reloaded nginx.",
+        site.hostname
+    ))
 }
 
 /// Standalone re-run of the storage/bootstrap-cache permission fix, for Laravel

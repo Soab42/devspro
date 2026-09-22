@@ -88,24 +88,25 @@ pub fn ensure_root_ca(certs_dir: &Path) -> Result<(), String> {
 
 /// rcgen 0.13's `signed_by` wants an in-memory `Certificate` + `KeyPair` for the
 /// issuer, not just a PEM on disk (it has no "load an existing cert as issuer"
-/// path). We reconstruct an equivalent `Certificate` here from the persisted key and
-/// the same fixed DN used at creation time, then self-sign it in memory purely to
-/// get a handle `signed_by` accepts — this reconstruction is never written to disk;
-/// the real root CA file on disk is untouched. `signed_by` only reads the issuer's
-/// DN/key-identifier/key-usage fields, none of which depend on the reconstruction's
-/// own (unused) serial number or validity dates, so this is safe even though it
-/// doesn't byte-for-byte match the original self-signed cert.
+/// path). So the root CA's own PEM is parsed back into `CertificateParams` and
+/// re-signed in memory purely to get a handle `signed_by` accepts — the file on
+/// disk is never touched.
+///
+/// Parsing the real file matters, and is the bug this replaced: the issuer used to
+/// be rebuilt from the `CA_COMMON_NAME` constant, so renaming the product
+/// (DevSuite → DevsPro) changed the issuer DN stamped into every new leaf while
+/// the trusted root on disk kept its original subject. The signature still
+/// verified, but no chain could be built — every site issued after the rename
+/// failed in the browser while older ones kept working.
 pub(super) fn load_issuer(certs_dir: &Path) -> Result<(Certificate, KeyPair), String> {
     let key_pem =
         fs::read_to_string(root_key_path(certs_dir)).map_err(|e| format!("root CA key missing: {e}"))?;
     let key_pair = KeyPair::from_pem(&key_pem).map_err(|e| format!("invalid root CA key: {e}"))?;
 
-    let mut params = CertificateParams::default();
-    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, CA_COMMON_NAME);
-    dn.push(DnType::OrganizationName, "DevsPro (local, do not trust off this machine)");
-    params.distinguished_name = dn;
+    let cert_pem = fs::read_to_string(root_cert_path(certs_dir))
+        .map_err(|e| format!("root CA cert missing: {e}"))?;
+    let params = CertificateParams::from_ca_cert_pem(&cert_pem)
+        .map_err(|e| format!("could not read the root CA cert: {e}"))?;
 
     let issuer_cert = params
         .self_signed(&key_pair)
@@ -241,4 +242,85 @@ pub fn nginx_ssl_ca_install(app: tauri::AppHandle) -> Result<String, String> {
         return Err(results.iter().map(|r| r.message.as_str()).collect::<Vec<_>>().join("; "));
     }
     Ok(results.iter().map(|r| r.message.as_str()).collect::<Vec<_>>().join("; "))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The repo has no `tempfile` dev-dependency; `workers` uses this same
+    /// temp_dir + uuid pattern, so follow it rather than add one.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let dir = std::env::temp_dir().join(format!("devsuite-ca-{}", uuid::Uuid::new_v4()));
+            fs::create_dir_all(&dir).unwrap();
+            TempDir(dir)
+        }
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn dn_common_name(dn: &DistinguishedName) -> String {
+        match dn.get(&DnType::CommonName) {
+            Some(rcgen::DnValue::PrintableString(s)) => s.as_str().to_string(),
+            Some(rcgen::DnValue::Utf8String(s)) => s.clone(),
+            other => panic!("unexpected CN value: {other:?}"),
+        }
+    }
+
+    /// Regression test for the per-site TLS failure: the issuer used to be rebuilt
+    /// from the `CA_COMMON_NAME` constant instead of the root CA actually on disk,
+    /// so renaming the product stamped a *different* issuer DN into every new leaf
+    /// while the trusted root kept its original subject. Chain building fails, and
+    /// only sites issued after the rename break — which is what made it look like a
+    /// per-site problem.
+    #[test]
+    fn issuer_comes_from_the_root_ca_on_disk_not_the_current_constant() {
+        let dir = TempDir::new();
+        let certs_dir = dir.path();
+
+        // Stand in for a root CA created under an older product name.
+        let key_pair = KeyPair::generate().unwrap();
+        let mut params = CertificateParams::default();
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        let mut dn = DistinguishedName::new();
+        dn.push(DnType::CommonName, "DevSuite Local Development CA");
+        params.distinguished_name = dn;
+        let cert = params.self_signed(&key_pair).unwrap();
+        fs::write(root_cert_path(certs_dir), cert.pem()).unwrap();
+        fs::write(root_key_path(certs_dir), key_pair.serialize_pem()).unwrap();
+
+        // The pre-existing CA must be left alone...
+        ensure_root_ca(certs_dir).unwrap();
+        let (issuer, _) = load_issuer(certs_dir).unwrap();
+        // ...and leaves must be signed under *its* name, not CA_COMMON_NAME.
+        assert_eq!(
+            dn_common_name(&issuer.params().distinguished_name),
+            "DevSuite Local Development CA"
+        );
+        assert_ne!(
+            dn_common_name(&issuer.params().distinguished_name),
+            CA_COMMON_NAME
+        );
+    }
+
+    #[test]
+    fn ensure_root_ca_is_idempotent() {
+        let dir = TempDir::new();
+        ensure_root_ca(dir.path()).unwrap();
+        let first = fs::read_to_string(root_cert_path(dir.path())).unwrap();
+        ensure_root_ca(dir.path()).unwrap();
+        assert_eq!(first, fs::read_to_string(root_cert_path(dir.path())).unwrap());
+        assert!(status(dir.path()).exists);
+        assert!(status(dir.path()).not_after.is_some());
+    }
 }

@@ -9,12 +9,32 @@ use std::sync::Mutex;
 
 pub struct Db(pub Mutex<Connection>);
 
+/// Migrations added after the per-module lists were frozen. **Append only** — a
+/// new entry goes at the end, and nothing is ever inserted or removed.
+///
+/// This list exists because the per-module scheme below is unsafe to extend. A
+/// migration's identity is its *position* in the concatenated list, so adding one
+/// to the end of `nginx_ssl::migrations()` shifts every `workers` migration up by
+/// one index — and an already-migrated database then re-runs them, failing with
+/// "table workers already exists". That is not hypothetical; it is exactly what
+/// happened when the site-limits migration was first added in the module list.
+///
+/// One flat list, not a per-module `later_migrations()` each: per-module lists
+/// would reintroduce the same shifting problem the moment a second module added
+/// one.
+fn later_migrations() -> Vec<&'static str> {
+    vec![crate::modules::nginx_ssl::sites::MIGRATION_SITE_LIMITS]
+}
+
 fn all_migrations() -> Vec<&'static str> {
     let mut migrations = Vec::new();
+    // FROZEN. These three lists are position-indexed against databases already in
+    // the wild; do not add, remove, or reorder entries within them.
     migrations.extend(crate::auth::migrations());
     migrations.extend(crate::modules::nginx_ssl::migrations());
     migrations.extend(crate::modules::workers::migrations());
-    // Future modules append here.
+    // New migrations — from any module — go at the end of this one list.
+    migrations.extend(later_migrations());
     migrations
 }
 
@@ -49,6 +69,33 @@ mod tests {
         migrate(&conn).unwrap();
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version as usize, all_migrations().len());
+    }
+
+    /// Upgrading from *any* older version must succeed — the case the two tests
+    /// below miss, because both start from an empty database and apply the whole
+    /// list in one go.
+    ///
+    /// This is the regression test for a real startup crash: a migration appended
+    /// to the middle of the concatenated list renumbered every migration after it,
+    /// so an existing database re-ran them and died on "table workers already
+    /// exists". Any future insertion into a frozen list fails here instead of on
+    /// a user's machine.
+    #[test]
+    fn migrate_succeeds_from_every_intermediate_version() {
+        let all = all_migrations();
+        for version in 0..all.len() {
+            let conn = Connection::open_in_memory().unwrap();
+            // Reconstruct a database that stopped at `version`.
+            for (index, sql) in all.iter().take(version).enumerate() {
+                conn.execute_batch(sql).unwrap();
+                conn.pragma_update(None, "user_version", (index + 1) as i64).unwrap();
+            }
+            migrate(&conn).unwrap_or_else(|e| {
+                panic!("upgrading a database at version {version} failed: {e}")
+            });
+            let final_version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+            assert_eq!(final_version as usize, all.len());
+        }
     }
 
     #[test]

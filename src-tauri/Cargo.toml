@@ -36,7 +36,10 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
-rcgen = "0.13"
+# x509-parser: needed to read the issuer DN back out of the root CA on disk when
+# signing a leaf. Without it the DN had to be hardcoded, which silently broke
+# every cert the moment the product was renamed — see ca::load_issuer.
+rcgen = { version = "0.13", features = ["x509-parser"] }
 time = "0.3"
 
 [target.'cfg(windows)'.dependencies]

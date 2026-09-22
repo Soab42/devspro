@@ -17,12 +17,38 @@ export type Backend =
   | { type: "port"; port: number }
   | { type: "laravel"; project_path: string; php_version: string | null };
 
+/**
+ * Per-site nginx/PHP tuning. `null` on every field means "system default" — the
+ * vhost renders without the directive at all rather than with a value copied
+ * from php.ini.
+ *
+ * `max_upload_size` deliberately drives three underlying directives at once
+ * (nginx `client_max_body_size`, PHP `upload_max_filesize` and `post_max_size`);
+ * see the Rust `limits` module for why they are not exposed separately.
+ */
+export interface SiteLimits {
+  max_upload_size: string | null;
+  memory_limit: string | null;
+  max_execution_time: number | null;
+  max_input_vars: number | null;
+  extra_nginx: string | null;
+}
+
+export const EMPTY_LIMITS: SiteLimits = {
+  max_upload_size: null,
+  memory_limit: null,
+  max_execution_time: null,
+  max_input_vars: null,
+  extra_nginx: null,
+};
+
 export interface Site {
   id: string;
   name: string;
   slug: string;
   hostname: string;
   backend: Backend;
+  limits: SiteLimits;
   enabled: boolean;
   ssl_not_after: string | null;
   created_at: string;
@@ -76,6 +102,16 @@ export const setSiteEnabled = (id: string, enabled: boolean) =>
   invoke<void>("nginx_ssl_set_site_enabled", { id, enabled });
 export const setSitePhpVersion = (id: string, phpVersion: string | null) =>
   invoke<void>("nginx_ssl_set_site_php_version", { id, phpVersion });
+export const setSiteLimits = (id: string, limits: SiteLimits) =>
+  invoke<void>("nginx_ssl_set_site_limits", { id, limits });
+/**
+ * Re-signs a site's leaf certificate with the root CA currently on disk. The
+ * repair for a site whose leaf was signed by an earlier CA — the browser can
+ * verify the signature but cannot build a chain, so that one site fails TLS
+ * while its neighbours are fine.
+ */
+export const reissueSiteCert = (id: string) =>
+  invoke<string>("nginx_ssl_reissue_site_cert", { id });
 export const fixLaravelPermissions = (id: string) =>
   invoke<string>("nginx_ssl_fix_laravel_permissions", { id });
 export const removeSite = (id: string) => invoke<void>("nginx_ssl_remove_site", { id });

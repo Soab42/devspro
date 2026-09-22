@@ -6,6 +6,7 @@
 pub mod ca;
 pub mod hosts;
 pub mod laravel;
+pub mod limits;
 pub mod nginx;
 pub mod php_fpm;
 pub mod ports;

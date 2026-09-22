@@ -21,8 +21,10 @@ fn key_path(certs_dir: &Path, hostname: &str) -> PathBuf {
     certs_dir.join(format!("{hostname}-key.pem"))
 }
 
-/// Issues (or reuses, if already valid) a leaf certificate for `hostname`, signed by
-/// the local root CA. Requires no elevation — only *installing the root CA* into a
+/// Issues a fresh leaf certificate for `hostname`, signed by the local root CA,
+/// overwriting any existing one. Always re-signing rather than reusing a still-valid
+/// file is deliberate: a leaf signed by an *earlier* root CA looks valid on disk but
+/// chains to nothing, and re-issuing is how that gets repaired. Requires no elevation — only *installing the root CA* into a
 /// trust store does; a leaf signed by a CA already trusted needs no further trust
 /// action of its own.
 pub fn issue(certs_dir: &Path, hostname: &str) -> Result<LeafCert, String> {
