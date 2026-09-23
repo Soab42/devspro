@@ -17,7 +17,7 @@ import {
   TextInput,
 } from "../../../ui";
 import { ExternalLink } from "../../../ui/icons";
-import { listDatabases, type DevsuiteContainer } from "../../databases/api";
+import { listDatabases, type DevsproContainer } from "../../databases/api";
 import { listPhpVersions, scaffoldWizardRun, type PhpFpmVersion } from "../api";
 import {
   connectionOption,
@@ -84,7 +84,7 @@ export default function NewProjectForm({
   const [phpVersion, setPhpVersion] = useState(SYSTEM_DEFAULT);
 
   // Step 2 — services
-  const [containers, setContainers] = useState<DevsuiteContainer[]>([]);
+  const [containers, setContainers] = useState<DevsproContainer[]>([]);
   const [createDatabase, setCreateDatabase] = useState(false);
   const [dbConnection, setDbConnection] = useState("");
   const [dbName, setDbName] = useState("");

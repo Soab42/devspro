@@ -1,5 +1,5 @@
 [package]
-name = "devsuite"
+name = "devspro"
 version = "0.1.0"
 description = "Local development environment manager."
 # Feeds the Debian package's Maintainer field — tauri-bundler reads it from
@@ -17,16 +17,18 @@ edition = "2021"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "devsuite_lib"
+name = "devspro_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# `unstable` is for the Browser module: child webviews inside the main window
-# (`Window::add_child`). Nothing else in the tree depends on it.
-tauri = { version = "2", features = ["tray-icon", "image-png", "unstable"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+# wry directly, for the Browser module's positioned child webviews. Tauri's own
+# multi-webview support can't place a child on Linux — see modules/browser.
+wry = { version = "0.55", default-features = false, features = ["devtools"] }
+aes-gcm = "0.10"
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-autostart = "2"
@@ -47,6 +49,15 @@ portable-pty = "0.9.0"
 ssh2 = "0.9.6"
 base64 = "0.23.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["native-tls"] }
+tokio = { version = "1.53.1", features = ["net", "io-util", "sync", "macros", "time", "rt"] }
+tokio-tungstenite = "0.30"
+futures-util = "0.3.34"
+
+# The Browser module hosts each tab's WebKit widget inside the app window's
+# GTK tree (a Fixed over the app webview) — see modules/browser/host.rs.
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+webkit2gtk = "2.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

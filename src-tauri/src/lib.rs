@@ -4,6 +4,7 @@ mod elevate;
 mod modules;
 mod tray;
 
+use modules::ai;
 use modules::apps;
 use modules::backup;
 use modules::browser;
@@ -18,6 +19,7 @@ use modules::mailcatcher;
 use modules::nginx_ssl::{ca, laravel, nginx, php_fpm, ports, sites};
 use modules::processes;
 use modules::redis;
+use modules::remote_desktop;
 use modules::scaffold;
 use modules::scheduled;
 use modules::settings;
@@ -52,6 +54,7 @@ pub fn run() {
             app.manage(tunnel::TunnelState::default());
             app.manage(workers::WorkersState::default());
             app.manage(ssh::SshState::default());
+            app.manage(remote_desktop::RemoteDesktopState::default());
 
             tray::setup(app.handle())?;
 
@@ -133,6 +136,7 @@ pub fn run() {
             file_manager::fm_read_file,
             file_manager::fm_write_file,
             file_manager::fm_open,
+            file_manager::fm_open_in_editor,
             browser::browser_open,
             browser::browser_navigate,
             browser::browser_back,
@@ -144,6 +148,28 @@ pub fn run() {
             browser::browser_set_zoom,
             browser::browser_close,
             browser::browser_list,
+            browser::browser_focus,
+            browser::browser_focus_parent,
+            browser::browser_devtools,
+            browser::browser_print,
+            browser::browser_find,
+            browser::browser_clear_data,
+            browser::browser_bookmarks_list,
+            browser::browser_bookmark_add,
+            browser::browser_bookmark_update,
+            browser::browser_bookmark_delete,
+            browser::browser_bookmarks_reorder,
+            browser::browser_history_search,
+            browser::browser_history_delete,
+            browser::browser_history_clear,
+            browser::browser_system_browsers,
+            browser::browser_open_in,
+            browser::credentials::browser_credentials_list,
+            browser::credentials::browser_credentials_for,
+            browser::credentials::browser_credential_save,
+            browser::credentials::browser_credential_delete,
+            browser::credentials::browser_credential_reveal,
+            browser::credentials::browser_credential_fill,
             hosts_file::hosts_file_read,
             hosts_file::hosts_file_add,
             hosts_file::hosts_file_remove,
@@ -170,6 +196,9 @@ pub fn run() {
             redis::redis_flush_db,
             redis::redis_laravel_queues,
             redis::redis_peek_job,
+            ai::ai_agents_list,
+            ai::ai_custom_agent_save,
+            ai::ai_custom_agent_delete,
             apps::apps_list,
             apps::apps_install_batch,
             apps::apps_list_nvm_versions,
@@ -191,6 +220,20 @@ pub fn run() {
             databases::browse::databases_table_rows,
             databases::browse::databases_query,
             databases::browse::databases_dump,
+            databases::browse::databases_restore_dump,
+            databases::browse::databases_test_connection,
+            databases::connections::databases_connections_list,
+            databases::connections::databases_connections_save,
+            databases::connections::databases_connections_delete,
+            databases::connections::databases_inspect_container,
+            databases::connections::databases_mode_get,
+            databases::connections::databases_mode_set,
+            databases::browse::databases_table_structure,
+            databases::browse::databases_apply_edits,
+            databases::browse::databases_export,
+            databases::browse::databases_add_column,
+            databases::history::databases_history_list,
+            databases::history::databases_history_clear,
             system::system_info_snapshot,
             tunnel::tunnel_detect,
             tunnel::tunnel_start,
@@ -215,6 +258,8 @@ pub fn run() {
             ssh::pty::pty_write,
             ssh::pty::pty_resize,
             ssh::pty::pty_close,
+            ssh::pty::pty_adopt,
+            ssh::pty::pty_cwd,
             ssh::sftp::sftp_connect,
             ssh::sftp::sftp_trust_host,
             ssh::sftp::sftp_disconnect,
@@ -225,6 +270,16 @@ pub fn run() {
             ssh::sftp::sftp_delete,
             ssh::sftp::sftp_download,
             ssh::sftp::sftp_upload,
+            ssh::sftp::sftp_read_file,
+            ssh::sftp::sftp_write_file,
+            ssh::sftp::sftp_open_in_editor,
+            remote_desktop::connections::remote_desktop_list,
+            remote_desktop::connections::remote_desktop_save,
+            remote_desktop::connections::remote_desktop_delete,
+            remote_desktop::vnc::remote_desktop_vnc_open,
+            remote_desktop::vnc::remote_desktop_vnc_close,
+            remote_desktop::rdp::remote_desktop_rdp_clients,
+            remote_desktop::rdp::remote_desktop_rdp_launch,
             scheduled::scheduled_list,
             scheduled::scheduled_save,
             scheduled::scheduled_delete,
@@ -238,9 +293,20 @@ pub fn run() {
             // Tunnels are live child processes with no persistence — if we
             // don't kill them here, they'd keep running (and keep the public
             // URL alive) after DevsPro itself has quit.
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                tunnel::kill_all(app_handle.state::<tunnel::TunnelState>());
-                ssh::pty::kill_all(&app_handle.state::<ssh::SshState>());
+            match event {
+                tauri::RunEvent::ExitRequested { .. } => {
+                    tunnel::kill_all(app_handle.state::<tunnel::TunnelState>());
+                    ssh::pty::kill_all(&app_handle.state::<ssh::SshState>());
+                    remote_desktop::vnc::kill_all(&app_handle.state::<remote_desktop::RemoteDesktopState>());
+                }
+                // A popped-out terminal window owns its shells; closing the
+                // window is closing those terminals.
+                tauri::RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::Destroyed,
+                    ..
+                } => ssh::pty::kill_owned_by(&app_handle.state::<ssh::SshState>(), &label),
+                _ => {}
             }
         });
 }

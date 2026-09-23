@@ -1,0 +1,397 @@
+/* The database browser's own layout and grid-editing affordances. Everything
+   else it draws comes from the UI primitives; only what is specific to editing
+   a result grid in place lives here. */
+
+/* ---------------------------------------------------------------- Fill --
+   The browser fills the window instead of growing it: the toolbar, the tab
+   bar and the pager stay put, and the two lists — tables on the left, rows on
+   the right — scroll inside their own panes.
+
+   That needs an unbroken chain of flex parents from the page down, each with
+   `min-height: 0`; a flex child defaults to min-height:auto and refuses to
+   shrink, at which point the whole page scrolls instead. Same pairing as the
+   Logs page and `.content` in Shell.css. */
+
+/* `flex`, not `height: 100%`: Page's fill mode makes `.page-body` a flex
+   column precisely so this needs no percentage to resolve. */
+.db-page-fill {
+  flex: 1;
+  min-height: 0;
+}
+
+.db-browser-root,
+.db-browser-main,
+.db-tab-fill {
+  flex: 1;
+  min-height: 0;
+}
+
+/* The two tabs whose content is a column of sections scroll as a whole; the
+   Data tab does not, because its grid scrolls on its own below a fixed filter
+   bar and above a fixed pager. */
+.db-tab-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.db-browser {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background-color: var(--color-surface);
+}
+
+.db-browser .split-view-main {
+  padding: var(--space-4);
+}
+
+/* The aside stops being the scroller so the filter box can sit above one:
+   its own height is fixed by the SplitView, and the list inside it scrolls.
+
+   Scoped to the browser rather than changed on the primitive: making every
+   aside a flex column would let the other modules' asides shrink below their
+   content, which is not what they want. */
+.db-browser .split-view-aside {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.db-sidebar {
+  flex: 1;
+  min-height: 0;
+}
+
+.db-sidebar-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for the scrollbar so it never sits on top of a table name. */
+  padding-right: var(--space-1);
+}
+
+.db-sidebar-empty {
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+/* ----------------------------------------------------------- Filter bar -- */
+
+.db-filter-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 1fr) minmax(8rem, 1.5fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+@media (max-width: 40rem) {
+  .db-filter-row {
+    grid-template-columns: 1fr 1fr auto;
+  }
+}
+
+/* ---------------------------------------------------------------- Cells -- */
+
+/* A cell is a button so it is reachable by keyboard, but it must look like a
+   table cell — no chrome until there is a reason for it. */
+.db-cell {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-cell-editable {
+  cursor: text;
+}
+
+.db-cell-editable:hover {
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.db-cell-editable:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* An edited cell is marked individually, not just by its row: after changing
+   four cells across a wide table, which four is the question you have. */
+.db-cell-changed {
+  background-color: var(--color-warning-bg);
+  box-shadow: inset 2px 0 0 var(--color-warning);
+}
+
+.db-cell-input {
+  width: 100%;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-xs);
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: inherit;
+}
+
+.db-cell-input:focus {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* ----------------------------------------------------------------- Rows -- */
+
+.db-row-changed > td {
+  background-color: var(--color-surface-2);
+}
+
+/* Struck through rather than hidden: a delete is staged, not done, and it has
+   to stay visible to be taken back. */
+.db-row-deleted > td {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+/* --------------------------------------------------------- Query sheets -- */
+
+.db-query-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding-bottom: var(--space-2);
+}
+
+.db-query-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-2);
+}
+
+.db-query-tab > button {
+  height: var(--control-h-sm);
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.db-query-tab-active {
+  background-color: var(--color-accent-subtle);
+}
+
+.db-query-tab-active > button {
+  color: var(--color-accent-text);
+  font-weight: var(--fw-medium);
+}
+
+.db-query-tab > button:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-xs);
+}
+
+/* --------------------------------------------------------- Drag to scroll -- */
+
+/* Only while a drag is in flight: a permanent `grab` cursor over the whole
+   grid would fight the text cursor in every cell. */
+.dt-scroll.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* ---------------------------------------------------------------- Links -- */
+
+.db-fk-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* Drag-to-scroll must not fight a header drag: the grid's pointer handler
+   already ignores anything draggable, and this keeps the cursor honest. */
+.dt-th-draggable:active {
+  cursor: grabbing;
+}
+
+.db-fk-cell > .db-cell {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A foreign key and a related-table count are the same gesture — open that
+   table, already filtered — so they are the same chip, tinted differently
+   only to say which direction it goes. */
+/* No max-width: the column is sized to its content now, so a chip saying
+   "ProjectChatMessage" says it rather than trailing off into an ellipsis. */
+.db-link-chip,
+.db-relation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.db-link-chip:hover,
+.db-relation-chip:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.db-link-chip:focus-visible,
+.db-relation-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.db-relation-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.db-relation-count {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  background-color: var(--color-surface-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.db-relation-header {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* -------------------------------------------------------- Column manager -- */
+
+.db-column-manager {
+  position: fixed;
+  z-index: var(--z-popover);
+  display: flex;
+  flex-direction: column;
+  width: 15rem;
+  max-height: 20rem;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.db-column-manager-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.db-column-manager-title {
+  flex: 1;
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.db-column-manager-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  overflow-y: auto;
+}
+
+.db-column-manager-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.db-column-manager-row:hover {
+  background-color: var(--color-hover);
+}
+
+/* Shown on hover or when one of them has focus, so the list reads as a column
+   of names until you are actually reordering it. */
+.db-column-manager-move {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  opacity: 0;
+}
+
+.db-column-manager-row:hover .db-column-manager-move,
+.db-column-manager-move:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .db-column-manager-move {
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------- Drawer -- */
+
+.db-drawer-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.db-drawer-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.db-rows-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+/* The toolbar hoisted into a popped-out window's top bar: one row that
+   shrinks rather than wraps, since the bar is a single line. */
+.db-browser-toolbar-topbar,
+.db-browser-toolbar-topbar .toolbar-start,
+.db-browser-toolbar-topbar .toolbar-end {
+  flex-wrap: nowrap;
+}
+
+.db-browser-toolbar-topbar .toolbar-start {
+  flex: 0 1 auto;
+}
+
+.db-browser-toolbar-topbar .toolbar-end {
+  margin-left: 0;
+}

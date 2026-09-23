@@ -35,7 +35,9 @@ describe("useResource", () => {
     const fetcher = vi
       .fn<() => Promise<string>>()
       .mockResolvedValueOnce("first")
-      .mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (release = resolve)),
+      );
 
     const { result } = renderHook(() => useResource(fetcher));
     await waitFor(() => expect(result.current.data).toBe("first"));
@@ -63,7 +65,9 @@ describe("useResource", () => {
         throw new Error("daemon unreachable");
       }),
     );
-    await waitFor(() => expect(result.current.error).toBe("daemon unreachable"));
+    await waitFor(() =>
+      expect(result.current.error).toBe("daemon unreachable"),
+    );
     expect(result.current.data).toBeNull();
   });
 

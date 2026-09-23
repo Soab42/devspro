@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { SftpEntry, SshHost } from "./api";
 import {
   baseName,
+  cdCommand,
+  followHookCommand,
+  shellQuote,
   formatModified,
   formatSize,
   hostLabel,
@@ -155,5 +158,22 @@ describe("terminalTitle", () => {
     expect(terminalTitle({ ssh: "1" }, hosts, 1)).toBe("Prod");
     expect(terminalTitle({ ssh: "1" }, hosts, 2)).toBe("Prod (2)");
     expect(terminalTitle({ ssh: "missing" }, hosts, 1)).toBe("ssh");
+  });
+});
+
+describe("shell helpers", () => {
+  it("quotes paths for a POSIX shell", () => {
+    expect(shellQuote("/tmp/a b")).toBe("'/tmp/a b'");
+    expect(shellQuote("it's")).toBe("'it'\\''s'");
+    expect(cdCommand("/var/www")).toBe(" cd '/var/www'\n");
+  });
+
+  it("installs a prompt hook that expands at each prompt, not at install time", () => {
+    const hook = followHookCommand();
+    expect(hook.startsWith(" ")).toBe(true);
+    expect(hook.endsWith("\n")).toBe(true);
+    // The bash branch must single-quote the assignment, or $PWD is baked in once.
+    expect(hook).toMatch(/PROMPT_COMMAND='printf "%b" "\\033\]7;file:\/\/\$\(hostname 2>\/dev\/null\)\$PWD\\007"'/);
+    expect(hook).toContain("precmd()");
   });
 });

@@ -4,6 +4,17 @@ import { listSites } from "../nginx-ssl/api";
 import { listPorts } from "../processes/api";
 import { PortClaimsInput, SITE_LISTEN_PORTS } from "./portConflicts";
 
+/**
+ * One thermal sensor. `high_c` / `critical_c` are the vendor's own thresholds
+ * when the driver publishes them; most do not, so the UI carries defaults.
+ */
+export interface TemperatureReading {
+  label: string;
+  celsius: number;
+  high_c: number | null;
+  critical_c: number | null;
+}
+
 export interface CpuInfo {
   model: string;
   core_count: number;
@@ -12,6 +23,10 @@ export interface CpuInfo {
   load_avg_1: number;
   load_avg_5: number;
   load_avg_15: number;
+  /** Package temperature, or the hottest core. Null on hardware with no sensor. */
+  temperature: TemperatureReading | null;
+  /** Every sensor the CPU's driver exposes — package plus per core. */
+  temperatures: TemperatureReading[];
 }
 
 export interface MemoryInfo {
@@ -45,7 +60,7 @@ export interface GpuInfo {
   usage_percent: number | null;
   memory_used_mb: number | null;
   memory_total_mb: number | null;
-  temperature_c: number | null;
+  temperature: TemperatureReading | null;
 }
 
 export interface SystemSnapshot {

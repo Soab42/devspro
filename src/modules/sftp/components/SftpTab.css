@@ -1,0 +1,229 @@
+/* Two-pane SFTP: local on the left, remote on the right, transfers flow
+   between them. Layout only — everything else comes from the ui kit. */
+/* The panes take the window's remaining height and each table scrolls inside
+   its own box, so the toolbars stay put and one long listing never drags the
+   other pane off screen. Every link in the chain needs min-height: 0, or a
+   flex/grid child refuses to shrink and the page scrolls instead. */
+.sftp-tab {
+  height: 100%;
+  min-height: 0;
+}
+
+/* --sftp-split is the first pane's share as a percentage; the second pane
+   takes the rest with 1fr. Side by side that is columns, stacked it is rows.
+   (Not fr arithmetic: fr is not allowed inside calc(), and an invalid track
+   list silently collapses the grid to one column.) */
+.sftp-panes {
+  --sftp-split: 50%;
+  display: grid;
+  gap: var(--space-2);
+  flex: 1;
+  min-height: 0;
+}
+
+.sftp-panes-side {
+  grid-template-columns: minmax(0, var(--sftp-split)) auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.sftp-panes-stack {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, var(--sftp-split)) auto minmax(0, 1fr);
+}
+
+/* A folded pane is a rail; the divider goes away and the other pane takes
+   whatever is left. Both folded leaves two rails and nothing else. */
+.sftp-panes-fold-local .sftp-divider,
+.sftp-panes-fold-remote .sftp-divider {
+  display: none;
+}
+
+.sftp-panes-side.sftp-panes-fold-local {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.sftp-panes-side.sftp-panes-fold-remote {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.sftp-panes-side.sftp-panes-fold-local.sftp-panes-fold-remote {
+  grid-template-columns: auto auto;
+}
+
+.sftp-panes-stack.sftp-panes-fold-local {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.sftp-panes-stack.sftp-panes-fold-remote {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.sftp-panes-stack.sftp-panes-fold-local.sftp-panes-fold-remote {
+  grid-template-rows: auto auto;
+}
+
+.sftp-rail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+/* Side by side, a rail stands on end so it costs one button's width. */
+.sftp-panes-side .sftp-rail {
+  flex-direction: column;
+}
+
+.sftp-panes-side .sftp-rail .sftp-pane-title {
+  writing-mode: vertical-rl;
+}
+
+.sftp-divider {
+  cursor: col-resize;
+  border-radius: var(--radius-sm);
+  position: relative;
+  touch-action: none;
+}
+
+.sftp-panes-side .sftp-divider {
+  width: var(--space-3);
+}
+
+.sftp-panes-stack .sftp-divider {
+  height: var(--space-3);
+  cursor: row-resize;
+}
+
+.sftp-divider::before {
+  content: "";
+  position: absolute;
+  border-radius: 1px;
+  background-color: var(--color-border-subtle);
+  transition: var(--transition-colors);
+}
+
+.sftp-panes-side .sftp-divider::before {
+  inset: 0 auto 0 50%;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+.sftp-panes-stack .sftp-divider::before {
+  inset: 50% 0 auto 0;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.sftp-divider:hover::before,
+.sftp-divider-dragging::before {
+  background-color: var(--color-accent);
+}
+
+.sftp-divider:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.sftp-pane {
+  min-height: 0;
+}
+
+.sftp-pane-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+.sftp-crumbs {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.sftp-crumb-sep {
+  color: var(--color-text-muted);
+  padding: 0 var(--space-1);
+}
+
+/* ---- editor dialog: the code box takes whatever height the dialog has ---- */
+.modal-panel:has(.sftp-editor-body) .modal-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.sftp-editor-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-4);
+}
+
+.sftp-editor-body .field,
+.sftp-editor-body .field-control {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- transfer bar: pinned under the panes, scrolls once it gets tall ---- */
+.sftp-transfers {
+  flex: 0 0 auto;
+  max-height: 30vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.sftp-transfer-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.sftp-transfer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(8rem, 16rem) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.sftp-transfer + .sftp-transfer {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.sftp-transfer-icon {
+  display: inline-flex;
+  color: var(--color-text-muted);
+}
+
+.sftp-transfer-done .sftp-transfer-icon {
+  color: var(--color-success);
+}
+
+.sftp-transfer-error .sftp-transfer-icon {
+  color: var(--color-danger);
+}
+
+.sftp-transfer-meter {
+  min-width: 0;
+}
+
+.sftp-transfer-status {
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+
+.sftp-transfer-error .sftp-transfer-status,
+.sftp-transfer-status .sftp-transfer-error {
+  color: var(--color-danger);
+  white-space: normal;
+}

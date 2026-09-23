@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod apps;
 pub mod backup;
 pub mod browser;
@@ -13,6 +14,7 @@ pub mod mailcatcher;
 pub mod nginx_ssl;
 pub mod processes;
 pub mod redis;
+pub mod remote_desktop;
 pub mod scaffold;
 pub mod scheduled;
 pub mod settings;

@@ -47,7 +47,10 @@ export default function BackupRestoreSection() {
   const confirmAction = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [exported, setExported] = useState<{ path: string; inspection: BackupInspection } | null>(null);
+  const [exported, setExported] = useState<{
+    path: string;
+    inspection: BackupInspection;
+  } | null>(null);
   const [pending, setPending] = useState<PendingImport | null>(null);
   const [selected, setSelected] = useState<BackupSection[]>([]);
   const [mode, setMode] = useState<BackupMode>("merge");
@@ -100,7 +103,9 @@ export default function BackupRestoreSection() {
   }
 
   function toggleSection(section: BackupSection, checked: boolean) {
-    setSelected((prev) => (checked ? [...prev, section] : prev.filter((s) => s !== section)));
+    setSelected((prev) =>
+      checked ? [...prev, section] : prev.filter((s) => s !== section),
+    );
   }
 
   async function handleImport() {
@@ -111,7 +116,11 @@ export default function BackupRestoreSection() {
           .filter((s) => s !== "ca")
           .map((s) => BACKUP_SECTION_LABELS[s].toLowerCase())
           .join(", ")} row before importing. This cannot be undone.`,
-        { title: "Replace existing data?", confirmLabel: "Replace", danger: true },
+        {
+          title: "Replace existing data?",
+          confirmLabel: "Replace",
+          danger: true,
+        },
       );
       if (!ok) return;
     }
@@ -138,10 +147,20 @@ export default function BackupRestoreSection() {
     >
       <Stack gap={4}>
         <div>
-          <Button variant="secondary" icon={Download} loading={busy} onClick={handleExport}>
+          <Button
+            variant="secondary"
+            icon={Download}
+            loading={busy}
+            onClick={handleExport}
+          >
             Export…
           </Button>{" "}
-          <Button variant="secondary" icon={Upload} loading={busy} onClick={handlePickImport}>
+          <Button
+            variant="secondary"
+            icon={Upload}
+            loading={busy}
+            onClick={handlePickImport}
+          >
             Import…
           </Button>
         </div>
@@ -151,8 +170,13 @@ export default function BackupRestoreSection() {
           </Callout>
         )}
         {exported && (
-          <Callout tone="success" title="Exported" onDismiss={() => setExported(null)}>
-            Wrote {describeCounts(exported.inspection.sections)} to <Mono>{exported.path}</Mono>.
+          <Callout
+            tone="success"
+            title="Exported"
+            onDismiss={() => setExported(null)}
+          >
+            Wrote {describeCounts(exported.inspection.sections)} to{" "}
+            <Mono>{exported.path}</Mono>.
           </Callout>
         )}
         {summary && (
@@ -182,7 +206,8 @@ export default function BackupRestoreSection() {
           icon={Upload}
           description={
             <>
-              Exported {pending.inspection.exported_at} from <Mono>{pending.path}</Mono>
+              Exported {pending.inspection.exported_at} from{" "}
+              <Mono>{pending.path}</Mono>
             </>
           }
           onClose={() => setPending(null)}
@@ -191,14 +216,21 @@ export default function BackupRestoreSection() {
               <Button variant="secondary" onClick={() => setPending(null)}>
                 Cancel
               </Button>
-              <Button loading={busy} disabled={selected.length === 0} onClick={handleImport}>
+              <Button
+                loading={busy}
+                disabled={selected.length === 0}
+                onClick={handleImport}
+              >
                 Import
               </Button>
             </ModalFooter>
           }
         >
           <Stack gap={5}>
-            <Field label="Sections" description="Empty sections are unchecked so they cannot wipe local data.">
+            <Field
+              label="Sections"
+              description="Empty sections are unchecked so they cannot wipe local data."
+            >
               <Stack gap={2}>
                 {BACKUP_SECTION_ORDER.map((section) => (
                   <Checkbox
@@ -208,7 +240,9 @@ export default function BackupRestoreSection() {
                     onChange={(checked) => toggleSection(section, checked)}
                     label={
                       section === "ca"
-                        ? countOf(section) ? "Root CA (replaces the local one; old files are kept as .bak)" : "Root CA (not in this backup)"
+                        ? countOf(section)
+                          ? "Root CA (replaces the local one; old files are kept as .bak)"
+                          : "Root CA (not in this backup)"
                         : `${BACKUP_SECTION_LABELS[section]} (${countOf(section)})`
                     }
                   />

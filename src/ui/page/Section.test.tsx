@@ -6,7 +6,9 @@ import { Section } from "./Section";
 describe("Section collapsible", () => {
   it("has no toggle unless asked for", () => {
     render(<Section title="Standalone">body</Section>);
-    expect(screen.queryByRole("button", { name: /collapse|expand/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /collapse|expand/i }),
+    ).toBeNull();
     expect(screen.getByText("body")).toBeDefined();
   });
 
@@ -36,5 +38,37 @@ describe("Section collapsible", () => {
       </Section>,
     );
     expect(screen.queryByText("body")).toBeNull();
+  });
+
+  it("lets a parent drive the fold", () => {
+    const seen: boolean[] = [];
+    const { rerender } = render(
+      <Section
+        title="singnerpro"
+        collapsible
+        collapsed
+        onCollapsedChange={(c) => seen.push(c)}
+      >
+        body
+      </Section>,
+    );
+    expect(screen.queryByText("body")).toBeNull();
+
+    // The toggle reports the intent; it does not fold on its own.
+    act(() => screen.getByRole("button", { name: "Expand section" }).click());
+    expect(seen).toEqual([false]);
+    expect(screen.queryByText("body")).toBeNull();
+
+    rerender(
+      <Section
+        title="singnerpro"
+        collapsible
+        collapsed={false}
+        onCollapsedChange={(c) => seen.push(c)}
+      >
+        body
+      </Section>,
+    );
+    expect(screen.getByText("body")).toBeDefined();
   });
 });

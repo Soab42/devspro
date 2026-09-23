@@ -7,16 +7,31 @@ import "./Modal.css";
 
 export type ModalSize = "sm" | "md" | "lg" | "full";
 
+/**
+ * Where the dialog sits. "drawer" pins it to the trailing edge, full height —
+ * for editing one record beside the list it came from, where a centred dialog
+ * would cover the thing you are working against.
+ *
+ * A variant of Modal rather than its own component: the overlay, the focus
+ * trap, Escape and the click-outside rule are identical, and a second copy of
+ * those is a second place for them to drift.
+ */
+export type ModalPlacement = "center" | "drawer";
+
 export interface ModalProps {
   title: string;
   description?: ReactNode;
   icon?: LucideIcon;
   size?: ModalSize;
+  placement?: ModalPlacement;
   /** Tints the header icon. Does not change the footer buttons. */
   tone?: "default" | "danger";
   onClose: () => void;
   /** Pinned below the scrolling body. Use <ModalFooter> for the standard order. */
   footer?: ReactNode;
+  /** A drag handle in the corner lets the user size the dialog — for an
+      editor, where the right width is the file's longest line. */
+  resizable?: boolean;
   children: ReactNode;
 }
 
@@ -25,9 +40,11 @@ export function Modal({
   description,
   icon,
   size = "md",
+  placement = "center",
   tone = "default",
   onClose,
   footer,
+  resizable = false,
   children,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -79,10 +96,13 @@ export function Modal({
   }
 
   return (
-    <div className="modal-overlay" onMouseDown={handleOverlayMouseDown}>
+    <div
+      className={`modal-overlay modal-overlay-${placement}`}
+      onMouseDown={handleOverlayMouseDown}
+    >
       <div
         ref={panelRef}
-        className={`modal-panel modal-${size}`}
+        className={`modal-panel modal-${size} modal-placement-${placement}${resizable ? " modal-resizable" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -100,7 +120,13 @@ export function Modal({
             </h2>
             {description && <p className="modal-description">{description}</p>}
           </div>
-          <IconButton icon={X} label="Close" size="sm" variant="ghost" onClick={onClose} />
+          <IconButton
+            icon={X}
+            label="Close"
+            size="sm"
+            variant="ghost"
+            onClick={onClose}
+          />
         </div>
 
         <div className="modal-body">{children}</div>

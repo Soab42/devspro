@@ -28,6 +28,10 @@ fn later_migrations() -> Vec<&'static str> {
         crate::modules::scheduled::MIGRATION_SCHEDULED_TASKS,
         crate::modules::ssh::hosts::MIGRATION_SSH_HOSTS,
         crate::modules::http_client::MIGRATION_HTTP_REQUESTS,
+        crate::modules::databases::connections::MIGRATION_DB_CONNECTIONS,
+        crate::modules::browser::MIGRATION_BROWSER,
+        crate::modules::databases::history::MIGRATION_DB_QUERY_HISTORY,
+        crate::modules::remote_desktop::connections::MIGRATION_REMOTE_DESKTOPS,
     ]
 }
 

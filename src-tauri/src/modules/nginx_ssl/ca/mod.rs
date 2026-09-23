@@ -94,7 +94,7 @@ pub fn ensure_root_ca(certs_dir: &Path) -> Result<(), String> {
 ///
 /// Parsing the real file matters, and is the bug this replaced: the issuer used to
 /// be rebuilt from the `CA_COMMON_NAME` constant, so renaming the product
-/// (DevSuite → DevsPro) changed the issuer DN stamped into every new leaf while
+/// (DevsPro → DevsPro) changed the issuer DN stamped into every new leaf while
 /// the trusted root on disk kept its original subject. The signature still
 /// verified, but no chain could be built — every site issued after the rename
 /// failed in the browser while older ones kept working.
@@ -271,7 +271,7 @@ mod tests {
 
     impl TempDir {
         fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!("devsuite-ca-{}", uuid::Uuid::new_v4()));
+            let dir = std::env::temp_dir().join(format!("devspro-ca-{}", uuid::Uuid::new_v4()));
             fs::create_dir_all(&dir).unwrap();
             TempDir(dir)
         }
@@ -310,7 +310,7 @@ mod tests {
         let mut params = CertificateParams::default();
         params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         let mut dn = DistinguishedName::new();
-        dn.push(DnType::CommonName, "DevSuite Local Development CA");
+        dn.push(DnType::CommonName, "DevsPro Local Development CA");
         params.distinguished_name = dn;
         let cert = params.self_signed(&key_pair).unwrap();
         fs::write(root_cert_path(certs_dir), cert.pem()).unwrap();
@@ -322,7 +322,7 @@ mod tests {
         // ...and leaves must be signed under *its* name, not CA_COMMON_NAME.
         assert_eq!(
             dn_common_name(&issuer.params().distinguished_name),
-            "DevSuite Local Development CA"
+            "DevsPro Local Development CA"
         );
         assert_ne!(
             dn_common_name(&issuer.params().distinguished_name),

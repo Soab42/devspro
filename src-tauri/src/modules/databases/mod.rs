@@ -1,7 +1,7 @@
 //! Spins up databases (+ optional admin UI) as containers in DevsPro's *own*
 //! docker-compose space — a single compose file this app fully owns, under
 //! `<app-data>/docker/docker-compose.yml`, run under the fixed project name
-//! "devsuite" (`docker compose -p devsuite ...`). Deliberately separate from
+//! "devspro" (`docker compose -p devspro ...`). Deliberately separate from
 //! whatever other compose stacks the user already has (e.g. `~/docker/databases`)
 //! — this is a sandbox DevsPro manages end-to-end, not something that edits
 //! someone else's existing file the way the Docker module's port-change feature
@@ -19,8 +19,13 @@ use std::process::{Command, Stdio};
 use tauri::Manager;
 
 pub mod browse;
+pub mod connections;
+pub mod edit;
+pub mod export;
+pub mod history;
+pub mod schema;
 
-const PROJECT_NAME: &str = "devsuite";
+const PROJECT_NAME: &str = "devspro";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -163,7 +168,7 @@ fn ui_spec(db_name: &str, kind: DbKind, username: Option<&str>, password: &str) 
 
 fn render_service_block(name: &str, host_port: u16, spec: &ServiceSpec) -> String {
     let mut s = format!(
-        "  {name}:\n    image: {}\n    container_name: devsuite_{name}\n    restart: unless-stopped\n",
+        "  {name}:\n    image: {}\n    container_name: devspro_{name}\n    restart: unless-stopped\n",
         spec.image
     );
     if !spec.env.is_empty() {
@@ -416,7 +421,7 @@ struct RawContainer {
 }
 
 #[derive(Debug, Serialize, Clone)]
-pub struct DevsuiteContainer {
+pub struct DevsproContainer {
     pub id: String,
     pub name: String,
     pub image: String,
@@ -426,7 +431,7 @@ pub struct DevsuiteContainer {
 }
 
 #[tauri::command]
-pub fn databases_list() -> Result<Vec<DevsuiteContainer>, String> {
+pub fn databases_list() -> Result<Vec<DevsproContainer>, String> {
     let output = Command::new("docker")
         .args([
             "ps",
@@ -447,7 +452,7 @@ pub fn databases_list() -> Result<Vec<DevsuiteContainer>, String> {
         .map(|line| {
             let raw: RawContainer =
                 serde_json::from_str(line).map_err(|e| format!("failed to parse docker output: {e}"))?;
-            Ok(DevsuiteContainer {
+            Ok(DevsproContainer {
                 id: raw.id,
                 name: raw.names,
                 image: raw.image,
@@ -518,7 +523,7 @@ pub fn databases_remove(app: tauri::AppHandle, name: String, delete_data: bool) 
 // redis-cli), rather than pulling in a Rust DB driver crate per engine.
 
 fn container_name(base: &str) -> String {
-    format!("devsuite_{base}")
+    format!("devspro_{base}")
 }
 
 fn docker_exec(container: &str, args: &[&str]) -> Result<std::process::Output, String> {

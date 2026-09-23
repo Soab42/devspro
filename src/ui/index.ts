@@ -21,7 +21,12 @@ export { Icon } from "./Icon";
 export type { IconProps, IconSize } from "./Icon";
 
 export { Button, IconButton } from "./Button";
-export type { ButtonProps, ButtonSize, ButtonVariant, IconButtonProps } from "./Button";
+export type {
+  ButtonProps,
+  ButtonSize,
+  ButtonVariant,
+  IconButtonProps,
+} from "./Button";
 
 export { Spinner, Skeleton } from "./Feedback";
 export type { SpinnerProps, SkeletonProps } from "./Feedback";
@@ -111,6 +116,8 @@ export type { SparklineProps } from "./Sparkline";
 
 export { Page, statusOf } from "./page/Page";
 export type { PageProps, PageStatus } from "./page/Page";
+export { PageChromeContext, usePageChrome } from "./page/PageChrome";
+export type { PageChrome } from "./page/PageChrome";
 
 export { Section } from "./page/Section";
 export type { SectionProps, SectionEmpty } from "./page/Section";

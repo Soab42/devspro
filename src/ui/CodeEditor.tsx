@@ -5,9 +5,10 @@ import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirro
 import { indentUnit, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
-import { closeBrackets } from "@codemirror/autocomplete";
+import { autocompletion, closeBrackets, completionKeymap } from "@codemirror/autocomplete";
 import { tags } from "@lezer/highlight";
 import { yaml } from "@codemirror/lang-yaml";
+import { MySQL, PostgreSQL, sql } from "@codemirror/lang-sql";
 import "./CodeEditor.css";
 
 /**
@@ -24,15 +25,32 @@ import "./CodeEditor.css";
  * lint gutter, none of which have anything to offer a 30-line YAML file, and all
  * of which ship their own un-themed CSS.
  */
+/**
+ * Tables and their columns, for SQL completion. Passing it turns the editor
+ * from "highlights keywords" into something that knows this database — which
+ * is the difference between a syntax-coloured textarea and an editor.
+ */
+export type SqlSchema = Record<string, string[]>;
+
 export interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
-  language?: "yaml";
+  language?: "yaml" | "sql";
+  /** SQL only: the dialect to highlight and complete against. */
+  dialect?: "mysql" | "postgres";
+  /** SQL only: tables and columns offered as completions. */
+  schema?: SqlSchema;
   readOnly?: boolean;
   /** Visible height in rows; the editor scrolls internally beyond it. */
   rows?: number;
+  /** Fill the parent's height instead of sizing by rows (a full-page editor). */
+  fill?: boolean;
   id?: string;
   ariaLabel?: string;
+  /** Cmd/Ctrl+Enter — "run this", wherever the editor is embedded. */
+  onSubmit?: () => void;
+  /** Current selection, so a caller can run just the highlighted statement. */
+  onSelectionChange?: (selected: string) => void;
 }
 
 export interface CodeEditorHandle {
@@ -53,6 +71,12 @@ const highlightStyle = HighlightStyle.define([
   { tag: [tags.bool, tags.null, tags.atom], color: "var(--color-syntax-atom)" },
   { tag: [tags.punctuation, tags.separator], color: "var(--color-syntax-punct)" },
   { tag: tags.invalid, color: "var(--color-syntax-invalid)" },
+  // SQL's own tags. Keywords carry the weight here for the same reason mapping
+  // keys do in YAML: they are the structure of the statement.
+  { tag: tags.keyword, color: "var(--color-syntax-key)", fontWeight: "500" },
+  { tag: [tags.typeName, tags.standard(tags.name)], color: "var(--color-syntax-atom)" },
+  { tag: tags.operator, color: "var(--color-syntax-punct)" },
+  { tag: tags.variableName, color: "var(--color-text)" },
 ]);
 
 /* Layout and chrome only — every colour comes from a token, so light/dark is
@@ -90,8 +114,34 @@ const editorTheme = EditorView.theme({
   ".cm-selectionMatch": { backgroundColor: "var(--color-surface-3)" },
 });
 
+function languageExtension(
+  language: "yaml" | "sql",
+  dialect: "mysql" | "postgres",
+  schema: SqlSchema | undefined,
+) {
+  if (language !== "sql") return yaml();
+  return sql({
+    dialect: dialect === "postgres" ? PostgreSQL : MySQL,
+    schema,
+    upperCaseKeywords: true,
+  });
+}
+
 export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function CodeEditor(
-  { value, onChange, readOnly = false, rows = 20, id, ariaLabel },
+  {
+    value,
+    onChange,
+    language = "yaml",
+    dialect = "mysql",
+    schema,
+    readOnly = false,
+    rows = 20,
+    fill = false,
+    id,
+    ariaLabel,
+    onSubmit,
+    onSelectionChange,
+  },
   ref,
 ) {
   const host = useRef<HTMLDivElement>(null);
@@ -100,7 +150,14 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   // would drop selection, scroll position and undo history on each keystroke.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
+  const onSelectionRef = useRef(onSelectionChange);
+  onSelectionRef.current = onSelectionChange;
   const readOnlyComp = useRef(new Compartment());
+  // The schema arrives after the table list loads, and can change with the
+  // database, so completion is reconfigured rather than baked in at creation.
+  const languageComp = useRef(new Compartment());
 
   useEffect(() => {
     if (!host.current) return;
@@ -115,18 +172,39 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
           highlightSelectionMatches(),
           history(),
           closeBrackets(),
-          yaml(),
+          languageComp.current.of(languageExtension(language, dialect, schema)),
           syntaxHighlighting(highlightStyle),
+          ...(language === "sql" ? [autocompletion()] : []),
           // YAML's own convention, and what compose files are written in.
           indentUnit.of("  "),
           EditorState.tabSize.of(2),
           // `indentWithTab` must precede defaultKeymap: without it Tab moves
           // focus out of the editor, which in a modal means landing on Cancel.
-          keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+          // The submit binding precedes both so Mod-Enter is not swallowed by
+          // defaultKeymap's "insert newline and indent".
+          keymap.of([
+            {
+              key: "Mod-Enter",
+              run: () => {
+                if (!onSubmitRef.current) return false;
+                onSubmitRef.current();
+                return true;
+              },
+            },
+            indentWithTab,
+            ...completionKeymap,
+            ...defaultKeymap,
+            ...historyKeymap,
+            ...searchKeymap,
+          ]),
           editorTheme,
           readOnlyComp.current.of(EditorState.readOnly.of(readOnly)),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+            if (update.docChanged || update.selectionSet) {
+              const { from, to } = update.state.selection.main;
+              onSelectionRef.current?.(from === to ? "" : update.state.sliceDoc(from, to));
+            }
           }),
           EditorView.contentAttributes.of({
             "aria-label": ariaLabel ?? "Code editor",
@@ -163,6 +241,17 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     });
   }, [readOnly]);
 
+  // Serialized because a Compartment reconfigure needs a stable dependency and
+  // `schema` is a fresh object on every render of the caller.
+  const schemaKey = JSON.stringify(schema ?? null);
+  useEffect(() => {
+    view.current?.dispatch({
+      effects: languageComp.current.reconfigure(
+        languageExtension(language, dialect, schemaKey === "null" ? undefined : JSON.parse(schemaKey)),
+      ),
+    });
+  }, [language, dialect, schemaKey]);
+
   useImperativeHandle(ref, () => ({
     focus: () => view.current?.focus(),
     revealLine: (text: string) => {
@@ -187,10 +276,10 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
 
   return (
     <div
-      className="code-editor"
+      className={fill ? "code-editor code-editor-fill" : "code-editor"}
       /* Sized in rows to match the `rows` prop on the TextArea this replaces,
          computed from the same line-height the theme sets above. */
-      style={{ height: `calc(${rows} * 1.6 * 0.8125rem + 2 * var(--space-2))` }}
+      style={fill ? undefined : { height: `calc(${rows} * 1.6 * 0.8125rem + 2 * var(--space-2))` }}
       ref={host}
     />
   );

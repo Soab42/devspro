@@ -1,4 +1,4 @@
-import { ReactNode, useMemo, useState } from "react";
+import { DragEvent, HTMLAttributes, ReactNode, Ref, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown } from "./icons";
 import { Icon } from "./Icon";
 import { Skeleton } from "./Feedback";
@@ -64,6 +64,25 @@ export interface DataTableProps<T> {
   caption?: string;
   /** px width below which the table scrolls horizontally instead of shrinking. */
   minWidth?: number;
+  /** Scroll the rows inside the table's own box — the sticky header then stays
+      put — rather than growing the page. Needs an ancestor with a bounded
+      height, e.g. a Section with `fill`. */
+  fillHeight?: boolean;
+  /**
+   * Let columns be as wide as their content needs, scrolling sideways rather
+   * than squeezing everything to fit. For a grid whose cells are values you
+   * need to read in full, not a summary table.
+   */
+  widthMode?: "fit" | "content";
+  /**
+   * Makes the headers draggable. Called with the column being moved and the
+   * one it was dropped on; the caller owns the order.
+   */
+  onReorder?: (column: string, target: string) => void;
+  /** The scroll container, for a caller that drives scrolling itself. */
+  scrollRef?: Ref<HTMLDivElement>;
+  /** Handlers on that container — drag-to-scroll, wheel behaviour. */
+  scrollProps?: HTMLAttributes<HTMLDivElement>;
   className?: string;
 }
 
@@ -84,6 +103,11 @@ export function DataTable<T>({
   density = "normal",
   caption,
   minWidth = 640,
+  fillHeight = false,
+  widthMode = "fit",
+  onReorder,
+  scrollRef,
+  scrollProps,
   className,
 }: DataTableProps<T>) {
   const [internalSort, setInternalSort] = useState<SortState | undefined>(defaultSort);
@@ -100,17 +124,37 @@ export function DataTable<T>({
     [rows, columns, activeSort],
   );
 
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+
+  function endDrag() {
+    setDragging(null);
+    setOver(null);
+  }
+
+  function onDrop(e: DragEvent<HTMLTableCellElement>, target: string) {
+    e.preventDefault();
+    const column = e.dataTransfer.getData("text/x-column") || dragging;
+    if (column && column !== target) onReorder?.(column, target);
+    endDrag();
+  }
+
   const classes = [
     "dt",
     `dt-density-${density}`,
     stickyHeader && "dt-sticky",
+    widthMode === "content" && "dt-width-content",
     className,
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
-    <div className="dt-scroll">
+    <div
+      ref={scrollRef}
+      className={fillHeight ? "dt-scroll dt-scroll-fill" : "dt-scroll"}
+      {...scrollProps}
+    >
       <table className={classes} style={{ minWidth }}>
         {caption && <caption className="u-sr-only">{caption}</caption>}
         <thead className="dt-head">
@@ -122,8 +166,34 @@ export function DataTable<T>({
                 <th
                   key={column.key}
                   scope="col"
-                  className={cellClasses(column, "dt-th", sortable && "dt-sortable")}
+                  className={cellClasses(
+                    column,
+                    "dt-th",
+                    sortable && "dt-sortable",
+                    Boolean(onReorder) && "dt-th-draggable",
+                    over === column.key && "dt-th-over",
+                    dragging === column.key && "dt-th-dragging",
+                  )}
                   style={{ width: column.width, minWidth: column.minWidth }}
+                  draggable={Boolean(onReorder)}
+                  onDragStart={(e) => {
+                    setDragging(column.key);
+                    e.dataTransfer.effectAllowed = "move";
+                    // A payload as well as the local state: without one,
+                    // Firefox refuses to start the drag at all.
+                    e.dataTransfer.setData("text/x-column", column.key);
+                  }}
+                  onDragEnd={endDrag}
+                  onDragOver={(e) => {
+                    if (!onReorder || !dragging) return;
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setOver(column.key);
+                  }}
+                  onDragLeave={() =>
+                    setOver((current) => (current === column.key ? null : current))
+                  }
+                  onDrop={(e) => onDrop(e, column.key)}
                   aria-sort={
                     !sortable
                       ? undefined
@@ -213,10 +283,14 @@ export function DataTable<T>({
  * The same classes go on the <th> and every <td> of a column, so priority
  * hiding stays in sync with no JS measurement or resize observer.
  */
-function cellClasses<T>(column: Column<T>, base: string, extra?: string | false): string {
+function cellClasses<T>(
+  column: Column<T>,
+  base: string,
+  ...extra: (string | false | undefined)[]
+): string {
   return [
     base,
-    extra,
+    ...extra,
     column.priority === 2 && "dt-prio-2",
     column.priority === 3 && "dt-prio-3",
     column.align && column.align !== "start" && `dt-align-${column.align}`,

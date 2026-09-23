@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useState, lazy, Suspense, useDeferredValue } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  lazy,
+  Suspense,
+  useDeferredValue,
+} from "react";
 import { GroupTable } from "../components/GroupTable";
 import LoadComposeModal from "../components/LoadComposeModal";
 
@@ -30,6 +37,8 @@ import {
 } from "../../../ui";
 import {
   ArrowUpCircle,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Container as ContainerIcon,
   Download,
   FileUp,
@@ -56,7 +65,10 @@ import {
 } from "../api";
 import { dockerBlockedStatus } from "../blocked";
 import { listPorts } from "../../processes/api";
-import { describeStartCollisions, startCollisions } from "../../dashboard/portConflicts";
+import {
+  describeStartCollisions,
+  startCollisions,
+} from "../../dashboard/portConflicts";
 import { ContainerGroup, groupContainers, summarizeOutcomes } from "../utils";
 
 type StateFilter = "all" | "running" | "stopped";
@@ -66,7 +78,9 @@ export default function DockerPage() {
   const module = useModule("docker");
 
   const detection = useResource(detectDocker);
-  const dockerUsable = Boolean(detection.data?.found && detection.data.daemon_reachable);
+  const dockerUsable = Boolean(
+    detection.data?.found && detection.data.daemon_reachable,
+  );
   const containers = useResource(listContainers, { enabled: dockerUsable });
   /* Listening sockets, for the "this port is already taken" warning shown
      before a start. Not polled: refreshed with the container list, which is
@@ -81,7 +95,9 @@ export default function DockerPage() {
   /* One piece of state for both entry points: the modal reads the same file
      either way, and `kind` is only what narrows the apply. */
   const [editCompose, setEditCompose] = useState<
-    { kind: "container"; id: string; name: string } | { kind: "project"; project: string } | null
+    | { kind: "container"; id: string; name: string }
+    | { kind: "project"; project: string }
+    | null
   >(null);
   /* Action failures are shown inline, NOT through Page's status — routing them
      there would blank the whole table because one Stop button failed. */
@@ -93,6 +109,11 @@ export default function DockerPage() {
   const [search, setSearch] = useState("");
   const [stateFilter, setStateFilter] = useState<StateFilter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /* Stacks start folded: a machine with a handful of compose projects otherwise
+     opens on several screens of table. Tracked as the set of *expanded* keys so
+     a group that appears later (a stack just brought up, or one the filter
+     brings back) is folded like the rest instead of springing open. */
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   /* After an action, only the container list can have changed — whether Docker
      is installed and the daemon is up cannot have. Re-detecting there spawned a
@@ -107,7 +128,11 @@ export default function DockerPage() {
   const refreshAll = useCallback(async () => {
     // Both in flight at once: neither depends on the other's result, and
     // `containers` is already gated on `enabled`.
-    await Promise.all([detection.refresh(), containers.refresh(), listening.refresh()]);
+    await Promise.all([
+      detection.refresh(),
+      containers.refresh(),
+      listening.refresh(),
+    ]);
   }, [detection.refresh, containers.refresh, listening.refresh]);
 
   const rows = useMemo(() => containers.data ?? [], [containers.data]);
@@ -141,7 +166,10 @@ export default function DockerPage() {
   const selectedByGroup = useMemo(
     () =>
       new Map(
-        groups.map((g) => [g.key, g.containers.filter((c) => selected.has(c.id)).map((c) => c.id)]),
+        groups.map((g) => [
+          g.key,
+          g.containers.filter((c) => selected.has(c.id)).map((c) => c.id),
+        ]),
       ),
     [groups, selected],
   );
@@ -153,6 +181,28 @@ export default function DockerPage() {
     () => visible.filter((c) => selected.has(c.id)),
     [visible, selected],
   );
+
+  const anyExpanded = useMemo(
+    () => groups.some((g) => expandedGroups.has(g.key)),
+    [groups, expandedGroups],
+  );
+
+  const setGroupExpanded = useCallback((key: string, expanded: boolean) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (expanded) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  /* One button for both directions: while anything is open it folds everything,
+     and once everything is folded it becomes the way back. */
+  const toggleAllGroups = useCallback(() => {
+    setExpandedGroups(
+      anyExpanded ? new Set() : new Set(groups.map((g) => g.key)),
+    );
+  }, [anyExpanded, groups]);
 
   const runningCount = rows.filter((c) => c.state === "running").length;
   const stoppedCount = rows.length - runningCount;
@@ -200,7 +250,11 @@ export default function DockerPage() {
   );
 
   const runAction = useCallback(
-    async (action: (id: string) => Promise<string>, container: Container, verb: string) => {
+    async (
+      action: (id: string) => Promise<string>,
+      container: Container,
+      verb: string,
+    ) => {
       const warning = verb === "Start" ? warnPortCollisions([container]) : "";
       const ok = await confirmAction(
         `This will ${verb.toLowerCase()} the container "${container.name}".${warning}`,
@@ -238,14 +292,20 @@ export default function DockerPage() {
     [runAction],
   );
 
-  async function runBulk(action: BulkAction, targets: Container[], label: string) {
+  async function runBulk(
+    action: BulkAction,
+    targets: Container[],
+    label: string,
+  ) {
     if (targets.length === 0) return;
     const warning = action === "start" ? warnPortCollisions(targets) : "";
     const ok = await confirmAction(
       `This will ${action} ${targets.length} container(s): ${targets
         .slice(0, 5)
         .map((c) => c.name)
-        .join(", ")}${targets.length > 5 ? `, and ${targets.length - 5} more` : ""}.${warning}`,
+        .join(
+          ", ",
+        )}${targets.length > 5 ? `, and ${targets.length - 5} more` : ""}.${warning}`,
       { title: `${label}?`, confirmLabel: label, danger: action === "stop" },
     );
     if (!ok) return;
@@ -254,8 +314,16 @@ export default function DockerPage() {
     setActionError(null);
     setMessage(null);
     try {
-      const outcomes = await bulkAction(action, targets.map((c) => c.id));
-      const past = action === "stop" ? "Stopped" : action === "start" ? "Started" : "Restarted";
+      const outcomes = await bulkAction(
+        action,
+        targets.map((c) => c.id),
+      );
+      const past =
+        action === "stop"
+          ? "Stopped"
+          : action === "start"
+            ? "Started"
+            : "Restarted";
       const summary = summarizeOutcomes(past, outcomes);
       if (summary.failed) setActionError(summary.message);
       else setMessage(summary.message);
@@ -270,15 +338,25 @@ export default function DockerPage() {
     }
   }
 
-  async function runComposeAction(group: ContainerGroup, action: ComposeAction, label: string) {
+  async function runComposeAction(
+    group: ContainerGroup,
+    action: ComposeAction,
+    label: string,
+  ) {
     const destructive = action === "down";
     const warning =
-      action === "up" || action === "start" ? warnPortCollisions(group.containers) : "";
+      action === "up" || action === "start"
+        ? warnPortCollisions(group.containers)
+        : "";
     const ok = await confirmAction(
       destructive
         ? `This removes the containers and network for "${group.label}". Named volumes — including database data — are kept.`
         : `This runs docker compose ${action} on the "${group.label}" stack.${warning}`,
-      { title: `${label} ${group.label}?`, confirmLabel: label, danger: destructive },
+      {
+        title: `${label} ${group.label}?`,
+        confirmLabel: label,
+        danger: destructive,
+      },
     );
     if (!ok) return;
 
@@ -301,18 +379,29 @@ export default function DockerPage() {
     <Page
       title={module.label}
       icon={module.icon}
-      status={statusOf(detection, dockerBlockedStatus(detection.data, refreshAll))}
-      meta={detection.data?.version && <Badge mono>{detection.data.version}</Badge>}
+      status={statusOf(
+        detection,
+        dockerBlockedStatus(detection.data, refreshAll),
+      )}
+      meta={
+        detection.data?.version && <Badge mono>{detection.data.version}</Badge>
+      }
       actions={
         <>
-          <Button variant="secondary" icon={FileUp} onClick={() => setShowLoadCompose(true)}>
+          <Button
+            variant="secondary"
+            icon={FileUp}
+            onClick={() => setShowLoadCompose(true)}
+          >
             Load compose file
           </Button>
           <Button
             variant="secondary"
             icon={Square}
             disabled={running.length === 0 || bulkBusy}
-            onClick={() => runBulk("stop", running, `Stop all ${running.length} containers`)}
+            onClick={() =>
+              runBulk("stop", running, `Stop all ${running.length} containers`)
+            }
           >
             Stop all
           </Button>
@@ -339,7 +428,11 @@ export default function DockerPage() {
           </Callout>
         )}
         {portWarning && (
-          <Callout tone="warning" title="Port conflict" onDismiss={() => setPortWarning(null)}>
+          <Callout
+            tone="warning"
+            title="Port conflict"
+            onDismiss={() => setPortWarning(null)}
+          >
             {portWarning}
           </Callout>
         )}
@@ -357,7 +450,9 @@ export default function DockerPage() {
                     variant="secondary"
                     icon={Play}
                     disabled={bulkBusy}
-                    onClick={() => runBulk("start", selectedVisible, "Start selected")}
+                    onClick={() =>
+                      runBulk("start", selectedVisible, "Start selected")
+                    }
                   >
                     Start
                   </Button>
@@ -366,7 +461,9 @@ export default function DockerPage() {
                     variant="secondary"
                     icon={Square}
                     disabled={bulkBusy}
-                    onClick={() => runBulk("stop", selectedVisible, "Stop selected")}
+                    onClick={() =>
+                      runBulk("stop", selectedVisible, "Stop selected")
+                    }
                   >
                     Stop
                   </Button>
@@ -375,11 +472,17 @@ export default function DockerPage() {
                     variant="secondary"
                     icon={RotateCw}
                     disabled={bulkBusy}
-                    onClick={() => runBulk("restart", selectedVisible, "Restart selected")}
+                    onClick={() =>
+                      runBulk("restart", selectedVisible, "Restart selected")
+                    }
                   >
                     Restart
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelected(new Set())}
+                  >
                     Clear
                   </Button>
                 </ActionGroup>
@@ -397,16 +500,39 @@ export default function DockerPage() {
             rows.length > 0 && (
               <Toolbar
                 end={
-                  <SegmentedControl
-                    ariaLabel="Filter by state"
-                    value={stateFilter}
-                    onChange={setStateFilter}
-                    options={[
-                      { value: "all", label: "All", count: rows.length },
-                      { value: "running", label: "Running", count: runningCount },
-                      { value: "stopped", label: "Stopped", count: stoppedCount },
-                    ]}
-                  />
+                  <ActionGroup>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={anyExpanded ? ChevronsDownUp : ChevronsUpDown}
+                      onClick={toggleAllGroups}
+                      title={
+                        anyExpanded
+                          ? "Fold every stack away"
+                          : "Expand every stack"
+                      }
+                    >
+                      {anyExpanded ? "Fold all" : "Expand all"}
+                    </Button>
+                    <SegmentedControl
+                      ariaLabel="Filter by state"
+                      value={stateFilter}
+                      onChange={setStateFilter}
+                      options={[
+                        { value: "all", label: "All", count: rows.length },
+                        {
+                          value: "running",
+                          label: "Running",
+                          count: runningCount,
+                        },
+                        {
+                          value: "stopped",
+                          label: "Stopped",
+                          count: stoppedCount,
+                        },
+                      ]}
+                    />
+                  </ActionGroup>
                 }
               >
                 <SearchInput
@@ -423,7 +549,8 @@ export default function DockerPage() {
               ? {
                   icon: ContainerIcon,
                   title: "No containers",
-                  description: "Nothing is running or stopped on this daemon yet.",
+                  description:
+                    "Nothing is running or stopped on this daemon yet.",
                   action: (
                     <Button
                       variant="primary"
@@ -437,7 +564,8 @@ export default function DockerPage() {
               : {
                   icon: SearchX,
                   title: "No matches",
-                  description: "No containers match the current search and filter.",
+                  description:
+                    "No containers match the current search and filter.",
                   action: (
                     <Button
                       variant="ghost"
@@ -463,9 +591,17 @@ export default function DockerPage() {
                 /* A machine with several stacks is mostly scrolling; folding a
                    group keeps its header and running count in view. */
                 collapsible
+                collapsed={!expandedGroups.has(group.key)}
+                onCollapsedChange={(collapsed) =>
+                  setGroupExpanded(group.key, !collapsed)
+                }
                 meta={
                   <StatusPill
-                    variant={group.runningCount === group.containers.length ? "ok" : "warn"}
+                    variant={
+                      group.runningCount === group.containers.length
+                        ? "ok"
+                        : "warn"
+                    }
                     label={`${group.runningCount}/${group.containers.length} running`}
                   />
                 }
@@ -500,26 +636,36 @@ export default function DockerPage() {
                             key: "start",
                             label: "Start stack",
                             icon: Play,
-                            onClick: () => runComposeAction(group, "start", "Start"),
+                            onClick: () =>
+                              runComposeAction(group, "start", "Start"),
                           },
                           {
                             key: "restart",
                             label: "Restart stack",
                             icon: RotateCw,
-                            onClick: () => runComposeAction(group, "restart", "Restart"),
+                            onClick: () =>
+                              runComposeAction(group, "restart", "Restart"),
                           },
                           {
                             key: "pull",
                             label: "Pull images",
                             icon: Download,
-                            onClick: () => runComposeAction(group, "pull", "Pull images for"),
+                            onClick: () =>
+                              runComposeAction(
+                                group,
+                                "pull",
+                                "Pull images for",
+                              ),
                           },
                           {
                             key: "edit",
                             label: "Edit compose…",
                             icon: Pencil,
                             onClick: () =>
-                              setEditCompose({ kind: "project", project: group.key }),
+                              setEditCompose({
+                                kind: "project",
+                                project: group.key,
+                              }),
                           },
                           {
                             key: "down",
@@ -527,7 +673,8 @@ export default function DockerPage() {
                             icon: Trash2,
                             danger: true,
                             separatorBefore: true,
-                            onClick: () => runComposeAction(group, "down", "Remove"),
+                            onClick: () =>
+                              runComposeAction(group, "down", "Remove"),
                           },
                         ]}
                       />
@@ -545,7 +692,11 @@ export default function DockerPage() {
                   onViewLogs={setLogsFor}
                   onManagePorts={setPortsFor}
                   onEditCompose={(c) =>
-                    setEditCompose({ kind: "container", id: c.id, name: c.name })
+                    setEditCompose({
+                      kind: "container",
+                      id: c.id,
+                      name: c.name,
+                    })
                   }
                 />
               </Section>
@@ -554,7 +705,9 @@ export default function DockerPage() {
         </Section>
       </Stack>
 
-      {logsFor && <LogsModal container={logsFor} onClose={() => setLogsFor(null)} />}
+      {logsFor && (
+        <LogsModal container={logsFor} onClose={() => setLogsFor(null)} />
+      )}
       {portsFor && (
         <PortsModal
           container={portsFor}

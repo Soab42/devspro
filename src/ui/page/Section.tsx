@@ -24,6 +24,8 @@ export interface SectionProps {
   footer?: ReactNode;
   padding?: CardPadding;
   span?: 1 | 2;
+  /** Takes the remaining height of a flex-column parent; the body scrolls. */
+  fill?: boolean;
   /** When true, `empty` renders instead of `children`. */
   isEmpty?: boolean;
   empty?: SectionEmpty;
@@ -33,6 +35,11 @@ export interface SectionProps {
   collapsible?: boolean;
   /** Starting state of a collapsible section. Ignored otherwise. */
   defaultCollapsed?: boolean;
+  /** Drives the fold from outside, for a "fold all" control over many sections.
+      Supplying it makes the section controlled — `defaultCollapsed` is then
+      only the value the parent starts from, not something this owns. */
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
   className?: string;
   children?: ReactNode;
 }
@@ -52,16 +59,22 @@ export function Section({
   footer,
   padding = "md",
   span,
+  fill = false,
   isEmpty = false,
   empty,
   headingLevel = 2,
   collapsible = false,
   defaultCollapsed = false,
+  collapsed: collapsedProp,
+  onCollapsedChange,
   className,
   children,
 }: SectionProps) {
-  const [collapsed, setCollapsed] = useState(collapsible && defaultCollapsed);
-  const folded = collapsible && collapsed;
+  const [ownCollapsed, setOwnCollapsed] = useState(
+    collapsible && defaultCollapsed,
+  );
+  const controlled = collapsedProp !== undefined;
+  const folded = collapsible && (controlled ? collapsedProp : ownCollapsed);
 
   const toggle = collapsible ? (
     <IconButton
@@ -69,7 +82,10 @@ export function Section({
       label={folded ? "Expand section" : "Collapse section"}
       /* Ordered after the section's own verbs so folding sits at the far edge
          and the primary actions keep the position they have when it is off. */
-      onClick={() => setCollapsed((c) => !c)}
+      onClick={() => {
+        if (!controlled) setOwnCollapsed(!folded);
+        onCollapsedChange?.(!folded);
+      }}
       aria-expanded={!folded}
     />
   ) : undefined;
@@ -95,6 +111,7 @@ export function Section({
          width, so drop the card padding when it is showing. */
       padding={folded ? "none" : isEmpty ? "none" : padding}
       span={span}
+      fill={fill}
       headingLevel={headingLevel}
       className={className}
     >

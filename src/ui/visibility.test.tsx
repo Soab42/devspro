@@ -79,8 +79,11 @@ describe("Select escapes its clipping context", () => {
 
   it("is positioned in viewport coordinates, not relative to its parent", () => {
     // A portalled menu anchored with position:absolute would land relative to
-    // <body> rather than the trigger.
-    expect(selectCss).toMatch(/\.custom-select-menu\s*\{[^}]*position:\s*fixed/);
+    // <body> rather than the trigger. The popover is the positioned element —
+    // the list inside it owns only the scroll, so an optional search box can
+    // stay pinned above it.
+    expect(selectCss).toMatch(/\.custom-select-popover\s*\{[^}]*position:\s*fixed/);
+    expect(selectCss).toMatch(/\.custom-select-menu\s*\{[^}]*overflow-y:\s*auto/);
   });
 
   it("still refuses to use a native select", () => {

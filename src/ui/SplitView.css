@@ -106,6 +106,21 @@
   color: var(--color-accent-text);
 }
 
+/* Gives way before the label does: a row count is worth showing, but never at
+   the cost of reading the table's name. */
+.side-list-item-meta {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: auto;
+  padding-left: var(--space-2);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
 .side-list-item-icon {
   display: inline-flex;
   flex: 0 0 auto;

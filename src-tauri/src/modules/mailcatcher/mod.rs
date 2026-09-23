@@ -13,9 +13,9 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
-const PROJECT_NAME: &str = "devsuite_mailcatcher";
+const PROJECT_NAME: &str = "devspro_mailcatcher";
 const SERVICE_NAME: &str = "mailcatcher";
-const CONTAINER_NAME: &str = "devsuite_mailcatcher";
+const CONTAINER_NAME: &str = "devspro_mailcatcher";
 const IMAGE: &str = "axllent/mailpit:latest";
 
 fn compose_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -249,7 +249,7 @@ mod tests {
         let block = render_service_block(11025, 18025);
         assert_eq!(ports_from_block(&block), (Some(11025), Some(18025)));
         assert!(block.contains("image: axllent/mailpit:latest"));
-        assert!(block.contains("container_name: devsuite_mailcatcher"));
+        assert!(block.contains("container_name: devspro_mailcatcher"));
     }
 
     #[test]

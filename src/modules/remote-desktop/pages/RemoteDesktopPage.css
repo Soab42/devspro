@@ -1,0 +1,111 @@
+/* The Remote Desktop page: a full-height main area beside the connection
+   list, holding either a summary card or the live VNC viewer. The viewer
+   needs the page's height (noVNC scales the remote screen into whatever box
+   it is given), which is what earns this module a stylesheet. */
+.rd-split {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+
+.rd-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.rd-summary {
+  padding: var(--space-5);
+  overflow: auto;
+}
+
+.rd-notice {
+  padding: var(--space-3) var(--space-4) 0;
+}
+
+/* Label / value pairs on the summary card. */
+.rd-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+}
+
+.rd-facts dt {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+
+.rd-facts dd {
+  margin: 0;
+  min-width: 0;
+}
+
+/* ---- viewer ---- */
+.rd-viewer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.rd-viewer-fullscreen {
+  background-color: var(--color-bg);
+}
+
+.rd-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background-color: var(--color-surface-2);
+}
+
+.rd-toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.rd-toolbar-name {
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+.rd-toolbar-address {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rd-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+}
+
+/* noVNC appends its own canvas wrapper here and sizes the remote screen to
+   this box, so the box must have a real height: flex: 1 in a min-height: 0
+   column gives it one. The dark backdrop is what a remote screen's letterbox
+   looks like in every viewer; it isn't themed on purpose. */
+.rd-screen {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background-color: #111;
+  overflow: hidden;
+}

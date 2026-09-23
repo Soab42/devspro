@@ -2,7 +2,7 @@
 name = "ldm-helper"
 version = "0.1.0"
 edition = "2021"
-description = "Minimal elevated helper for devsuite — applies one operation manifest and exits."
+description = "Minimal elevated helper for devspro — applies one operation manifest and exits."
 
 [[bin]]
 name = "ldm-helper"

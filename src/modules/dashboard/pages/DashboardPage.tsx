@@ -28,11 +28,24 @@ import {
   Network,
   Server,
   ShieldCheck,
+  Thermometer,
   TriangleAlert,
 } from "../../../ui/icons";
-import { fetchPortClaims, fetchSystemSnapshot, SystemSnapshot } from "../api";
+import { fetchPortClaims, fetchSystemSnapshot, SystemSnapshot, TemperatureReading } from "../api";
 import { Claimant, findPortConflicts, PortConflict } from "../portConflicts";
-import { formatBytes, formatKb, formatRate, formatUptime, percent } from "../utils";
+import {
+  CPU_TEMP_LIMITS,
+  formatBytes,
+  formatCelsius,
+  formatKb,
+  formatRate,
+  formatUptime,
+  GPU_TEMP_LIMITS,
+  percent,
+  TempLimits,
+  tempScale,
+  tempSeverity,
+} from "../utils";
 import "./DashboardPage.css";
 
 const POLL_MS = 2000;
@@ -69,6 +82,7 @@ export default function DashboardPage() {
   const [cpuHistory, setCpuHistory] = useState<number[]>([]);
   const [memHistory, setMemHistory] = useState<number[]>([]);
   const [netHistory, setNetHistory] = useState<number[]>([]);
+  const [tempHistory, setTempHistory] = useState<number[]>([]);
 
   const data = snapshot.data;
 
@@ -84,6 +98,8 @@ export default function DashboardPage() {
           .reduce((sum, n) => sum + n.rx_bytes_per_sec + n.tx_bytes_per_sec, 0),
       ),
     );
+    const temp = data.cpu.temperature;
+    if (temp) setTempHistory((h) => pushHistory(h, temp.celsius));
   }, [data]);
 
   const shows = useCallback(
@@ -131,6 +147,7 @@ export default function DashboardPage() {
             cpuHistory={cpuHistory}
             memHistory={memHistory}
             netHistory={netHistory}
+            tempHistory={tempHistory}
           />
 
           <div className="dash-grid">
@@ -148,14 +165,30 @@ export default function DashboardPage() {
 
 /* ---------------------------------------------------------------- health -- */
 
+/** Every temperature worth judging the machine by: the CPU's, plus each GPU's. */
+function thermalChecks(s: SystemSnapshot) {
+  const readings: { reading: TemperatureReading; limits: TempLimits }[] = [];
+  if (s.cpu.temperature) readings.push({ reading: s.cpu.temperature, limits: CPU_TEMP_LIMITS });
+  for (const gpu of s.gpus) {
+    if (gpu.temperature) readings.push({ reading: gpu.temperature, limits: GPU_TEMP_LIMITS });
+  }
+  return readings;
+}
+
 function healthChecks(s: SystemSnapshot) {
   const memPercent = percent(s.memory.used_kb, s.memory.total_kb);
   const primaryDisk = [...s.disks].sort((a, b) => b.total_bytes - a.total_bytes)[0];
   const diskPercent = primaryDisk ? percent(primaryDisk.used_bytes, primaryDisk.total_bytes) : 0;
+  const thermal = thermalChecks(s);
   return [
     { label: "CPU", ok: meterSeverity(s.cpu.usage_percent) === "good" },
     { label: "Memory", ok: meterSeverity(memPercent) === "good" },
     { label: primaryDisk?.mount_point ?? "Disk", ok: meterSeverity(diskPercent) === "good" },
+    /* Omitted entirely rather than shown green on a machine with no sensors —
+       a VM would otherwise claim a clean bill of thermal health it can't know. */
+    ...(thermal.length > 0
+      ? [{ label: "Temp", ok: thermal.every((t) => tempSeverity(t.reading, t.limits) === "good") }]
+      : []),
   ];
 }
 
@@ -168,6 +201,7 @@ function HealthStrip({ snapshot }: { snapshot: SystemSnapshot }) {
   const checks = healthChecks(snapshot);
   const underLoad = checks.filter((c) => !c.ok);
   const nominal = underLoad.length === 0;
+  const hasThermal = thermalChecks(snapshot).length > 0;
 
   return (
     <div className={`dash-health dash-health-${nominal ? "ok" : "warn"}`}>
@@ -180,7 +214,9 @@ function HealthStrip({ snapshot }: { snapshot: SystemSnapshot }) {
         </p>
         <p className="dash-health-sub">
           {nominal
-            ? "CPU, memory and disk are all within normal range."
+            ? hasThermal
+              ? "CPU, memory, disk and temperatures are all within normal range."
+              : "CPU, memory and disk are all within normal range."
             : "Sustained pressure on the subsystems below."}
         </p>
       </div>
@@ -268,16 +304,20 @@ function KpiRow({
   cpuHistory,
   memHistory,
   netHistory,
+  tempHistory,
 }: {
   snapshot: SystemSnapshot;
   cpuHistory: number[];
   memHistory: number[];
   netHistory: number[];
+  tempHistory: number[];
 }) {
   const { cpu, memory, disks } = snapshot;
   const memPercent = percent(memory.used_kb, memory.total_kb);
   const primaryDisk = [...disks].sort((a, b) => b.total_bytes - a.total_bytes)[0];
   const diskPercent = primaryDisk ? percent(primaryDisk.used_bytes, primaryDisk.total_bytes) : 0;
+  const cpuTemp = cpu.temperature;
+  const gpuTemp = snapshot.gpus.find((g) => g.temperature)?.temperature ?? null;
   const activeInterfaces = snapshot.network.filter((n) => n.name !== "lo");
   const netThroughput = activeInterfaces.reduce(
     (sum, n) => sum + n.rx_bytes_per_sec + n.tx_bytes_per_sec,
@@ -293,8 +333,9 @@ function KpiRow({
         severity={meterSeverity(cpu.usage_percent)}
         sub={`${cpu.core_count} cores · load ${cpu.load_avg_1.toFixed(2)}`}
         history={cpuHistory}
-        bounded
+        range={[0, 100]}
       />
+      <TemperatureKpi cpuTemp={cpuTemp} gpuTemp={gpuTemp} history={tempHistory} />
       <Kpi
         icon={MemoryStick}
         label="Memory"
@@ -302,7 +343,7 @@ function KpiRow({
         severity={meterSeverity(memPercent)}
         sub={`${formatKb(memory.used_kb)} / ${formatKb(memory.total_kb)}`}
         history={memHistory}
-        bounded
+        range={[0, 100]}
       />
       <Kpi
         icon={HardDrive}
@@ -316,7 +357,7 @@ function KpiRow({
         }
         /* Disk has no meaningful history to plot, so it shows a meter instead
            of leaving a ragged gap where the other tiles have sparklines. */
-        meter={diskPercent}
+        meter={{ percent: diskPercent }}
       />
       <Kpi
         icon={Activity}
@@ -335,6 +376,52 @@ function KpiRow({
   );
 }
 
+/**
+ * The CPU's temperature, which is the one every machine with a sensor reports
+ * and the one that throttles first. A GPU reading rides along in the subtitle
+ * rather than claiming a tile of its own; the GPU card below has the detail.
+ */
+function TemperatureKpi({
+  cpuTemp,
+  gpuTemp,
+  history,
+}: {
+  cpuTemp: TemperatureReading | null;
+  gpuTemp: TemperatureReading | null;
+  history: number[];
+}) {
+  if (cpuTemp) {
+    return (
+      <Kpi
+        icon={Thermometer}
+        label="Temperature"
+        value={formatCelsius(cpuTemp.celsius)}
+        severity={tempSeverity(cpuTemp, CPU_TEMP_LIMITS)}
+        sub={`${cpuTemp.label}${gpuTemp ? ` · GPU ${formatCelsius(gpuTemp.celsius)}` : ""}`}
+        history={history}
+        range={[0, tempScale(cpuTemp, CPU_TEMP_LIMITS).critAt]}
+      />
+    );
+  }
+  /* No CPU sensor — a VM, or a board the kernel has no driver for — but a GPU
+     that reports one. Nothing has been sampled over time, so it gets a meter
+     like the disk tile rather than a flat line. */
+  if (gpuTemp) {
+    const scale = tempScale(gpuTemp, GPU_TEMP_LIMITS);
+    return (
+      <Kpi
+        icon={Thermometer}
+        label="GPU temp"
+        value={formatCelsius(gpuTemp.celsius)}
+        severity={tempSeverity(gpuTemp, GPU_TEMP_LIMITS)}
+        sub={gpuTemp.label}
+        meter={{ percent: scale.percent, warningAt: scale.warningAt, criticalAt: scale.criticalAt }}
+      />
+    );
+  }
+  return null;
+}
+
 function Kpi({
   icon,
   label,
@@ -343,7 +430,7 @@ function Kpi({
   severity = "good",
   history,
   meter,
-  bounded = false,
+  range,
 }: {
   icon: typeof CpuIcon;
   label: string;
@@ -351,8 +438,11 @@ function Kpi({
   sub: ReactNode;
   severity?: "good" | "warning" | "critical";
   history?: number[];
-  meter?: number;
-  bounded?: boolean;
+  /** Shown in place of a sparkline, for a metric with no history to plot. */
+  meter?: { percent: number; warningAt?: number; criticalAt?: number };
+  /** Fixed sparkline domain — percentages and temperatures both have one, so
+      the line shows the real magnitude instead of autoscaled noise. */
+  range?: [number, number];
 }) {
   return (
     <div className="dash-kpi">
@@ -371,11 +461,18 @@ function Kpi({
                 ? "var(--color-warning)"
                 : "var(--color-danger)"
           }
-          max={bounded ? 100 : undefined}
-          min={bounded ? 0 : undefined}
+          min={range?.[0]}
+          max={range?.[1]}
         />
       )}
-      {meter !== undefined && <Meter percent={meter} variant="compact" />}
+      {meter && (
+        <Meter
+          percent={meter.percent}
+          warningAt={meter.warningAt}
+          criticalAt={meter.criticalAt}
+          variant="compact"
+        />
+      )}
       <p className="dash-kpi-sub">{sub}</p>
     </div>
   );
@@ -383,16 +480,62 @@ function Kpi({
 
 /* ------------------------------------------------------------------ cards -- */
 
+/**
+ * A temperature as a meter. The track runs from 0 °C to the point the chip is
+ * in trouble, so the fill reads as remaining thermal headroom — the same
+ * "how full is this" shape as the CPU/memory/disk meters beside it.
+ */
+function TempMeter({
+  reading,
+  limits,
+  label,
+}: {
+  reading: TemperatureReading;
+  limits: TempLimits;
+  label: string;
+}) {
+  const scale = tempScale(reading, limits);
+  return (
+    <Meter
+      label={label}
+      percent={scale.percent}
+      warningAt={scale.warningAt}
+      criticalAt={scale.criticalAt}
+      valueLabel={formatCelsius(reading.celsius)}
+    />
+  );
+}
+
 function CpuCard({ snapshot }: { snapshot: SystemSnapshot }) {
   const { cpu } = snapshot;
   return (
     <Card title="CPU" icon={CpuIcon} span={2} description={`${cpu.model} · ${cpu.core_count} ${cpu.core_count === 1 ? "core" : "cores"}`}>
       <Stack gap={4}>
         <Meter label="Overall" percent={cpu.usage_percent} />
+        {cpu.temperature ? (
+          <TempMeter reading={cpu.temperature} limits={CPU_TEMP_LIMITS} label="Temperature" />
+        ) : (
+          <p className="dash-note">No CPU temperature sensor on this machine.</p>
+        )}
         {cpu.per_core_percent.length > 1 && (
           <div className="dash-cores">
             {cpu.per_core_percent.map((p, i) => (
               <Meter key={i} variant="compact" label={`Core ${i}`} percent={p} />
+            ))}
+          </div>
+        )}
+        {/* Per-sensor detail, not a second set of meters: the package reading
+            above is the number that matters, these only say where the heat is. */}
+        {cpu.temperatures.length > 1 && (
+          <div className="dash-temps">
+            {cpu.temperatures.map((t) => (
+              <span
+                key={t.label}
+                className={`dash-temp dash-temp-${tempSeverity(t, CPU_TEMP_LIMITS)}`}
+              >
+                <span className="u-truncate">{t.label}</span>
+                <span className="u-tnum">{formatCelsius(t.celsius)}</span>
+              </span>
             ))}
           </div>
         )}
@@ -493,8 +636,8 @@ function GpuCard({ snapshot }: { snapshot: SystemSnapshot }) {
                   valueLabel={`${Math.round(g.memory_used_mb)} / ${Math.round(g.memory_total_mb)} MB`}
                 />
               )}
-              {g.temperature_c !== null && (
-                <p className="dash-note">Temp: {g.temperature_c}°C</p>
+              {g.temperature && (
+                <TempMeter reading={g.temperature} limits={GPU_TEMP_LIMITS} label="Temperature" />
               )}
             </Stack>
           ))}

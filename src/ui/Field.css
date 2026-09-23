@@ -226,6 +226,10 @@
 }
 
 .checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
   font-size: var(--text-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
@@ -242,6 +246,11 @@
   min-width: 0;
   flex: 1;
   max-width: 22rem;
+}
+
+/* In a column, growing means growing *taller* — see the `grow` prop's note. */
+.search-input-fixed {
+  flex: 0 0 auto;
 }
 
 .search-input-icon {

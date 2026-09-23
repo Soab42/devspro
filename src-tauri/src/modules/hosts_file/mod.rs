@@ -11,7 +11,7 @@
 //!
 //! Two kinds of entry count as "managed" (created by this app, safe to edit
 //! freely): lines tagged with the `# devspro` marker comment, which this module
-//! writes, and lines inside the nginx module's `>>> devsuite` sync block. The
+//! writes, and lines inside the nginx module's `>>> devspro` sync block. The
 //! latter are regenerated on every site change, so editing them here would be
 //! undone — the UI shows them as DevsPro-owned for that reason.
 

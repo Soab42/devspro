@@ -29,7 +29,7 @@ pub enum Operation {
     /// Ensures a marker-delimited block exists verbatim inside `file_path` — inserts
     /// it if the markers aren't present, replaces the block's contents if they are.
     /// Used for both the one `include` line in nginx.conf and the whole set of
-    /// devsuite-owned /etc/hosts entries (recomputed and passed in full each time,
+    /// devspro-owned /etc/hosts entries (recomputed and passed in full each time,
     /// so this stays idempotent rather than needing incremental add/remove tracking).
     SyncMarkedBlock {
         file_path: String,
@@ -44,7 +44,7 @@ pub enum Operation {
         marker_begin: String,
         marker_end: String,
     },
-    /// Writes exactly one file, `devsuite.conf`, into nginx's `conf.d` directory
+    /// Writes exactly one file, `devspro.conf`, into nginx's `conf.d` directory
     /// (already `include`d from inside `http{}` by every standard nginx package —
     /// Debian/Ubuntu, RHEL/Fedora). This is what actually wires our sites in,
     /// *without* ever touching the user's real nginx.conf: appending our own
@@ -97,7 +97,7 @@ pub struct OpResult {
 pub fn run(app: &AppHandle, manifest: OperationManifest) -> Result<Vec<OpResult>, String> {
     let tmp_dir = std::env::temp_dir();
     let stem = uuid::Uuid::new_v4().to_string();
-    let manifest_path = tmp_dir.join(format!("devsuite-manifest-{stem}.json"));
+    let manifest_path = tmp_dir.join(format!("devspro-manifest-{stem}.json"));
     let result_path = manifest_path.with_extension("result.json");
 
     let manifest_json =

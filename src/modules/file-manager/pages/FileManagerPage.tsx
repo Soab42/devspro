@@ -1,7 +1,9 @@
 import { KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { useSearchParams } from "react-router-dom";
 import { useConfirm } from "../../../app/ConfirmContext";
 import { useModule } from "../../../app/ModuleRegistry";
+import { usePopoutHandoff } from "../../../app/popoutState";
 import {
   ActionGroup,
   Button,
@@ -108,6 +110,10 @@ export default function FileManagerPage() {
   const module = useModule("file-manager");
   const confirmAction = useConfirm();
   const places = useResource(fmPlaces);
+  // `?path=` opens on that folder instead of home: what a popped-out window
+  // gets so it continues where the main one was.
+  const [params] = useSearchParams();
+  const startPath = params.get("path");
 
   const [history, setHistory] = useState<History>(EMPTY_HISTORY);
   const path = history.entries[history.index] ?? null;
@@ -131,10 +137,12 @@ export default function FileManagerPage() {
     setSelected(null);
   }, []);
 
-  // Start at home once the places arrive.
+  // Start at home once the places arrive, or at the folder the route asks for.
   useEffect(() => {
-    if (places.data && path === null) navigate(places.data.home);
-  }, [places.data, path, navigate]);
+    if (places.data && path === null) navigate(startPath || places.data.home);
+  }, [places.data, path, navigate, startPath]);
+
+  usePopoutHandoff(() => (path ? { params: { path } } : null));
 
   const load = useCallback(async (target: string) => {
     setLoading(true);

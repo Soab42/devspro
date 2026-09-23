@@ -12,10 +12,19 @@ import {
   Stack,
   Switch,
   Mono,
+  TextInput,
 } from "../../ui";
-import { Monitor, Server, ShieldCheck } from "../../ui/icons";
-import { autostartIsEnabled, autostartSetEnabled, getSetting, setSetting } from "./api";
+import { Monitor, Pencil, Server, ShieldCheck } from "../../ui/icons";
+import {
+  DEFAULT_EXTERNAL_EDITOR,
+  EXTERNAL_EDITOR_KEY,
+  autostartIsEnabled,
+  autostartSetEnabled,
+  getSetting,
+  setSetting,
+} from "./api";
 import BackupRestoreSection from "./components/BackupRestoreSection";
+import ModulesSection from "./components/ModulesSection";
 
 export default function SettingsPage() {
   const module = useModule("settings");
@@ -25,6 +34,7 @@ export default function SettingsPage() {
   const [autostart, setAutostart] = useState(false);
   const [closeToTray, setCloseToTray] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
+  const [editor, setEditor] = useState(DEFAULT_EXTERNAL_EDITOR);
 
   useEffect(() => {
     autostartIsEnabled()
@@ -32,6 +42,9 @@ export default function SettingsPage() {
       .catch(() => setAutostart(false));
     getSetting("close_to_tray")
       .then((v) => setCloseToTray(v === "true"))
+      .catch(() => {});
+    getSetting(EXTERNAL_EDITOR_KEY)
+      .then((v) => setEditor(v?.trim() || DEFAULT_EXTERNAL_EDITOR))
       .catch(() => {});
     getVersion()
       .then(setVersion)
@@ -47,6 +60,12 @@ export default function SettingsPage() {
       setAutostart(!checked);
       console.error(e);
     }
+  }
+
+  function saveEditor() {
+    const value = editor.trim() || DEFAULT_EXTERNAL_EDITOR;
+    setEditor(value);
+    setSetting(EXTERNAL_EDITOR_KEY, value).catch(console.error);
   }
 
   async function toggleCloseToTray(checked: boolean) {
@@ -93,6 +112,8 @@ export default function SettingsPage() {
           </Field>
         </Section>
 
+        <ModulesSection />
+
         <Section
           title="Background running"
           icon={Server}
@@ -115,19 +136,50 @@ export default function SettingsPage() {
         </Section>
 
         <Section
+          title="External editor"
+          icon={Pencil}
+          description="The command that Open in editor runs, with the file path appended. Remote files are downloaded to a cache and uploaded again on every save."
+        >
+          <Field
+            label="Command"
+            htmlFor="external-editor"
+            hint="For example code, code -w, subl, zed, or gedit."
+          >
+            <TextInput
+              id="external-editor"
+              mono
+              value={editor}
+              onChange={(e) => setEditor(e.target.value)}
+              onBlur={saveEditor}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+            />
+          </Field>
+        </Section>
+
+        <Section
           title="Elevation helper"
           icon={ShieldCheck}
           description="Round-trips a harmless Ping through the real OS elevation prompt (pkexec on Linux) to confirm the manifest → helper → result pipeline works before any module relies on it for real system changes."
         >
           <Stack gap={4}>
             <div>
-              <Button variant="secondary" loading={busy} onClick={testElevation}>
+              <Button
+                variant="secondary"
+                loading={busy}
+                onClick={testElevation}
+              >
                 Test elevation
               </Button>
             </div>
-            {busy && <p className="u-muted">Waiting for the elevation prompt…</p>}
+            {busy && (
+              <p className="u-muted">Waiting for the elevation prompt…</p>
+            )}
             {pingOk !== null && (
-              <Callout tone={pingOk ? "success" : "danger"}>{pingMessage}</Callout>
+              <Callout tone={pingOk ? "success" : "danger"}>
+                {pingMessage}
+              </Callout>
             )}
           </Stack>
         </Section>

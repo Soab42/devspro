@@ -8,7 +8,12 @@ export const BACKUP_SECTION_LABELS: Record<BackupSection, string> = {
   ca: "Root CA",
 };
 
-export const BACKUP_SECTION_ORDER: BackupSection[] = ["sites", "workers", "settings", "ca"];
+export const BACKUP_SECTION_ORDER: BackupSection[] = [
+  "sites",
+  "workers",
+  "settings",
+  "ca",
+];
 
 /** `devspro-backup-2026-09-22.json` — the date so several exports sort by age. */
 export function defaultBackupFilename(now: Date): string {
@@ -19,7 +24,9 @@ export function defaultBackupFilename(now: Date): string {
  * Sections worth offering: a section with nothing in it is left unchecked so a
  * Replace import of an empty section can't wipe the local rows by accident.
  */
-export function defaultSelection(sections: BackupSectionCount[]): BackupSection[] {
+export function defaultSelection(
+  sections: BackupSectionCount[],
+): BackupSection[] {
   return sections.filter((s) => s.count > 0).map((s) => s.section);
 }
 

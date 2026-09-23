@@ -463,7 +463,7 @@ mod tests {
     /// lands in the log file, then confirms a graceful stop actually reaps it.
     #[test]
     fn smoke_test_spawns_tails_and_stops_a_real_process() {
-        let dir = std::env::temp_dir().join(format!("devsuite-workers-smoke-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("devspro-workers-smoke-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let log_path = dir.join("worker.log");
         let log_file = std::fs::OpenOptions::new()

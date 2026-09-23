@@ -23,7 +23,7 @@ use std::time::UNIX_EPOCH;
 
 /// Same guard as env_diff: the editor is for config and source files, not for
 /// dumping a database export into CodeMirror.
-const MAX_EDITABLE_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_EDITABLE_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct FileEntry {
@@ -362,6 +362,61 @@ pub fn fm_open(path: String) -> Result<(), String> {
         .map_err(|e| format!("could not open {path}: {e}"))
 }
 
+/// Splits an editor command the way a shell would for the simple cases —
+/// whitespace-separated, with single or double quotes grouping a word — and
+/// appends the file. "code -w", "gnome-text-editor", "\"/opt/My Editor/bin/ed\" -n".
+pub fn editor_argv(command: &str, path: &Path) -> Result<Vec<String>, String> {
+    let mut argv: Vec<String> = Vec::new();
+    let mut word = String::new();
+    let mut quote: Option<char> = None;
+    for c in command.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), c) => word.push(c),
+            (None, '"') | (None, '\'') => quote = Some(c),
+            (None, c) if c.is_whitespace() => {
+                if !word.is_empty() {
+                    argv.push(std::mem::take(&mut word));
+                }
+            }
+            (None, c) => word.push(c),
+        }
+    }
+    if quote.is_some() {
+        return Err("editor command has an unclosed quote".into());
+    }
+    if !word.is_empty() {
+        argv.push(word);
+    }
+    if argv.is_empty() {
+        return Err("no editor command is set — choose one in Settings".into());
+    }
+    argv.push(path.to_string_lossy().into_owned());
+    Ok(argv)
+}
+
+/// Launches the user's editor on a path, detached. The editor is whatever
+/// command they typed in Settings — `code`, `subl`, `zed` — so a missing
+/// binary is reported by name rather than as a bare ENOENT.
+pub fn spawn_editor(command: &str, path: &Path) -> Result<(), String> {
+    let argv = editor_argv(command, path)?;
+    Command::new(&argv[0])
+        .args(&argv[1..])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not start `{}`: {e}", argv[0]))
+}
+
+#[tauri::command]
+pub fn fm_open_in_editor(path: String, command: String) -> Result<(), String> {
+    if fs::symlink_metadata(&path).is_err() {
+        return Err(format!("{path} does not exist"));
+    }
+    spawn_editor(&command, Path::new(&path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -388,6 +443,18 @@ mod tests {
         assert!(entries[1].is_hidden);
         assert_eq!(entries[3].size, 1);
         assert!(entries[3].modified > 0);
+    }
+
+    #[test]
+    fn editor_argv_splits_words_and_quotes_then_appends_the_path() {
+        let p = Path::new("/tmp/a b.txt");
+        assert_eq!(editor_argv("code -w", p).unwrap(), vec!["code", "-w", "/tmp/a b.txt"]);
+        assert_eq!(
+            editor_argv("\"/opt/My Editor/ed\" -n", p).unwrap(),
+            vec!["/opt/My Editor/ed", "-n", "/tmp/a b.txt"]
+        );
+        assert!(editor_argv("   ", p).is_err());
+        assert!(editor_argv("code \"unclosed", p).is_err());
     }
 
     #[test]

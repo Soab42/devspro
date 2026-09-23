@@ -48,7 +48,11 @@ describe("Page", () => {
 
   it("keeps header actions visible while loading so the header does not jump", () => {
     render(
-      <Page title="Docker" status={{ kind: "loading" }} actions={<button>Refresh</button>}>
+      <Page
+        title="Docker"
+        status={{ kind: "loading" }}
+        actions={<button>Refresh</button>}
+      >
         <p>body</p>
       </Page>,
     );

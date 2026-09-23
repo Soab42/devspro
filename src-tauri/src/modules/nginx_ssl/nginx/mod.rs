@@ -19,8 +19,8 @@ pub struct NginxDetection {
 /// The exact marker block DevsPro adds to the user's real nginx.conf — one `include`
 /// line, wrapped so it can be found and removed cleanly again. Never touches
 /// anything else in that file.
-pub const MARKER_BEGIN: &str = "# >>> devsuite (do not edit this block manually) >>>";
-pub const MARKER_END: &str = "# <<< devsuite <<<";
+pub const MARKER_BEGIN: &str = "# >>> devspro (do not edit this block manually) >>>";
+pub const MARKER_END: &str = "# <<< devspro <<<";
 
 /// Finds nginx's `conf.d` directory next to its main config — every standard
 /// package (Debian/Ubuntu, RHEL/Fedora) already `include`s `conf.d/*.conf` from

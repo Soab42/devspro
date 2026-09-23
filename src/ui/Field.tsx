@@ -170,6 +170,9 @@ export interface CheckboxProps {
   /** Accessible name. Rendered visibly unless `hideLabel`. */
   label: string;
   hideLabel?: boolean;
+  /** Rendered inside the label, before the text — an icon saying what kind of
+      thing this is. Part of the click target; not part of the accessible name. */
+  adornment?: ReactNode;
   disabled?: boolean;
   /** Some-but-not-all selected — for a select-all in a table header. */
   indeterminate?: boolean;
@@ -181,6 +184,7 @@ export function Checkbox({
   onChange,
   label,
   hideLabel = false,
+  adornment,
   disabled,
   indeterminate = false,
   id,
@@ -206,6 +210,7 @@ export function Checkbox({
       />
       {!hideLabel && (
         <label className="checkbox-label" htmlFor={inputId}>
+          {adornment}
           {label}
         </label>
       )}
@@ -221,6 +226,15 @@ export interface SearchInputProps {
   placeholder?: string;
   width?: number | string;
   autoFocus?: boolean;
+  /**
+   * Fill the space along the parent's main axis. True by default, which is
+   * right in the toolbars this mostly lives in.
+   *
+   * Turn it off in a *column*, where "fill the main axis" means fill the
+   * height: the box stretches, `align-items: center` floats the input in the
+   * middle of it, and a filter box ends up adrift in a tall empty panel.
+   */
+  grow?: boolean;
   "aria-label"?: string;
 }
 
@@ -230,10 +244,14 @@ export function SearchInput({
   placeholder = "Search",
   width,
   autoFocus,
+  grow = true,
   "aria-label": ariaLabel,
 }: SearchInputProps) {
   return (
-    <div className="search-input" style={{ width }}>
+    <div
+      className={grow ? "search-input" : "search-input search-input-fixed"}
+      style={{ width }}
+    >
       <Icon icon={Search} size="sm" className="search-input-icon" />
       <input
         type="search"

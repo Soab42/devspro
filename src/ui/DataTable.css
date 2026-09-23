@@ -8,12 +8,44 @@
   width: 100%;
 }
 
+/* Vertical scrolling moves from the page into the table, which is what makes
+   the sticky header stick to the table rather than to the window. Needs a
+   flex-column parent — Section's `fill` makes the card body one. */
+.dt-scroll-fill {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
 .dt {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   font-size: var(--text-sm);
   line-height: var(--lh-sm);
+}
+
+/* Columns as wide as their content needs, scrolling sideways rather than
+   squeezing every cell to fit the box. `min-width: 100%` keeps a narrow table
+   filling its container instead of huddling on the left. */
+.dt-width-content {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* ------------------------------------------------------ reorderable head -- */
+.dt-th-draggable {
+  cursor: grab;
+}
+
+.dt-th-dragging {
+  opacity: 0.4;
+}
+
+/* An inset edge rather than a moving placeholder: the drop lands beside this
+   column, and the table does not have to reflow to show where. */
+.dt-th-over {
+  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 /* ---------------------------------------------------------------- header -- */

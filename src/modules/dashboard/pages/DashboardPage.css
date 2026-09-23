@@ -140,6 +140,41 @@
   gap: var(--space-4) var(--space-5);
 }
 
+/* ------------------------------------------------------------ thermals -- */
+/* Per-sensor readings under the CPU's temperature meter. Deliberately not
+   meters: they are a breakdown of where the heat is, and a second grid of
+   tracks would compete with the per-core usage grid directly above. */
+.dash-temps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.dash-temp {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.15rem var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface-2);
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+  color: var(--color-text-secondary);
+}
+
+.dash-temp-warning {
+  border-color: var(--color-warning-border);
+  color: var(--color-warning-text);
+}
+
+.dash-temp-critical {
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-text);
+}
+
 .dash-gpu-name {
   font-size: var(--text-sm);
   color: var(--color-text-secondary);

@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { LucideIcon } from "../icons";
 import { Icon } from "../Icon";
 import { Button } from "../Button";
@@ -6,6 +7,7 @@ import { Spinner } from "../Feedback";
 import { EmptyState } from "../Layout";
 import { Card } from "../Card";
 import type { Resource } from "./useResource";
+import { usePageChrome } from "./PageChrome";
 import "./Page.css";
 
 export type PageStatus =
@@ -34,6 +36,15 @@ export interface PageProps {
   /** Rendered between the header and the body; stays mounted across states. */
   tabs?: ReactNode;
   width?: "full" | "narrow";
+  /**
+   * Bound the page to the window's height instead of letting it grow with its
+   * content, so a region inside it can scroll on its own.
+   *
+   * `min-height: 100%` is deliberately not enough: it leaves the page's height
+   * `auto`, and a percentage height on anything below then resolves to auto
+   * too, which quietly unbounds the whole chain.
+   */
+  fill?: boolean;
   children: ReactNode;
 }
 
@@ -48,6 +59,11 @@ export interface PageProps {
  *
  * `actions` deliberately render in every state except `blocked`, so a Refresh
  * button doesn't appear and disappear as data loads.
+ *
+ * In a popped-out window the shell provides an actions slot in its top bar
+ * (see PageChrome). The meta and actions portal there and the header is
+ * reduced to a visually hidden <h1>, so the page starts at its body and the
+ * controls sit where a window's controls belong.
  */
 export function Page({
   title,
@@ -58,10 +74,37 @@ export function Page({
   meta,
   tabs,
   width = "full",
+  fill = false,
   children,
 }: PageProps) {
+  const slot = usePageChrome()?.actionsSlot ?? null;
+  const showActions = Boolean(actions) && status.kind !== "blocked";
+
+  if (slot) {
+    return (
+      <div className={`page page-${width}${fill ? " page-fill" : ""}`}>
+        <h1 className="page-title u-sr-only">{title}</h1>
+        {createPortal(
+          <>
+            {meta && <div className="page-header-meta">{meta}</div>}
+            {showActions && (
+              <div className="page-header-actions">{actions}</div>
+            )}
+          </>,
+          slot,
+        )}
+        {tabs && status.kind !== "loading" && status.kind !== "blocked" && (
+          <div className="page-tabs">{tabs}</div>
+        )}
+        <div className="page-body">
+          <PageBody status={status}>{children}</PageBody>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`page page-${width}`}>
+    <div className={`page page-${width}${fill ? " page-fill" : ""}`}>
       <header className="page-header">
         <div className="page-header-main">
           {icon && (
@@ -77,9 +120,7 @@ export function Page({
             {description && <p className="page-description">{description}</p>}
           </div>
         </div>
-        {actions && status.kind !== "blocked" && (
-          <div className="page-header-actions">{actions}</div>
-        )}
+        {showActions && <div className="page-header-actions">{actions}</div>}
       </header>
 
       {tabs && status.kind !== "loading" && status.kind !== "blocked" && (
@@ -93,7 +134,13 @@ export function Page({
   );
 }
 
-function PageBody({ status, children }: { status: PageStatus; children: ReactNode }) {
+function PageBody({
+  status,
+  children,
+}: {
+  status: PageStatus;
+  children: ReactNode;
+}) {
   switch (status.kind) {
     case "ready":
       return <>{children}</>;

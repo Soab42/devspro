@@ -37,6 +37,8 @@ export interface SideListItem {
   key: string;
   label: string;
   icon?: ReactNode;
+  /** Right-aligned secondary text — a count, a size. Truncated before the label. */
+  meta?: string;
   active?: boolean;
   onSelect: () => void;
 }
@@ -63,6 +65,7 @@ export function SideList({ title, items }: SideListProps) {
             >
               {item.icon && <span className="side-list-item-icon">{item.icon}</span>}
               <span className="side-list-item-label">{item.label}</span>
+              {item.meta && <span className="side-list-item-meta">{item.meta}</span>}
             </button>
           </li>
         ))}

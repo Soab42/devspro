@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { defaultBackupFilename, defaultSelection, describeCounts } from "./backup";
+import {
+  defaultBackupFilename,
+  defaultSelection,
+  describeCounts,
+} from "./backup";
 
 describe("defaultBackupFilename", () => {
   it("uses the ISO date only", () => {
-    expect(defaultBackupFilename(new Date("2026-09-22T15:04:05Z"))).toBe("devspro-backup-2026-09-22.json");
+    expect(defaultBackupFilename(new Date("2026-09-22T15:04:05Z"))).toBe(
+      "devspro-backup-2026-09-22.json",
+    );
   });
 });
 

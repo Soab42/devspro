@@ -36,7 +36,7 @@ fn detect() -> Result<Flavor, String> {
 }
 
 /// Builds a ready-to-`.output()` `Command` for whichever compose flavor this
-/// machine has, e.g. `build(&["-p", "devsuite", "-f", path, "up", "-d", "redis"])`.
+/// machine has, e.g. `build(&["-p", "devspro", "-f", path, "up", "-d", "redis"])`.
 pub fn build(args: &[&str]) -> Result<Command, String> {
     match detect()? {
         Flavor::Plugin => {

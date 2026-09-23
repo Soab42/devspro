@@ -24,23 +24,73 @@
   min-width: 0;
 }
 
-.term-panel {
+.term-body {
   flex: 1;
-  min-height: 24rem;
+  min-height: 16rem;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+
+/* The follow-along file browser. Its width is the user's, so it is inline;
+   the divider beside it is the grab handle. */
+.term-aside {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   overflow: hidden;
-  /* Room for the cursor's outline and the scrollbar without clipping. */
-  padding: var(--space-3) 0 var(--space-3) var(--space-3);
 }
 
+.term-aside-divider {
+  flex: 0 0 auto;
+  width: var(--space-3);
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.term-aside-divider-fixed {
+  cursor: default;
+}
+
+.term-aside-divider::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background-color: transparent;
+  transition: var(--transition-colors);
+}
+
+.term-aside-divider:not(.term-aside-divider-fixed):hover::after,
+.term-aside-divider-dragging::after {
+  background-color: var(--color-accent);
+}
+
+.term-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Room for the cursor's outline and the scrollbar without clipping. */
 .term-host {
   flex: 1;
   min-height: 0;
   width: 100%;
+  padding: var(--space-2) 0 var(--space-2) var(--space-2);
+  background-color: var(--color-surface);
 }
 
 .term-hidden {
@@ -61,4 +111,556 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+/* --------------------------------------------------------- pane chrome -- */
+/* A thin strip above each pane: where it is, and the buttons that act on
+   it. Kept quiet so the terminal text is what draws the eye. */
+.term-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.term-pane-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--control-h-sm);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background-color: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  user-select: none;
+}
+
+.term-pane-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-pane-bar-actions {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.term-pane:hover .term-pane-bar-actions,
+.term-pane:focus-within .term-pane-bar-actions,
+.pane-float-focused .term-pane-bar-actions {
+  opacity: 1;
+}
+
+.term-pane-exited .term-pane-title {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+/* A popped-out terminal window: the workspace is the page. */
+.term-window-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+
+/* ------------------------------------------------------- window strip -- */
+/* tmux's status line, as a tab strip: ordinal, then the focused pane's
+   title. Middle-click closes. */
+.term-windows {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.term-window-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  max-width: 14rem;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.term-window-tab:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+.term-window-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.term-window-tab-active,
+.term-window-tab-active:hover {
+  background-color: var(--color-accent-subtle);
+  border-color: var(--color-accent-border);
+  color: var(--color-accent-text);
+}
+
+.term-window-ordinal {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.term-window-tab-active .term-window-ordinal {
+  color: var(--color-accent);
+}
+
+.term-window-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-window-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin-right: calc(-1 * var(--space-1));
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: opacity 120ms ease, var(--transition-colors);
+}
+
+.term-window-tab:hover .term-window-close,
+.term-window-tab-active .term-window-close {
+  opacity: 1;
+}
+
+.term-window-close:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+/* The strip beside the page title or the popout's top-bar title. */
+.term-page-tabs-slot {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.term-toggle-on,
+.term-browser-follow-on {
+  color: var(--color-accent);
+  background-color: var(--color-accent-subtle);
+}
+
+/* --------------------------------------------------- follow-along browser -- */
+.term-browser {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  font-size: var(--text-sm);
+}
+
+.term-browser-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background-color: var(--color-surface-2);
+  color: var(--color-text-secondary);
+}
+
+.term-browser-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--fw-semibold);
+  color: var(--color-text);
+}
+
+.term-browser-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1px;
+  padding: var(--space-1);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.term-browser-path {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: text;
+  font: inherit;
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.term-browser-path:hover {
+  color: var(--color-text);
+}
+
+.term-browser-path-edit {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.term-browser-sublist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.term-browser-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+button.term-browser-fold:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+.term-browser-name-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.term-browser-name-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+.term-browser-empty {
+  height: var(--control-h-sm);
+  display: flex;
+  align-items: center;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.term-browser-row.term-browser-depth-1,
+.term-browser-empty.term-browser-depth-1 { padding-left: calc(var(--space-2) + 1rem); }
+.term-browser-row.term-browser-depth-2,
+.term-browser-empty.term-browser-depth-2 { padding-left: calc(var(--space-2) + 2rem); }
+.term-browser-row.term-browser-depth-3,
+.term-browser-empty.term-browser-depth-3 { padding-left: calc(var(--space-2) + 3rem); }
+.term-browser-row.term-browser-depth-4,
+.term-browser-empty.term-browser-depth-4 { padding-left: calc(var(--space-2) + 4rem); }
+.term-browser-row.term-browser-depth-5,
+.term-browser-empty.term-browser-depth-5 { padding-left: calc(var(--space-2) + 5rem); }
+.term-browser-row.term-browser-depth-6,
+.term-browser-empty.term-browser-depth-6 { padding-left: calc(var(--space-2) + 6rem); }
+.term-browser-row.term-browser-depth-7,
+.term-browser-empty.term-browser-depth-7 { padding-left: calc(var(--space-2) + 7rem); }
+.term-browser-row.term-browser-depth-8,
+.term-browser-empty.term-browser-depth-8 { padding-left: calc(var(--space-2) + 8rem); }
+
+.term-browser-connect {
+  padding: var(--space-4);
+}
+
+.term-browser-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.term-browser-connecting {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.term-browser-hint-boxed {
+  margin: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-2);
+}
+
+.term-browser-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.term-browser-loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.term-browser-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  transition: var(--transition-colors);
+}
+
+.term-browser-row-dir {
+  color: var(--color-text);
+}
+
+.term-browser-row:hover {
+  background-color: var(--color-hover);
+}
+
+.term-browser-row:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.term-browser-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------- page-header controls -- */
+.term-page-actions-slot,
+.term-page-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* ------------------------------------------------------------ editor tab -- */
+.term-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.term-editor.term-hidden,
+.term-editor-group.term-hidden {
+  display: none;
+}
+
+/* The editor tab: files as inner tabs above one editor, IDE-style. */
+.term-editor-group {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.term-editor-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background-color: var(--color-surface-2);
+}
+
+.term-editor-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  max-width: 16rem;
+  height: var(--control-h-md);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 0;
+  border-right: 1px solid var(--color-border-subtle);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.term-editor-tab:hover {
+  color: var(--color-text);
+  background-color: var(--color-hover);
+}
+
+.term-editor-tab-active,
+.term-editor-tab-active:hover {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: inset 0 2px 0 var(--color-accent);
+}
+
+/* Unlike window tabs, file tabs always show their close mark, IDE-style. */
+.term-editor-tab .term-window-close {
+  opacity: 1;
+}
+
+.term-editor-tab-dirty .term-editor-tab-name {
+  font-style: italic;
+}
+
+.term-editor-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-editor-group .term-editor-bar {
+  border-radius: 0;
+  border-top: 0;
+}
+
+.term-editor-group .code-editor {
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.term-editor-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  height: var(--control-h-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.term-editor-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text);
+}
+
+.term-editor-notice {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.term-editor-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+}
+
+/* --------------------------------------------------- tabbed sessions -- */
+/* An editor-style tab strip with one body under it: the AI agents module's
+   layout, where each running agent is a tab, VS Code fashion. The body is
+   the bordered panel the strip sits on; a page-like tab scrolls inside it,
+   a terminal tab fills it. */
+.term-tab-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background-color: var(--color-surface);
+  overflow: hidden;
+}
+
+.term-tab-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-5);
+  scrollbar-width: thin;
+}
+
+.term-tab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: var(--space-4);
+}
+
+.term-editor-tab-launcher {
+  flex: 0 0 auto;
+  padding: 0 var(--space-2);
 }

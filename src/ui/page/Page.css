@@ -5,6 +5,25 @@
   min-height: 100%;
 }
 
+/* `height`, not `min-height`. A page that is merely *at least* the window's
+   height still computes to `auto`, and a percentage height anywhere below it
+   then resolves to auto as well — which unbounds the chain and puts the
+   scrollbar back on the page. See the `fill` prop's note in Page.tsx.
+
+   This is the one percentage in the chain, resolved against `.content`, whose
+   height is definite. Everything below is plain flex: `.page-body` becomes a
+   column, so a filling child asks for `flex: 1` rather than `height: 100%`
+   and no further percentage has to resolve through a block. */
+.page-fill {
+  height: 100%;
+}
+
+.page-fill > .page-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .page-narrow {
   max-width: 46rem;
   margin-inline: auto;

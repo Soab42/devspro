@@ -80,6 +80,23 @@
 .card-body {
   flex: 1;
   min-width: 0;
+  /* Lets a scrolling body (a fill-height DataTable) shrink instead of pushing
+     the card taller — a flex child defaults to min-height:auto. */
+  min-height: 0;
+}
+
+/* Takes the leftover height of a flex-column parent rather than growing with
+   its content, so the body inside it is what scrolls. */
+.card-fill {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Column, so whatever is inside can claim the leftover height with `flex: 1`
+   instead of a percentage that has to resolve through a block. */
+.card-fill > .card-body {
+  display: flex;
+  flex-direction: column;
 }
 
 .card-pad-none { padding: 0; }

@@ -26,6 +26,14 @@ const STYLE_FILES = import.meta.glob("../**/*.css", {
   eager: true,
 }) as Record<string, string>;
 
+// Parsed, not raw — Vite hands back the JSON object.
+const PACKAGE_JSON = Object.values(
+  import.meta.glob("../../package.json", { import: "default", eager: true }),
+)[0] as {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+};
+
 /**
  * Normalises glob keys to src-relative paths.
  *
@@ -111,11 +119,16 @@ describe("styling discipline", () => {
     "ui/Feedback.tsx", // skeleton dimensions vary per instance
     "ui/Mono.tsx", // truncation width supplied by the caller
     "ui/Menu.tsx", // portal position, measured at runtime
+    "modules/browser/components/TabStrip.tsx", // tab context menu at the pointer, measured at runtime
     "ui/Select.tsx", // portal position, measured at runtime
     "ui/DataTable.tsx", // per-column width from the column config
     "ui/Layout.tsx", // Stack align/justify pass-through
     "ui/Field.tsx", // SearchInput width supplied by the caller
     "ui/CodeEditor.tsx", // editor height derives from the caller's `rows`
+    "modules/sftp/components/SftpTab.tsx", // pane split ratio, set by dragging the divider
+    "ui/PaneLayout.tsx", // pane rects are measured from the slots at runtime
+    "ui/Terminal.tsx", // the file browser's width is whatever the user dragged it to
+    "modules/databases/browser/ColumnManager.tsx", // portal position, measured at runtime
   ]);
 
   it("inline styles appear only where the value is dynamic", () => {
@@ -142,18 +155,60 @@ describe("styling discipline", () => {
     expect(offenders(STYLES, (s) => /rgba\(10,\s*12,\s*16/.test(s))).toEqual([]);
   });
 
+  /**
+   * A package imported but not declared resolves only by accident — npm's flat
+   * hoisting happens to put a transitive dependency where the import can see
+   * it. Under pnpm's strict tree it either fails to resolve, or, worse,
+   * resolves to a *second* copy alongside the declared one.
+   *
+   * That is not hypothetical: the app imported seven CodeMirror packages it
+   * never declared, and once one of them was also pulled in properly there
+   * were two copies of @codemirror/state. Every `instanceof` across the two
+   * failed, and the SQL console died with "Unrecognized extension value in
+   * extension set".
+   */
+  it("imports nothing it does not declare as a dependency", () => {
+    const declared = new Set([
+      ...Object.keys(PACKAGE_JSON.dependencies ?? {}),
+      ...Object.keys(PACKAGE_JSON.devDependencies ?? {}),
+    ]);
+    // Anchored at a statement, so prose containing `from "..."` inside a
+    // comment is not mistaken for an import.
+    const IMPORT = /^\s*(?:import|export)\s[^;]*?from\s+"([^"]+)"/gm;
+
+    const undeclared = new Set<string>();
+    for (const file of SOURCES) {
+      for (const [, specifier] of file.source.matchAll(IMPORT)) {
+        if (/^[./]/.test(specifier) || specifier.startsWith("virtual:")) continue;
+        const pkg = specifier.startsWith("@")
+          ? specifier.split("/").slice(0, 2).join("/")
+          : specifier.split("/")[0];
+        if (!declared.has(pkg)) undeclared.add(pkg);
+      }
+    }
+    expect([...undeclared].sort()).toEqual([]);
+  });
+
   it("module stylesheets stay the documented exception", () => {
-    // Only two page-level stylesheets are sanctioned: the Dashboard's bespoke
-    // grid and the Logs page's full-height layout. Everything else composes
-    // primitives, which is what keeps styling traceable to one owner.
+    // An allowlist, not a prohibition: a module stylesheet is sanctioned when
+    // what it draws genuinely cannot be composed from primitives — the
+    // Dashboard's bespoke grid, the Logs and Browser pages' full-height
+    // layouts, and the database browser's in-place cell editing, whose changed
+    // /deleted row states and cell-level input have no primitive to be built
+    // from, and the SFTP tab's side-by-side local/remote panes, a two-column
+    // grid no primitive offers. and the Remote Desktop page's full-height VNC viewer. Everything else composes primitives, which is what keeps styling
+    // traceable to one owner. Adding a line here should feel like a decision.
     const moduleStyles = STYLES.filter((f) => f.path.startsWith("modules/")).map(
       (f) => f.path,
     );
     expect(moduleStyles.sort()).toEqual([
       "modules/browser/pages/BrowserPage.css",
       "modules/dashboard/pages/DashboardPage.css",
+      "modules/databases/browser/browser.css",
       "modules/file-manager/pages/FileManagerPage.css",
       "modules/logs/pages/LogsPage.css",
+      "modules/remote-desktop/pages/RemoteDesktopPage.css",
+      "modules/sftp/components/SftpTab.css",
     ]);
   });
 });

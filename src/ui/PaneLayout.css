@@ -1,0 +1,120 @@
+/* The slot tree lays the panes out; the floats carry their content. Both
+   fill the same box, so a float measured against its slot lands exactly on
+   top of it. */
+.pane-layout {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.pane-layout-hidden {
+  display: none;
+}
+
+.pane-slots {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.pane-split {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--pane-gap, 4px);
+}
+
+.pane-split-row {
+  flex-direction: row;
+}
+
+.pane-split-column {
+  flex-direction: column;
+}
+
+.pane-split-cell {
+  position: relative;
+  display: flex;
+  flex: 1 1 0%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane-slot {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The divider sits over the gap after its cell, wider than the gap so it is
+   easy to grab. Above the floats (z-index) or the pane content would swallow
+   the pointer. */
+.pane-divider {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.pane-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  background-color: transparent;
+  border-radius: 1px;
+  transition: var(--transition-colors);
+}
+
+.pane-divider:hover::after,
+.pane-divider-dragging::after {
+  background-color: var(--color-accent);
+}
+
+.pane-split-row > .pane-split-cell > .pane-divider {
+  top: 0;
+  bottom: 0;
+  right: calc(-1 * var(--pane-gap, 4px) - 3px);
+  width: calc(var(--pane-gap, 4px) + 6px);
+  cursor: col-resize;
+}
+
+.pane-split-row > .pane-split-cell > .pane-divider::after {
+  width: 2px;
+}
+
+.pane-split-column > .pane-split-cell > .pane-divider {
+  left: 0;
+  right: 0;
+  bottom: calc(-1 * var(--pane-gap, 4px) - 3px);
+  height: calc(var(--pane-gap, 4px) + 6px);
+  cursor: row-resize;
+}
+
+.pane-split-column > .pane-split-cell > .pane-divider::after {
+  height: 2px;
+}
+
+.pane-float {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  overflow: hidden;
+  transition: border-color 120ms ease;
+}
+
+.pane-float-focused {
+  border-color: var(--color-accent);
+}
+
+.pane-float-unplaced {
+  visibility: hidden;
+}

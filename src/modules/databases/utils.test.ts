@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  cellSortValue,
+  connectionTarget,
+  customIdOf,
+  customRef,
   dumpFileName,
   generatePassword,
   hasNextPage,
   isBrowsable,
+  isCustomRef,
+  isEngineImage,
   orderByFrom,
   pageLabel,
 } from "./utils";
@@ -71,15 +75,6 @@ describe("orderByFrom", () => {
   });
 });
 
-describe("cellSortValue", () => {
-  it("compares numeric text numerically and NULL first", () => {
-    expect(cellSortValue("10")).toBe(10);
-    expect(cellSortValue("abc")).toBe("abc");
-    expect(cellSortValue("")).toBe("");
-    expect(cellSortValue("NULL")).toBe("");
-  });
-});
-
 describe("isBrowsable", () => {
   it("only MySQL-family and Postgres images are browsable", () => {
     expect(isBrowsable("mysql:8")).toBe(true);
@@ -94,5 +89,66 @@ describe("dumpFileName", () => {
     expect(dumpFileName("shop", new Date(2026, 8, 22))).toBe(
       "shop_20260922.sql",
     );
+  });
+});
+
+describe("connection refs", () => {
+  it("round-trips a saved connection id through a ref", () => {
+    const ref = customRef("abc-123");
+    expect(ref).toBe("custom:abc-123");
+    expect(isCustomRef(ref)).toBe(true);
+    expect(customIdOf(ref)).toBe("abc-123");
+  });
+
+  it("treats a bare compose service name as managed, not custom", () => {
+    expect(isCustomRef("myapp_db")).toBe(false);
+    expect(customIdOf("myapp_db")).toBeNull();
+  });
+});
+
+describe("connectionTarget", () => {
+  it("shows host and port for a TCP connection", () => {
+    expect(
+      connectionTarget({
+        transport: "tcp",
+        host: "db.example.com",
+        port: 3306,
+        container: "",
+      }),
+    ).toBe("db.example.com:3306");
+  });
+
+  it("shows the container for a docker connection, which has no host", () => {
+    expect(
+      connectionTarget({
+        transport: "docker",
+        host: "",
+        port: 0,
+        container: "app_mysql_1",
+      }),
+    ).toBe("app_mysql_1");
+  });
+});
+
+describe("isEngineImage", () => {
+  it("matches the official images for each engine", () => {
+    expect(isEngineImage("mysql:8", "mysql")).toBe(true);
+    expect(isEngineImage("mariadb:11", "mysql")).toBe(true);
+    expect(isEngineImage("postgres:16-alpine", "postgres")).toBe(true);
+  });
+
+  it("looks past a registry prefix and a tag", () => {
+    expect(isEngineImage("ghcr.io/acme/postgres:16", "postgres")).toBe(true);
+    expect(isEngineImage("docker.io/library/MySQL:8", "mysql")).toBe(true);
+  });
+
+  it("keeps the two engines apart", () => {
+    expect(isEngineImage("postgres:16", "mysql")).toBe(false);
+    expect(isEngineImage("mysql:8", "postgres")).toBe(false);
+  });
+
+  it("does not match an ordinary application container", () => {
+    expect(isEngineImage("brokercore-deal", "mysql")).toBe(false);
+    expect(isEngineImage("redis:7-alpine", "postgres")).toBe(false);
   });
 });

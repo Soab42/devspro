@@ -64,18 +64,18 @@ describe("connectionOption", () => {
     status: "",
     ports: "",
   });
-  it("strips the devsuite prefix and labels with the image", () => {
-    expect(connectionOption(container("devsuite_mysql8", "mysql:8"))).toEqual({
+  it("strips the devspro prefix and labels with the image", () => {
+    expect(connectionOption(container("devspro_mysql8", "mysql:8"))).toEqual({
       value: "mysql8",
       label: "mysql8 — mysql:8",
     });
-    expect(connectionOption(container("devsuite_pg", "postgres:16", "exited"))?.label).toBe(
+    expect(connectionOption(container("devspro_pg", "postgres:16", "exited"))?.label).toBe(
       "pg — postgres:16 (exited)",
     );
   });
   it("excludes engines Laravel cannot use as DB_CONNECTION", () => {
-    expect(connectionOption(container("devsuite_cache", "redis:7"))).toBeNull();
-    expect(connectionOption(container("devsuite_ui", "phpmyadmin:latest"))).toBeNull();
+    expect(connectionOption(container("devspro_cache", "redis:7"))).toBeNull();
+    expect(connectionOption(container("devspro_ui", "phpmyadmin:latest"))).toBeNull();
   });
 });
 

@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn list_in_reads_pub_files_and_detects_private_halves() {
-        let dir = std::env::temp_dir().join(format!("devsuite-ssh-keys-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("devspro-ssh-keys-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("with_private.pub"), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGxKZ2V0dGluZyB0aGlzIHRvIHBhcnNlIGlzIGhhcmQ= a@b\n").unwrap();
         std::fs::write(dir.join("with_private"), "-----BEGIN OPENSSH PRIVATE KEY-----\n").unwrap();

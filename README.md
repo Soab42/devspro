@@ -10,7 +10,8 @@ React + Rust.
 | **Dashboard** | Live CPU, memory, GPU, storage and network, with a health summary |
 | **Nginx & SSL** | Add sites (proxy-to-port or Laravel), each with a locally-trusted HTTPS certificate from a CA it manages for you. Optional public Cloudflare tunnel per site. A New Project wizard scaffolds Laravel, adds the site, creates a database, writes `.env` and runs migrations in one go, reporting each step |
 | **Docker** | Containers: start, stop, restart, logs, and remap published ports |
-| **Databases** | MySQL / PostgreSQL / MongoDB / Redis in DevsPro's own compose project, each with an admin UI, plus users, backup and restore; a browser for MySQL/Postgres (tables, paginated rows, read-only SQL console, dump/restore to file) |
+| **Databases** | MySQL / PostgreSQL / MongoDB / Redis in DevsPro's own compose project, each with an admin UI, plus users, backup and restore |
+| **Data browser** | A TablePlus-style browser for any MySQL/Postgres server — table and view sidebar, structure (columns, indexes, foreign keys), a filterable grid with inline row editing, relation columns you can click through, a multi-sheet SQL console with completion and history, and CSV/JSON/INSERT export. Read-only per connection until you switch it to read & write; opens databases DevsPro doesn't run too — remote servers, ones installed on this machine, and other containers' |
 | **Mail Catcher** | Mailpit in a container, so outgoing mail from local apps lands somewhere you can read it |
 | **Workers** | Any shell command kept running in the background — a Laravel queue worker, say |
 | **Scheduled tasks** | Recurring commands (`php artisan schedule:run` every minute, say) written to your crontab inside a block DevsPro manages, with each run's output |
@@ -18,7 +19,11 @@ React + Rust.
 | **Processes** | What is listening on which port, and stop it |
 | **Logs** | Tail nginx access/error and Laravel logs per site |
 | **Apps** | Install common dev tooling: nginx, Docker, PHP, Node/nvm, cloudflared… |
-| **SSH** | Saved hosts, an in-app terminal (local or ssh), an SFTP file browser, and key generation / install on host |
+| **SSH** | Saved hosts and key generation / install on host |
+| **AI agents** | Launch terminal coding agents — Claude Code, Codex, Gemini CLI, OpenCode, Copilot CLI, Aider and more, or any command you add — in a project folder of your choice, each in its own tab; sees which are installed and installs the missing ones |
+| **Terminal** | Local and ssh shells, tmux-style: split panes, multiple windows, pop-out into its own OS window, and a file browser that follows the shell |
+| **SFTP** | Two-pane file browser and transfers for a saved host |
+| **Remote Desktop** | Saved VNC and RDP machines: VNC is viewed in-app (noVNC over a local bridge), RDP opens in FreeRDP or Remmina |
 | **Files** | A Finder-style explorer: places down the side, back/forward and a path bar, list or icon view, filter, hidden files, and per-item open / edit in the app / reveal / rename / move to trash |
 | **Browser** | A small tabbed browser with Chrome, Safari and Firefox-style frames to switch between; pages render in a native webview so local `.test` sites and anything else load as they would in a real browser |
 | **Env Diff** | Compare two `.env` files by variable — missing, new and changed values, wherever they sit in the file — and copy them across |

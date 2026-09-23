@@ -3,7 +3,7 @@
  * so the suggestion/slug rules are unit-tested rather than eyeballed.
  */
 
-import type { DevsuiteContainer } from "../databases/api";
+import type { DevsproContainer } from "../databases/api";
 
 export type WizardTemplate = "laravel" | "existing" | "blank";
 
@@ -64,10 +64,10 @@ export function splitProjectFolder(path: string): { parentDir: string; name: str
 /**
  * A managed database server as a Select option, or null when Laravel can't use
  * it as `DB_CONNECTION` (Redis is a cache, not a database). Container names are
- * `devsuite_<service>`; the plan wants the bare service name.
+ * `devspro_<service>`; the plan wants the bare service name.
  */
-export function connectionOption(c: DevsuiteContainer): { value: string; label: string } | null {
-  const service = c.name.replace(/^devsuite_/, "");
+export function connectionOption(c: DevsproContainer): { value: string; label: string } | null {
+  const service = c.name.replace(/^devspro_/, "");
   const image = c.image.split(":")[0] ?? c.image;
   if (!["mysql", "postgres", "mongo"].includes(image)) return null;
   const running = c.state === "running" ? "" : ` (${c.state})`;

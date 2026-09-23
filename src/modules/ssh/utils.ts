@@ -1,4 +1,4 @@
-import type { SftpEntry, SshHost } from "./api";
+import type { PtyCommand, SftpEntry, SshHost } from "./api";
 
 export interface Crumb {
   label: string;
@@ -66,7 +66,9 @@ export type EntrySortKey = "name" | "size" | "modified";
  * manager works, and mixing them in by size would scatter folders (which have
  * no meaningful size) through the list.
  */
-export function sortEntries(entries: SftpEntry[], key: EntrySortKey, dir: "asc" | "desc"): SftpEntry[] {
+export type SortableEntry = Pick<SftpEntry, "name" | "is_dir" | "size" | "modified">;
+
+export function sortEntries<T extends SortableEntry>(entries: T[], key: EntrySortKey, dir: "asc" | "desc"): T[] {
   const sign = dir === "asc" ? 1 : -1;
   return [...entries].sort((a, b) => {
     if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
@@ -123,9 +125,33 @@ export function validateHostForm(input: {
 }
 
 /** A short, unique-enough title for a terminal tab. */
-export function terminalTitle(command: "local" | { ssh: string }, hosts: SshHost[], ordinal: number): string {
+export function terminalTitle(command: PtyCommand, hosts: SshHost[], ordinal: number): string {
   if (command === "local") return ordinal > 1 ? `Local ${ordinal}` : "Local";
-  const host = hosts.find((h) => h.id === command.ssh);
-  const base = host ? host.name : "ssh";
+  const base = "exec" in command ? baseName(command.exec.program) || command.exec.program : (hosts.find((h) => h.id === command.ssh)?.name ?? "ssh");
   return ordinal > 1 ? `${base} (${ordinal})` : base;
+}
+
+/** `'…'`-quoted for a POSIX shell, so paths with spaces or quotes survive a `cd`. */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** The keystrokes that change a shell's directory: sent to the PTY as if typed. */
+export function cdCommand(path: string): string {
+  return ` cd ${shellQuote(path)}\n`;
+}
+
+/**
+ * A line that makes a POSIX shell announce its working directory at every
+ * prompt as an OSC 7 sequence (`ESC ] 7 ; file://host/path BEL`), which is
+ * what the follow-along browser listens for. A local shell is tracked via
+ * /proc without this; a remote one has no other way to tell us. The leading
+ * space keeps it out of the history of shells configured to ignore such
+ * lines; `printf %b` expands the escapes portably, dash included.
+ */
+export function followHookCommand(): string {
+  // No single quotes inside, so the whole thing can sit in a '…' assignment
+  // and be expanded at each prompt rather than once, now.
+  const emitter = `printf "%b" "\\033]7;file://$(hostname 2>/dev/null)$PWD\\007"`;
+  return ` if [ -n "$ZSH_VERSION" ]; then precmd() { ${emitter}; }; else PROMPT_COMMAND='${emitter}'; fi; ${emitter}\n`;
 }

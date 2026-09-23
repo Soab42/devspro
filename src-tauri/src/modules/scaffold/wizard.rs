@@ -173,7 +173,7 @@ fn step_site(ctx: &mut Ctx) -> Result<String, String> {
     Ok(format!("https://{} is live with a trusted certificate", site.hostname))
 }
 
-/// `nginx_ssl_add_site` already rewrites the devsuite block in /etc/hosts, so
+/// `nginx_ssl_add_site` already rewrites the devspro block in /etc/hosts, so
 /// after a successful site step this only verifies. When the site step was
 /// skipped the domain is added as a DevsPro-tagged line through the Hosts file
 /// module, so the folder is at least reachable by name once a site exists.

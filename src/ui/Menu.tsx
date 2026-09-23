@@ -23,6 +23,8 @@ export interface MenuProps {
   icon?: LucideIcon;
   size?: "sm" | "md";
   align?: "start" | "end";
+  /** Fires as the popup opens and closes. The Browser module hides its native page views while any popup is up. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /**
@@ -42,8 +44,15 @@ export function Menu({
   icon = Ellipsis,
   size = "sm",
   align = "end",
+  onOpenChange,
 }: MenuProps) {
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    onOpenChange?.(open);
+    // Report only on change; a new callback identity is not a change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);

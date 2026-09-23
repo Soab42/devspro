@@ -54,21 +54,67 @@
   color: var(--color-text-muted);
 }
 
-/* Fixed, not absolute: the listbox is portalled to <body> to escape the card
+/* Fixed, not absolute: the popover is portalled to <body> to escape the card
    and table clipping contexts, so it is positioned in viewport coordinates by
    Select.tsx rather than relative to its trigger. */
-.custom-select-menu {
+.custom-select-popover {
   position: fixed;
   z-index: var(--z-popover);
-  margin: 0;
-  padding: var(--space-1);
-  list-style: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
+}
+
+/* The scroll lives on the list, not the popover, so an optional search box
+   stays pinned while the options move under it. */
+.custom-select-menu {
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
   max-height: 15rem;
   overflow-y: auto;
+}
+
+.custom-select-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.custom-select-search-icon {
+  position: absolute;
+  left: var(--space-3);
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+
+.custom-select-search-input {
+  width: 100%;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2) 0 var(--space-7);
+  background-color: transparent;
+  color: var(--color-text);
+  border: 0;
+  border-radius: var(--radius-xs);
+  font-family: inherit;
+  font-size: var(--text-sm);
+}
+
+.custom-select-search-input:focus {
+  outline: none;
+  background-color: var(--color-surface-2);
+}
+
+.custom-select-empty {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
 
 .custom-select-option {

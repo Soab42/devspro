@@ -57,7 +57,7 @@ fn is_within_prefix(prefix: &str, path: &str) -> bool {
 
 fn atomic_write(path: &Path, contents: &str) -> io::Result<()> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let tmp_path = dir.join(format!(".devsuite-tmp-{}", std::process::id()));
+    let tmp_path = dir.join(format!(".devspro-tmp-{}", std::process::id()));
     fs::write(&tmp_path, contents)?;
     if let Ok(meta) = fs::metadata(path) {
         let _ = fs::set_permissions(&tmp_path, meta.permissions());
@@ -272,7 +272,7 @@ fn ensure_nginx_confd_include(conf_d_dir: &str, sites_glob: &str) -> OpResult {
             message: format!("{conf_d_dir} is not a directory"),
         };
     }
-    let dest = dir.join("devsuite.conf");
+    let dest = dir.join("devspro.conf");
     let contents = format!("include {sites_glob};\n");
     match fs::write(&dest, contents) {
         Ok(()) => OpResult {
@@ -347,7 +347,7 @@ fn install_root_ca(allowed_prefix: &str, cert_path: &str, nss_db_paths: &[String
         };
     }
 
-    let dest = "/usr/local/share/ca-certificates/devsuite-root-ca.crt";
+    let dest = "/usr/local/share/ca-certificates/devspro-root-ca.crt";
     if let Err(e) = fs::copy(cert_path, dest) {
         return OpResult {
             success: false,
@@ -370,7 +370,7 @@ fn install_root_ca(allowed_prefix: &str, cert_path: &str, nss_db_paths: &[String
 
     for nss_db in nss_db_paths {
         match Command::new("certutil")
-            .args(["-d", nss_db, "-A", "-t", "C,,", "-n", "DevSuite Local CA", "-i", cert_path])
+            .args(["-d", nss_db, "-A", "-t", "C,,", "-n", "DevsPro Local CA", "-i", cert_path])
             .output()
         {
             Ok(out) if out.status.success() => message.push_str(&format!("; imported into {nss_db}")),

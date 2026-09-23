@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use super::hosts::SshHost;
 use super::SshState;
@@ -24,16 +24,34 @@ pub struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
+    /// Label of the webview window whose terminal drives this session. When
+    /// that window is destroyed the shell is killed with it; a popped-out
+    /// terminal transfers ownership with `pty_adopt` so the main window can
+    /// close (or its tab can) without taking the session down.
+    owner: String,
 }
 
 pub type PtyMap = Mutex<HashMap<String, PtyHandle>>;
 
-/// `"local"` for the user's shell, `{ "ssh": "<host id>" }` for a saved host.
+/// `"local"` for the user's shell, `{ "ssh": "<host id>" }` for a saved host,
+/// `{ "exec": { program, args, cwd } }` for one program (an AI coding agent,
+/// an installer) run in the user's shell environment.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum PtyCommand {
     Local(String),
     Ssh { ssh: String },
+    Exec { exec: ExecSpec },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExecSpec {
+    pub program: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Working directory; the home directory when absent or not a directory.
+    #[serde(default)]
+    pub cwd: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -78,6 +96,35 @@ pub fn local_shell(shell_env: Option<&str>) -> (String, Vec<String>) {
     (shell, vec!["-l".to_string()])
 }
 
+/// The argv that runs `program args…` through the user's interactive login
+/// shell, replacing it: `$SHELL -l -i -c 'exec "$0" "$@"' program args…`.
+/// The shell exists only to load the profile — PATH additions from nvm, pyenv
+/// and the like live in `.zshrc`/`.bashrc`, which a bare `-l` shell skips —
+/// and `exec` hands the PTY straight to the program, so the exit code the
+/// terminal reports is the program's own.
+pub fn exec_via_shell(shell: &str, program: &str, args: &[String]) -> (String, Vec<String>) {
+    let mut argv = vec![
+        "-l".to_string(),
+        "-i".to_string(),
+        "-c".to_string(),
+        r#"exec "$0" "$@""#.to_string(),
+        program.to_string(),
+    ];
+    argv.extend(args.iter().cloned());
+    (shell.to_string(), argv)
+}
+
+/// A requested working directory, or the home directory when it is missing
+/// or no longer a directory.
+pub fn exec_cwd(requested: Option<&str>, home: &std::path::Path) -> std::path::PathBuf {
+    requested
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_dir())
+        .unwrap_or_else(|| home.to_path_buf())
+}
+
 fn size(cols: u16, rows: u16) -> PtySize {
     PtySize {
         rows: rows.max(1),
@@ -113,6 +160,7 @@ pub fn spawn(cmd: CommandBuilder, cols: u16, rows: u16) -> Result<(PtyHandle, Bo
             master: pair.master,
             writer,
             child,
+            owner: String::new(),
         },
         reader,
     ))
@@ -131,6 +179,7 @@ fn valid_session_id(id: &str) -> Result<(), String> {
 
 fn build_command(db: &State<crate::db::Db>, command: PtyCommand) -> Result<CommandBuilder, String> {
     let home = super::home_dir()?;
+    let mut cwd = home.clone();
     let mut cmd = match command {
         PtyCommand::Local(tag) => {
             if tag != "local" {
@@ -150,8 +199,20 @@ fn build_command(db: &State<crate::db::Db>, command: PtyCommand) -> Result<Comma
             cmd.args(ssh_args(&host));
             cmd
         }
+        PtyCommand::Exec { exec } => {
+            let program = exec.program.trim();
+            if program.is_empty() {
+                return Err("nothing to run".to_string());
+            }
+            let (shell, _) = local_shell(std::env::var("SHELL").ok().as_deref());
+            let (shell, args) = exec_via_shell(&shell, program, &exec.args);
+            cwd = exec_cwd(exec.cwd.as_deref(), &home);
+            let mut cmd = CommandBuilder::new(shell);
+            cmd.args(args);
+            cmd
+        }
     };
-    cmd.cwd(&home);
+    cmd.cwd(&cwd);
     // xterm.js speaks xterm-256color; without this, programs fall back to
     // whatever TERM the app inherited (often nothing under a desktop launcher).
     cmd.env("TERM", "xterm-256color");
@@ -162,6 +223,7 @@ fn build_command(db: &State<crate::db::Db>, command: PtyCommand) -> Result<Comma
 #[tauri::command]
 pub fn pty_open(
     app: AppHandle,
+    window: Window,
     db: State<crate::db::Db>,
     state: State<SshState>,
     id: String,
@@ -177,7 +239,8 @@ pub fn pty_open(
         }
     }
     let cmd = build_command(&db, command)?;
-    let (handle, mut reader) = spawn(cmd, cols, rows)?;
+    let (mut handle, mut reader) = spawn(cmd, cols, rows)?;
+    handle.owner = window.label().to_string();
     state.pty.lock().map_err(|e| e.to_string())?.insert(id.clone(), handle);
 
     // One reader thread per session. It ends when the child exits (EOF on the
@@ -232,6 +295,46 @@ pub fn pty_resize(state: State<SshState>, id: String, cols: u16, rows: u16) -> R
         .map_err(|e| format!("resize failed: {e}"))
 }
 
+/// Makes the calling window the owner of an already-running session. Used by
+/// a popped-out terminal window: the session keeps running, only the window
+/// whose destruction would kill it changes.
+#[tauri::command]
+pub fn pty_adopt(window: Window, state: State<SshState>, id: String) -> Result<(), String> {
+    let mut map = state.pty.lock().map_err(|e| e.to_string())?;
+    let handle = map.get_mut(&id).ok_or("terminal is not open")?;
+    handle.owner = window.label().to_string();
+    Ok(())
+}
+
+/// The working directory of the session's shell, read from `/proc`. Only
+/// meaningful for a local terminal — for an ssh session the child is the
+/// local `ssh` client, whose cwd says nothing about the remote side (that
+/// comes from the shell's OSC 7 reports instead). `None` when the process
+/// has gone or `/proc` is unreadable.
+#[tauri::command]
+pub fn pty_cwd(state: State<SshState>, id: String) -> Result<Option<String>, String> {
+    let map = state.pty.lock().map_err(|e| e.to_string())?;
+    let handle = map.get(&id).ok_or("terminal is not open")?;
+    Ok(handle.child.process_id().and_then(proc_cwd))
+}
+
+pub fn proc_cwd(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{pid}/cwd"))
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Kills every session owned by a window that has just been destroyed. React
+/// cleanup does not reliably run when a webview is torn down, so this is what
+/// stops a popped-out terminal's shell from outliving its window.
+pub fn kill_owned_by(state: &SshState, window_label: &str) {
+    if let Ok(mut map) = state.pty.lock() {
+        for handle in map.values_mut().filter(|h| h.owner == window_label) {
+            let _ = handle.child.kill();
+        }
+    }
+}
+
 /// Kills the child; the reader thread then sees EOF, reaps it, and emits the
 /// exit event. The handle is left in the map for the thread to remove, so the
 /// exit code still gets reported.
@@ -273,6 +376,35 @@ mod tests {
     }
 
     #[test]
+    fn exec_runs_through_an_interactive_login_shell_and_execs() {
+        let (shell, argv) = exec_via_shell("/bin/zsh", "claude", &["--resume".to_string()]);
+        assert_eq!(shell, "/bin/zsh");
+        assert_eq!(argv, ["-l", "-i", "-c", r#"exec "$0" "$@""#, "claude", "--resume"]);
+    }
+
+    #[test]
+    fn exec_cwd_falls_back_to_home() {
+        let home = std::env::temp_dir();
+        assert_eq!(exec_cwd(None, &home), home);
+        assert_eq!(exec_cwd(Some("  "), &home), home);
+        assert_eq!(exec_cwd(Some("/definitely/not/a/dir"), &home), home);
+        assert_eq!(exec_cwd(Some(home.to_str().unwrap()), &home), home);
+    }
+
+    #[test]
+    fn exec_command_deserialises_with_optional_fields() {
+        let cmd: PtyCommand = serde_json::from_str(r#"{"exec":{"program":"codex"}}"#).unwrap();
+        match cmd {
+            PtyCommand::Exec { exec } => {
+                assert_eq!(exec.program, "codex");
+                assert!(exec.args.is_empty());
+                assert_eq!(exec.cwd, None);
+            }
+            _ => panic!("expected exec"),
+        }
+    }
+
+    #[test]
     fn ssh_args_include_port_keepalive_and_target() {
         let args = ssh_args(&host("agent", None));
         assert_eq!(args, ["-p", "2222", "-o", "ServerAliveInterval=30", "deploy@example.com"]);
@@ -296,6 +428,13 @@ mod tests {
     }
 
     #[test]
+    fn proc_cwd_reads_this_process() {
+        let cwd = proc_cwd(std::process::id()).expect("own cwd via /proc");
+        assert_eq!(std::path::PathBuf::from(cwd), std::env::current_dir().unwrap());
+        assert_eq!(proc_cwd(u32::MAX), None);
+    }
+
+    #[test]
     fn session_ids_are_restricted() {
         assert!(valid_session_id("6f1c2b8e-1234-4abc-9def-0123456789ab").is_ok());
         assert!(valid_session_id("").is_err());
@@ -311,7 +450,7 @@ mod tests {
         let mut cmd = CommandBuilder::new("sh");
         cmd.env("PS1", "$ ");
         let (mut handle, mut reader) = spawn(cmd, 80, 24).unwrap();
-        handle.writer.write_all(b"echo devsuite-pty-ok; exit\n").unwrap();
+        handle.writer.write_all(b"echo devspro-pty-ok; exit\n").unwrap();
         handle.writer.flush().unwrap();
 
         let mut collected = Vec::new();
@@ -323,7 +462,7 @@ mod tests {
             }
         }
         let text = String::from_utf8_lossy(&collected);
-        assert!(text.contains("devsuite-pty-ok"), "unexpected pty output: {text:?}");
+        assert!(text.contains("devspro-pty-ok"), "unexpected pty output: {text:?}");
         assert!(handle.child.wait().unwrap().success());
     }
 }

@@ -1,26 +1,144 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  MouseEvent as ReactMouseEvent,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { MODULE_GROUPS, modules } from "./ModuleRegistry";
+import {
+  MODULE_GROUPS,
+  moduleByPath,
+  type ModuleDefinition,
+} from "./ModuleRegistry";
+import { useModules } from "./ModulesContext";
 import { ThemeControl } from "./ThemeControl";
 import { useLayoutMode } from "./useLayoutMode";
-import { Icon } from "../ui";
-import { IconButton } from "../ui";
-import { Lock, Menu, PanelLeftClose, PanelLeftOpen, Settings } from "../ui/icons";
+import { CommandPalette } from "./CommandPalette";
+import {
+  POPOUT_ACTIONS_SLOT,
+  POPOUT_TABS_SLOT,
+  currentPopoutModuleId,
+  isBrowserTabWindow,
+  openModuleWindow,
+} from "./popout";
+import { currentPopoutHandoff } from "./popoutState";
+import { Icon, IconButton, PageChromeContext, Spinner } from "../ui";
+import {
+  Lock,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  Settings,
+  SquareArrowOutUpRight,
+} from "../ui/icons";
 // The profile dropdown reuses .menu-item / .menu-separator so both popovers in
 // the app look identical. Imported explicitly rather than relying on some other
 // module having pulled Menu.css in first.
 import "../ui/Menu.css";
 import "./Shell.css";
 
-const COLLAPSE_KEY = "devsuite:sidebar-collapsed";
+const COLLAPSE_KEY = "devspro:sidebar-collapsed";
+
+const isMac =
+  typeof navigator !== "undefined" &&
+  /Mac|iPhone|iPad/.test(navigator.platform);
+/** Rendered in the launcher trigger; the handler accepts both modifiers regardless. */
+const PALETTE_SHORTCUT = isMac ? "\u2318K" : "Ctrl K";
+
+/**
+ * Opens a module in its own window instead of navigating. Ctrl/Cmd+click and
+ * middle-click, the same gestures that open a link in a new tab in a browser.
+ */
+function wantsNewWindow(e: ReactMouseEvent): boolean {
+  return e.button === 1 || e.ctrlKey || e.metaKey;
+}
 
 export default function Shell() {
+  // A popped-out window shows one module and nothing else: no sidebar, no
+  // profile, no launcher. It reads its module from the window label, so the
+  // same bundle serves both kinds of window.
+  const popoutId = currentPopoutModuleId();
+  if (popoutId) return <PopoutShell />;
+  return <MainShell />;
+}
+
+function PageBoundary() {
+  return (
+    <Suspense
+      fallback={
+        <div className="content-loading">
+          <Spinner size="md" />
+        </div>
+      }
+    >
+      <Outlet />
+    </Suspense>
+  );
+}
+
+function PopoutShell() {
+  const location = useLocation();
+  const current = moduleByPath(location.pathname);
+  // A popped-out browser — the whole module or a single tab — is a browser
+  // window of its own: no page header, no padding, and the page sets the
+  // window title from the site's title.
+  const chromeless = isBrowserTabWindow() || current?.id === "browser";
+  // The page's meta and actions move into the top bar; the slot is handed
+  // down through context once it exists.
+  const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (chromeless) return;
+    document.title = current ? `${current.label} \u2014 DevsPro` : "DevsPro";
+  }, [current, chromeless]);
+
+  return (
+    <div
+      className={
+        chromeless
+          ? "shell shell-popout shell-popout-chromeless"
+          : "shell shell-popout"
+      }
+    >
+      <div className="shell-main">
+        <header className="topbar">
+          {current && (
+            <span className="topbar-title">
+              <Icon icon={current.icon} size="sm" />
+              {current.label}
+            </span>
+          )}
+          <div id={POPOUT_TABS_SLOT} className="topbar-tabs" />
+          <div className="topbar-spacer" />
+          <div
+            id={POPOUT_ACTIONS_SLOT}
+            ref={setActionsSlot}
+            className="topbar-actions"
+          />
+          <ThemeControl />
+        </header>
+        <main className="content">
+          <PageChromeContext.Provider value={{ actionsSlot }}>
+            <PageBoundary />
+          </PageChromeContext.Provider>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function MainShell() {
   const { profile, lock } = useAuth();
   const layout = useLayoutMode();
   const location = useLocation();
+  const { enabled } = useModules();
+  const current = moduleByPath(location.pathname);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [pinnedCollapsed, setPinnedCollapsed] = useState(
     () => localStorage.getItem(COLLAPSE_KEY) === "1",
   );
@@ -51,6 +169,51 @@ export default function Shell() {
     return () => document.removeEventListener("keydown", onKey);
   }, [drawerOpen]);
 
+  // The launcher is reachable from anywhere, including from inside a text
+  // field — that is the point of a launcher. Ctrl+K and Ctrl+P both work
+  // because half the tools people come from use one and half the other.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "k" && key !== "p") return;
+      e.preventDefault();
+      setPaletteOpen((v) => !v);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  /** A fresh window for `m`: the sidebar's Ctrl+click and the launcher. */
+  function popOut(m: ModuleDefinition) {
+    openModuleWindow(m).catch((err) => console.error(err));
+  }
+
+  /**
+   * The top-bar button: take the page the user is on with them. The page
+   * either moves what it has (a terminal pane, a browser tab) or hands over
+   * the parameters that recreate it; a page with nothing to carry gets a
+   * fresh window like any other.
+   */
+  async function popOutCurrent(m: ModuleDefinition) {
+    try {
+      const handoff = currentPopoutHandoff();
+      if (handoff?.open && (await handoff.open())) return;
+      await openModuleWindow(m, handoff?.params);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function onLinkClick(
+    e: ReactMouseEvent<HTMLAnchorElement>,
+    m: ModuleDefinition,
+  ) {
+    if (!wantsNewWindow(e)) return;
+    e.preventDefault();
+    popOut(m);
+  }
+
   const classes = [
     "shell",
     railed && !isDrawer && "shell-railed",
@@ -67,14 +230,20 @@ export default function Shell() {
   return (
     <div className={classes}>
       {isDrawer && drawerOpen && (
-        <div className="sidebar-backdrop" onClick={() => setDrawerOpen(false)} />
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setDrawerOpen(false)}
+        />
       )}
 
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <span className="sidebar-mark" aria-hidden="true">
-            DP
-          </span>
+          <img
+            className="sidebar-mark"
+            src="/logo.svg"
+            alt=""
+            aria-hidden="true"
+          />
           <span className="sidebar-wordmark">DevsPro</span>
           {layout === "full" && (
             <IconButton
@@ -91,23 +260,31 @@ export default function Shell() {
         {/* The label belongs on the nav landmark itself, not the <aside>. */}
         <nav className="sidebar-nav" aria-label="Main navigation">
           {MODULE_GROUPS.map((group) => {
-            const items = modules.filter((m) => m.group === group.id);
+            const items = enabled.filter((m) => m.group === group.id);
             if (items.length === 0) return null;
             return (
               <div className="sidebar-group" key={group.id}>
                 {/* In rail mode the label is hidden and the group's top border
                     carries the grouping instead. */}
-                {group.label && <p className="sidebar-group-label">{group.label}</p>}
+                {group.label && (
+                  <p className="sidebar-group-label">{group.label}</p>
+                )}
                 {items.map((m) => (
                   <NavLink
                     key={m.id}
                     to={m.path}
                     title={railed ? m.label : undefined}
+                    onClick={(e) => onLinkClick(e, m)}
+                    onAuxClick={(e) => onLinkClick(e, m)}
                     className={({ isActive }) =>
                       `sidebar-link${isActive ? " sidebar-link-active" : ""}`
                     }
                   >
-                    <Icon icon={m.icon} size="sm" className="sidebar-link-icon" />
+                    <Icon
+                      icon={m.icon}
+                      size="sm"
+                      className="sidebar-link-icon"
+                    />
                     <span className="sidebar-link-label">{m.label}</span>
                   </NavLink>
                 ))}
@@ -127,15 +304,44 @@ export default function Shell() {
               onClick={() => setDrawerOpen((v) => !v)}
             />
           )}
+          <button
+            type="button"
+            className="topbar-search"
+            onClick={() => setPaletteOpen(true)}
+            aria-label="Search modules"
+            aria-keyshortcuts="Control+K Meta+K"
+          >
+            <Icon icon={Search} size="sm" />
+            <span className="topbar-search-text">Search modules</span>
+            <kbd className="topbar-search-kbd" aria-hidden="true">
+              {PALETTE_SHORTCUT}
+            </kbd>
+          </button>
           <div className="topbar-spacer" />
+          {current && (
+            <IconButton
+              icon={SquareArrowOutUpRight}
+              label={`Open ${current.label} in a new window`}
+              variant="ghost"
+              onClick={() => void popOutCurrent(current)}
+            />
+          )}
           <ThemeControl />
-          <ProfileMenu name={profile?.display_name ?? "Profile"} onLock={lock} />
+          <ProfileMenu
+            name={profile?.display_name ?? "Profile"}
+            onLock={lock}
+          />
         </header>
 
         <main className="content">
-          <Outlet />
+          <PageBoundary />
         </main>
       </div>
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+      />
     </div>
   );
 }
@@ -197,7 +403,12 @@ function ProfileMenu({ name, onLock }: { name: string; onLock: () => void }) {
           <div className="menu-separator" role="separator" />
           {/* Labelled "Lock", not "Log out" — the handler is lock(), which
               returns to the lock screen rather than ending a session. */}
-          <button type="button" className="menu-item" role="menuitem" onClick={onLock}>
+          <button
+            type="button"
+            className="menu-item"
+            role="menuitem"
+            onClick={onLock}
+          >
             <Icon icon={Lock} size="sm" />
             Lock
           </button>

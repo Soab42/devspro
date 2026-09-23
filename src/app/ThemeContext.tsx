@@ -3,7 +3,7 @@ import { createContext, ReactNode, useContext, useEffect, useState } from "react
 export type Theme = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
-const STORAGE_KEY = "devsuite:theme";
+const STORAGE_KEY = "devspro:theme";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 interface ThemeState {

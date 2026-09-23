@@ -17,6 +17,9 @@ export interface CardProps {
   /** Use "none" when the body is a DataTable — the table owns its own padding. */
   padding?: CardPadding;
   span?: 1 | 2;
+  /** Takes the remaining height of a flex-column parent and lets its body
+      scroll, instead of growing the page. */
+  fill?: boolean;
   headingLevel?: 2 | 3;
   as?: "section" | "div" | "article";
   className?: string;
@@ -36,6 +39,7 @@ export function Card({
   footer,
   padding = "md",
   span,
+  fill = false,
   headingLevel = 2,
   as: Tag = "section",
   className,
@@ -44,7 +48,9 @@ export function Card({
   const Heading = headingLevel === 3 ? "h3" : "h2";
   const hasHeader = Boolean(title || actions || icon);
 
-  const classes = ["card", span === 2 && "card-span-2", className].filter(Boolean).join(" ");
+  const classes = ["card", span === 2 && "card-span-2", fill && "card-fill", className]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <Tag className={classes}>

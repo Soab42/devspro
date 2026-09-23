@@ -49,16 +49,6 @@ export function orderByFrom(
   return `${sort.key} ${sort.dir}`;
 }
 
-/**
- * Sort value for a cell so the client-side sort of the current page agrees
- * with the server-side ORDER BY: numbers compare numerically, NULL sorts first.
- */
-export function cellSortValue(cell: string): string | number {
-  if (cell === NULL_MARKER) return "";
-  const n = Number(cell);
-  return cell.trim() !== "" && Number.isFinite(n) ? n : cell;
-}
-
 /** Only MySQL/Postgres containers have a tabular browser. */
 export function isBrowsable(image: string): boolean {
   return (
@@ -74,4 +64,72 @@ export function dumpFileName(database: string, now: Date): string {
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
   return `${database}_${y}${m}${d}.sql`;
+}
+
+/* ------------------------------------------------------ Connection refs -- */
+
+/**
+ * Prefix the backend uses to tell a saved custom connection apart from a
+ * service in DevsPro's own compose project. Keeping both behind one opaque
+ * string is why every browse command still takes a single `connection`.
+ */
+export const CUSTOM_PREFIX = "custom:";
+
+export const customRef = (id: string): string => `${CUSTOM_PREFIX}${id}`;
+
+export const isCustomRef = (ref: string): boolean =>
+  ref.startsWith(CUSTOM_PREFIX);
+
+/** The saved-connection id inside a ref, or null for a managed service. */
+export function customIdOf(ref: string): string | null {
+  return isCustomRef(ref) ? ref.slice(CUSTOM_PREFIX.length) : null;
+}
+
+/** Default port for an engine, used to prefill the connection form. */
+export const DEFAULT_PORT: Record<"mysql" | "postgres", number> = {
+  mysql: 3306,
+  postgres: 5432,
+};
+
+/** Default admin user for an engine, used as the form's placeholder. */
+export const DEFAULT_USER: Record<"mysql" | "postgres", string> = {
+  mysql: "root",
+  postgres: "postgres",
+};
+
+/**
+ * One line saying where a saved connection actually points — the only thing
+ * that distinguishes a remote server from a local one, since both are plain
+ * TCP as far as the backend is concerned.
+ */
+export function connectionTarget(c: {
+  transport: "tcp" | "docker";
+  host: string;
+  port: number;
+  container: string;
+}): string {
+  return c.transport === "docker" ? c.container : `${c.host}:${c.port}`;
+}
+
+/**
+ * Image-name fragments that mark a container as running one engine or the
+ * other, used to narrow the container picker from "every container on this
+ * machine" to the handful that could plausibly be a database.
+ *
+ * Matched anywhere in the image reference so a registry prefix or a tag
+ * doesn't defeat it (`ghcr.io/acme/postgres:16-alpine`). This is a heuristic —
+ * a database built into a custom image matches nothing here, which is why the
+ * picker can still be told to show everything.
+ */
+const ENGINE_IMAGE_HINTS: Record<"mysql" | "postgres", string[]> = {
+  mysql: ["mysql", "mariadb", "percona"],
+  postgres: ["postgres", "pgvector", "timescale", "postgis"],
+};
+
+export function isEngineImage(
+  image: string,
+  kind: "mysql" | "postgres",
+): boolean {
+  const lower = image.toLowerCase();
+  return ENGINE_IMAGE_HINTS[kind].some((hint) => lower.includes(hint));
 }
