@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>DevsPro</vendor>
+  <vendor_url>https://github.com/Soab42/devspro</vendor_url>
+
+  <!-- Installed path must match where the deb/rpm bundlers place the `ldm-helper`
+       sidecar (see bundle.externalBin in tauri.conf.json): both put external
+       binaries in /usr/bin alongside the main executable, unsuffixed. -->
+  <action id="com.soab.devspro.pkexec">
+    <description>Run the DevsPro privileged helper</description>
+    <message>DevsPro needs administrator privileges to update system files (nginx, /etc/hosts, the certificate trust store, or installed packages)</message>
+    <!-- Must match the installed icon basename. That comes from the Cargo crate
+         name (`devspro`), NOT from `productName` — the package installs
+         /usr/share/icons/hicolor/*/apps/devspro.png and the .desktop entry
+         says Icon=devspro, while productName only sets the display Name. -->
+    <icon_name>devspro</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/ldm-helper</annotate>
+  </action>
+</policyconfig>
