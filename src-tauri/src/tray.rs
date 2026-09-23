@@ -59,7 +59,7 @@ pub fn close_to_tray_enabled(app: &AppHandle) -> bool {
     settings::get(&conn, "close_to_tray").as_deref() == Some("true")
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn autostart_set_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
     let manager = app.autolaunch();
     if enabled {
@@ -69,7 +69,7 @@ pub fn autostart_set_enabled(app: AppHandle, enabled: bool) -> Result<(), String
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn autostart_is_enabled(app: AppHandle) -> Result<bool, String> {
     app.autolaunch().is_enabled().map_err(|e| e.to_string())
 }

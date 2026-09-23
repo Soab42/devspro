@@ -58,7 +58,7 @@ fn list_profiles(conn: &Connection) -> rusqlite::Result<Vec<Profile>> {
     rows.collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn auth_has_profile(db: tauri::State<crate::db::Db>) -> Result<bool, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let count: i64 = conn
@@ -67,13 +67,13 @@ pub fn auth_has_profile(db: tauri::State<crate::db::Db>) -> Result<bool, String>
     Ok(count > 0)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn auth_list_profiles(db: tauri::State<crate::db::Db>) -> Result<Vec<Profile>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     list_profiles(&conn).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn auth_create_profile(
     db: tauri::State<crate::db::Db>,
     display_name: String,
@@ -111,7 +111,7 @@ const SESSION_SETTING_KEY: &str = "session_unlocked_profile_id";
 /// boundary (see module docs), so staying unlocked across restarts until the user
 /// explicitly logs out is consistent with that, and saves re-typing a password on
 /// every dev-server relaunch.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn auth_current_session(db: tauri::State<crate::db::Db>) -> Result<Option<Profile>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let profile_id: Option<String> = conn
@@ -140,7 +140,7 @@ pub fn auth_current_session(db: tauri::State<crate::db::Db>) -> Result<Option<Pr
     Ok(profile)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn auth_logout(db: tauri::State<crate::db::Db>) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM settings WHERE key = ?1", [SESSION_SETTING_KEY])
@@ -157,7 +157,7 @@ fn persist_session(conn: &Connection, profile_id: &str) -> rusqlite::Result<()> 
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn auth_unlock(
     db: tauri::State<crate::db::Db>,
     profile_id: String,

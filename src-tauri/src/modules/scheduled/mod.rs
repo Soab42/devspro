@@ -578,15 +578,6 @@ fn log_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     Ok(logs_dir(app)?.join(format!("{id}.log")))
 }
 
-fn tail_lines(content: &str, n: usize) -> String {
-    if n == 0 {
-        return String::new();
-    }
-    let lines: Vec<&str> = content.lines().collect();
-    let start = lines.len().saturating_sub(n);
-    lines[start..].join("\n")
-}
-
 fn to_view(app: &AppHandle, task: ScheduledTask) -> ScheduledTaskView {
     let now = Local::now();
     let (description, next) = match parse_cron(&task.schedule) {
@@ -604,9 +595,7 @@ fn to_view(app: &AppHandle, task: ScheduledTask) -> ScheduledTaskView {
                 .and_then(|m| m.modified())
                 .ok()
                 .map(|t| DateTime::<Local>::from(t).to_rfc3339());
-            let tail = std::fs::read_to_string(&path)
-                .map(|c| tail_lines(&c, TAIL_PREVIEW_LINES))
-                .unwrap_or_default();
+            let tail = crate::modules::tail::tail_file(&path, TAIL_PREVIEW_LINES).unwrap_or_default();
             (mtime, tail)
         }
         _ => (None, String::new()),
@@ -618,7 +607,7 @@ fn to_view(app: &AppHandle, task: ScheduledTask) -> ScheduledTaskView {
 // Commands
 // ---------------------------------------------------------------------------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scheduled_list(app: AppHandle, db: State<crate::db::Db>) -> Result<Vec<ScheduledTaskView>, String> {
     let tasks = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -631,7 +620,7 @@ pub fn scheduled_list(app: AppHandle, db: State<crate::db::Db>) -> Result<Vec<Sc
 /// crontab synced second, so a missing `crontab` binary yields a clear error
 /// without losing what the user typed — they can install cron and toggle the
 /// task to retry.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scheduled_save(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -679,7 +668,7 @@ pub fn scheduled_save(
     Ok(to_view(&app, find(&conn, &id)?))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scheduled_delete(app: AppHandle, db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM scheduled_tasks WHERE id = ?1", [&id]).map_err(|e| e.to_string())?;
@@ -689,7 +678,7 @@ pub fn scheduled_delete(app: AppHandle, db: State<crate::db::Db>, id: String) ->
     sync_crontab(&app, &conn).map_err(|e| format!("task deleted, but the crontab was not updated: {e}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scheduled_set_enabled(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -708,7 +697,7 @@ pub fn scheduled_set_enabled(
 /// working dir, same log file) — for "did I get the command right?" without
 /// waiting for the next tick. Returns as soon as the process is spawned; the
 /// page polls the log for output, since a task may legitimately take minutes.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scheduled_run_now(app: AppHandle, db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let task = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -743,14 +732,13 @@ pub fn scheduled_run_now(app: AppHandle, db: State<crate::db::Db>, id: String) -
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scheduled_logs(app: AppHandle, id: String, tail: u32) -> Result<String, String> {
     let path = log_path(&app, &id)?;
     if !path.exists() {
         return Ok("(no runs logged yet)".to_string());
     }
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let text = tail_lines(&content, tail as usize);
+    let text = crate::modules::tail::tail_file(&path, tail as usize).map_err(|e| e.to_string())?;
     if text.trim().is_empty() {
         Ok("(no runs logged yet)".to_string())
     } else {
@@ -761,6 +749,7 @@ pub fn scheduled_logs(app: AppHandle, id: String, tail: u32) -> Result<String, S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::tail::tail_lines;
 
     fn at(y: i32, m: u32, d: u32, h: u32, min: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(y, m, d).unwrap().and_hms_opt(h, min, 0).unwrap()

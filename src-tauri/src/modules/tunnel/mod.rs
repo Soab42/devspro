@@ -184,12 +184,12 @@ fn spawn_quick_tunnel(target_url: &str) -> Result<(Child, Arc<Mutex<RuntimeInfo>
     Ok((child, info))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tunnel_detect() -> TunnelDetection {
     TunnelDetection { found: which(BINARY) }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tunnel_start(
     db: tauri::State<crate::db::Db>,
     state: tauri::State<TunnelState>,
@@ -230,7 +230,7 @@ pub fn tunnel_start(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tunnel_stop(state: tauri::State<TunnelState>, site_id: String) -> Result<(), String> {
     let mut tunnels = state.0.lock().map_err(|e| e.to_string())?;
     let mut tunnel = tunnels
@@ -241,7 +241,7 @@ pub fn tunnel_stop(state: tauri::State<TunnelState>, site_id: String) -> Result<
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tunnel_list(state: tauri::State<TunnelState>) -> Result<Vec<TunnelStatus>, String> {
     let mut tunnels = state.0.lock().map_err(|e| e.to_string())?;
     let mut statuses: Vec<TunnelStatus> = Vec::with_capacity(tunnels.len());

@@ -24,12 +24,12 @@ pub fn suggest_free_port(start: u16) -> Option<u16> {
     (start..start.saturating_add(200)).find(|&p| is_port_free(p))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_suggest_port(start: u16) -> Option<u16> {
     suggest_free_port(start)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_check_port(port: u16) -> bool {
     is_backend_reachable(port)
 }

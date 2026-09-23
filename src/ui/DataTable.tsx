@@ -55,6 +55,8 @@ export interface DataTableProps<T> {
   /** Same shape as Section's `empty`, so the two are interchangeable. */
   empty?: EmptyStateProps;
   rowClassName?: (row: T) => string | undefined;
+  /** Extra attributes on a row's <tr> — draggable, data-* hooks, drag handlers. */
+  rowProps?: (row: T) => HTMLAttributes<HTMLTableRowElement> & Record<`data-${string}`, string | undefined>;
   onRowClick?: (row: T) => void;
   /** Open/drill-in gesture, e.g. entering a directory in a file browser. */
   onRowDoubleClick?: (row: T) => void;
@@ -97,6 +99,7 @@ export function DataTable<T>({
   skeletonRows = 5,
   empty,
   rowClassName,
+  rowProps,
   onRowClick,
   onRowDoubleClick,
   stickyHeader = true,
@@ -265,6 +268,9 @@ export function DataTable<T>({
                   .join(" ")}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
                 onDoubleClick={onRowDoubleClick ? () => onRowDoubleClick(row) : undefined}
+                /* Last, so a caller's own handler (a modifier-aware click) wins
+                   over the plain one above. */
+                {...rowProps?.(row)}
               >
                 {columns.map((column) => (
                   <td key={column.key} className={cellClasses(column, "dt-td")}>

@@ -253,18 +253,18 @@ fn render_conf_for(
     ))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_list_sites(db: State<crate::db::Db>) -> Result<Vec<Site>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     list(&conn).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_hostname_conflict(hostname: String) -> bool {
     super::hosts::resolves_elsewhere(&hostname)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_add_site(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -421,7 +421,7 @@ pub fn nginx_ssl_add_site(
     Ok(site)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_set_site_enabled(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -485,7 +485,7 @@ pub fn nginx_ssl_set_site_enabled(
 /// Changes which installed PHP-FPM pool a Laravel site is pinned to (or clears
 /// the pin, reverting to system-default), re-rendering and reloading nginx the
 /// same way `nginx_ssl_set_site_enabled` does.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_set_site_php_version(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -554,7 +554,7 @@ pub fn nginx_ssl_set_site_php_version(
 /// bad conf would stay on disk, and the *next* unrelated save — enabling a site,
 /// switching PHP version — would fail its `nginx -t` on a config the user had
 /// already been told was rejected.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_set_site_limits(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -635,7 +635,7 @@ pub fn nginx_ssl_set_site_limits(
 /// looking valid, but no browser can build a chain for it, so the site fails TLS
 /// while its neighbours work. Reissuing is the repair, and it is cheap enough to
 /// offer per site rather than making the user remove and re-add one.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_reissue_site_cert(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -702,7 +702,7 @@ pub fn nginx_ssl_reissue_site_cert(
 /// Standalone re-run of the storage/bootstrap-cache permission fix, for Laravel
 /// sites that were added before this app started applying it automatically at
 /// add-time (or whose ownership got reset by something outside this app).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_fix_laravel_permissions(app: AppHandle, db: State<crate::db::Db>, id: String) -> Result<String, String> {
     let site = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -726,7 +726,7 @@ pub fn nginx_ssl_fix_laravel_permissions(app: AppHandle, db: State<crate::db::Db
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_remove_site(app: AppHandle, db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let site = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;

@@ -293,29 +293,42 @@ fn tab_url(id: &str) -> Option<String> {
     TABS.with(|tabs| tabs.try_borrow().ok().and_then(|t| t.get(id).and_then(|wv| wv.url().ok())))
 }
 
+/// History writes happen inside wry's page-load and title callbacks, which
+/// run on the GTK main thread — the thread that paints every tab. Taking the
+/// app database lock there means a page load waits behind whatever command
+/// currently holds it (a dump, a backup, a slow query), and the write itself
+/// is disk I/O. So the callbacks hand the write to a worker and return.
 fn record_visit(app: &AppHandle, url: &str) {
     if origin_of(url).is_none() {
         return;
     }
-    let Some(db) = app.try_state::<crate::db::Db>() else { return };
-    let Ok(conn) = db.0.lock() else { return };
-    let _ = conn.execute(
-        "INSERT INTO browser_history (id, url, title, visits, visited_at) VALUES (?1, ?2, '', 1, ?3)
-         ON CONFLICT(url) DO UPDATE SET visits = visits + 1, visited_at = excluded.visited_at",
-        params![uuid::Uuid::new_v4().to_string(), url, now()],
-    );
+    let app = app.clone();
+    let url = url.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(db) = app.try_state::<crate::db::Db>() else { return };
+        let Ok(conn) = db.0.lock() else { return };
+        let _ = conn.execute(
+            "INSERT INTO browser_history (id, url, title, visits, visited_at) VALUES (?1, ?2, '', 1, ?3)
+             ON CONFLICT(url) DO UPDATE SET visits = visits + 1, visited_at = excluded.visited_at",
+            params![uuid::Uuid::new_v4().to_string(), url, now()],
+        );
+    });
 }
 
 fn record_title(app: &AppHandle, url: &str, title: &str) {
     if title.trim().is_empty() {
         return;
     }
-    let Some(db) = app.try_state::<crate::db::Db>() else { return };
-    let Ok(conn) = db.0.lock() else { return };
-    let _ = conn.execute(
-        "UPDATE browser_history SET title = ?1 WHERE url = ?2",
-        params![title, url],
-    );
+    let app = app.clone();
+    let (url, title) = (url.to_string(), title.to_string());
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(db) = app.try_state::<crate::db::Db>() else { return };
+        let Ok(conn) = db.0.lock() else { return };
+        let _ = conn.execute(
+            "UPDATE browser_history SET title = ?1 WHERE url = ?2",
+            params![title, url],
+        );
+    });
 }
 
 /// A file name for a download that doesn't clobber one already there:
@@ -669,7 +682,7 @@ pub struct Bookmark {
     pub created_at: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_bookmarks_list(db: State<crate::db::Db>) -> Result<Vec<Bookmark>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
@@ -689,7 +702,7 @@ pub fn browser_bookmarks_list(db: State<crate::db::Db>) -> Result<Vec<Bookmark>,
     rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_bookmark_add(db: State<crate::db::Db>, url: String, title: String) -> Result<Bookmark, String> {
     checked_url(&url)?;
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -711,7 +724,7 @@ pub fn browser_bookmark_add(db: State<crate::db::Db>, url: String, title: String
     Ok(bookmark)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_bookmark_update(
     db: State<crate::db::Db>,
     id: String,
@@ -728,7 +741,7 @@ pub fn browser_bookmark_update(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_bookmark_delete(db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM browser_bookmarks WHERE id = ?1", [id])
@@ -737,7 +750,7 @@ pub fn browser_bookmark_delete(db: State<crate::db::Db>, id: String) -> Result<(
 }
 
 /// Drag-to-reorder sends the whole order back; positions are rewritten 0..n.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_bookmarks_reorder(db: State<crate::db::Db>, ids: Vec<String>) -> Result<(), String> {
     let mut conn = db.0.lock().map_err(|e| e.to_string())?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -776,7 +789,7 @@ fn history_rows(stmt: &mut rusqlite::Statement, p: &[&dyn rusqlite::ToSql]) -> R
 
 /// Address-bar suggestions: substring match on URL or title, most visited
 /// first, then most recent. An empty query lists the recent pages instead.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_history_search(
     db: State<crate::db::Db>,
     query: String,
@@ -802,7 +815,7 @@ pub fn browser_history_search(
     history_rows(&mut stmt, &[&pattern, &limit])
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_history_delete(db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM browser_history WHERE id = ?1", [id])
@@ -810,7 +823,7 @@ pub fn browser_history_delete(db: State<crate::db::Db>, id: String) -> Result<()
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_history_clear(db: State<crate::db::Db>) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM browser_history", []).map_err(|e| e.to_string())?;
@@ -842,7 +855,7 @@ fn on_path(cmd: &str) -> bool {
     std::env::split_paths(&path).any(|dir| dir.join(cmd).is_file())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_system_browsers() -> Vec<SystemBrowser> {
     KNOWN_BROWSERS
         .iter()
@@ -856,7 +869,7 @@ pub fn browser_system_browsers() -> Vec<SystemBrowser> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_open_in(browser: String, url: String) -> Result<(), String> {
     let url = checked_url(&url)?;
     let found = browser_system_browsers()

@@ -327,22 +327,22 @@ fn mutate(app: &AppHandle, f: impl FnOnce(&mut HostsFile) -> Result<(), String>)
     Ok(read_file()?.view())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hosts_file_read() -> Result<HostsView, String> {
     Ok(read_file()?.view())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hosts_file_add(app: AppHandle, ip: String, hostname: String) -> Result<HostsView, String> {
     mutate(&app, |f| f.add(ip.trim(), hostname.trim()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hosts_file_remove(app: AppHandle, line_no: usize) -> Result<HostsView, String> {
     mutate(&app, |f| f.remove(line_no))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hosts_file_update(
     app: AppHandle,
     line_no: usize,
@@ -360,7 +360,7 @@ pub fn hosts_file_update(
 /// Enabled nginx site domains with no loopback entry in /etc/hosts. Disabled
 /// sites are skipped: nginx does not serve them, so an entry would only point
 /// the browser at a connection refused.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn hosts_file_missing_sites(db: State<Db>) -> Result<Vec<String>, String> {
     let sites: Vec<String> = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;

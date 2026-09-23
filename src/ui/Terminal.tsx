@@ -97,8 +97,11 @@ export function TerminalWorkspace({
   asideWidth = 260,
   onAsideResize,
   hidden = false,
+  footer,
   children,
 }: {
+  /** A strip under the panel — the host status bar. */
+  footer?: ReactNode;
   /** Keeps the sessions mounted (processes, scrollback) while another view is shown. */
   hidden?: boolean;
   /** The session strip; grows to take the toolbar's spare width. */
@@ -158,6 +161,7 @@ export function TerminalWorkspace({
         )}
         <div className="term-panel">{empty ? <div className="term-empty">{empty}</div> : children}</div>
       </div>
+      {footer}
     </div>
   );
 }

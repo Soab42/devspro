@@ -321,7 +321,7 @@ fn run_steps<'s, S>(steps: &[&'s str], mut state: S, run: impl Fn(&'s str, &mut 
     report
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scaffold_wizard_run(app: AppHandle, db: State<crate::db::Db>, plan: WizardPlan) -> Result<Vec<StepReport>, String> {
     validate(&plan)?;
     let project_dir = Path::new(&plan.parent_dir).join(plan.name.trim());

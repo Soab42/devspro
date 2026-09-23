@@ -155,13 +155,13 @@ pub(crate) fn write_private(path: &Path, contents: &str) -> Result<(), String> {
     fs::write(path, contents).map_err(|e| format!("failed to write {path:?}: {e}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_ca_status(app: tauri::AppHandle) -> Result<CaStatus, String> {
     let certs_dir = super::certs_dir(&app)?;
     Ok(status(&certs_dir))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_ca_ensure(app: tauri::AppHandle) -> Result<CaStatus, String> {
     let certs_dir = super::certs_dir(&app)?;
     ensure_root_ca(&certs_dir)?;
@@ -225,7 +225,7 @@ fn nss_tools_package(manager: &str) -> &'static str {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_ca_install(app: tauri::AppHandle) -> Result<String, String> {
     let certs_dir = super::certs_dir(&app)?;
     ensure_root_ca(&certs_dir)?;

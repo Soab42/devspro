@@ -213,3 +213,24 @@ export const sftpOpenInEditor = (
   path: string,
   command: string,
 ) => invoke<string>("sftp_open_in_editor", { session, path, command });
+
+/** One raw sample of a host for the terminal's status strip; see stats.rs. */
+export interface HostSample {
+  hostname: string;
+  cpu_idle: number;
+  cpu_total: number;
+  mem_total_kb: number;
+  mem_available_kb: number;
+  swap_total_kb: number;
+  swap_free_kb: number;
+  load1: number;
+  uptime_seconds: number;
+  users: number;
+  rx_bytes: number;
+  tx_bytes: number;
+  disks: { mount: string; total_kb: number; used_kb: number; percent: number }[];
+}
+
+/** `session` null samples this machine; an SFTP session id samples its host. */
+export const termHostStats = (session: string | null) =>
+  invoke<HostSample>("term_host_stats", { session });

@@ -425,7 +425,7 @@ pub struct PingView {
     pub db: u32,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn redis_ping(conn: RedisConn) -> Result<PingView, String> {
     let mut client = Client::connect(&conn)?;
     client.cmd(&["PING"])?;
@@ -459,7 +459,7 @@ pub struct ScanView {
     pub cursor: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn redis_scan(
     conn: RedisConn,
     pattern: String,
@@ -523,7 +523,7 @@ fn pairs(flat: Vec<String>) -> Vec<(String, String)> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn redis_get(conn: RedisConn, key: String) -> Result<ValueView, String> {
     let mut client = Client::connect(&conn)?;
     let kind = client.cmd(&["TYPE", &key])?.text().unwrap_or_default();
@@ -584,7 +584,7 @@ pub fn redis_get(conn: RedisConn, key: String) -> Result<ValueView, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn redis_delete(conn: RedisConn, keys: Vec<String>) -> Result<i64, String> {
     if keys.is_empty() {
         return Ok(0);
@@ -597,7 +597,7 @@ pub fn redis_delete(conn: RedisConn, keys: Vec<String>) -> Result<i64, String> {
 
 /// Destructive; the page confirms first. Only the selected db is flushed —
 /// never FLUSHALL.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn redis_flush_db(conn: RedisConn) -> Result<String, String> {
     let mut client = Client::connect(&conn)?;
     client.cmd(&["FLUSHDB"])?;
@@ -612,7 +612,7 @@ pub struct QueuesView {
     pub horizon_keys: usize,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn redis_laravel_queues(conn: RedisConn) -> Result<QueuesView, String> {
     let mut client = Client::connect(&conn)?;
     let keys = scan_all(&mut client, "*queues:*")?;
@@ -642,7 +642,7 @@ pub fn redis_laravel_queues(conn: RedisConn) -> Result<QueuesView, String> {
 
 /// `queue` is the full pending-list key (`QueueView::key`); a bare name is
 /// accepted too for the unprefixed default.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn redis_peek_job(conn: RedisConn, queue: String, index: Option<i64>) -> Result<JobPeek, String> {
     let key = if queue.contains("queues:") {
         queue

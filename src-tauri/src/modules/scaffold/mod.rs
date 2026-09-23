@@ -104,7 +104,7 @@ pub fn create_laravel_skeleton(parent_dir: &str, project_name: &str) -> Result<P
     Ok(target)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn scaffold_create_laravel_project(
     app: AppHandle,
     db: State<crate::db::Db>,

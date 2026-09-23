@@ -182,3 +182,97 @@ export function historyStep(h: History, delta: -1 | 1): History {
 
 export const canGoBack = (h: History) => h.index > 0;
 export const canGoForward = (h: History) => h.index < h.entries.length - 1;
+
+/**
+ * The directories a column view shows for `path`: the nearest place that
+ * contains it (so the home column sits first rather than seven columns of
+ * `/`, `/home`, ...), then every folder down to `path` itself. A path under no
+ * place starts at `/`.
+ */
+export function columnChain(path: string, placePaths: string[]): string[] {
+  const root =
+    placePaths
+      .filter((p) => p === path || path.startsWith(p === "/" ? "/" : `${p}/`))
+      .sort((a, b) => b.length - a.length)[0] ?? "/";
+  const chain = [root];
+  if (path === root) return chain;
+  const rest = path.slice(root === "/" ? 1 : root.length + 1).split("/").filter(Boolean);
+  let acc = root === "/" ? "" : root;
+  for (const part of rest) {
+    acc += `/${part}`;
+    chain.push(acc);
+  }
+  return chain;
+}
+
+/**
+ * Finder-style click selection over the rows currently on screen. Plain click
+ * selects one; ctrl toggles; shift extends from the anchor (the last plain or
+ * ctrl click) to the clicked row. Returns the new ordered selection and anchor.
+ */
+export function clickSelect(
+  rows: string[],
+  selected: string[],
+  anchor: string | null,
+  clicked: string,
+  mods: { ctrl?: boolean; shift?: boolean },
+): { selected: string[]; anchor: string | null } {
+  if (mods.shift && anchor !== null && rows.includes(anchor)) {
+    const a = rows.indexOf(anchor);
+    const b = rows.indexOf(clicked);
+    if (b < 0) return { selected, anchor };
+    const [from, to] = a < b ? [a, b] : [b, a];
+    const range = rows.slice(from, to + 1);
+    const base = mods.ctrl ? selected.filter((p) => !range.includes(p)) : [];
+    return { selected: [...base, ...range], anchor };
+  }
+  if (mods.ctrl) {
+    return selected.includes(clicked)
+      ? { selected: selected.filter((p) => p !== clicked), anchor: clicked }
+      : { selected: [...selected, clicked], anchor: clicked };
+  }
+  return { selected: [clicked], anchor: clicked };
+}
+
+/** A list-view row: an entry at a depth, folded open or not. */
+export interface TreeRow {
+  entry: FileEntry;
+  depth: number;
+  expanded: boolean;
+  /** The folder is open but its listing has not arrived yet. */
+  pending: boolean;
+}
+
+/**
+ * Flattens a folder listing with its unfolded subfolders into the rows a
+ * table draws, depth-first, the way Finder's list view does. `children` is
+ * whatever listings have been fetched so far; an expanded folder without one
+ * yet is marked pending so the caller knows to fetch it.
+ */
+export function flattenTree(
+  entries: FileEntry[],
+  expanded: ReadonlySet<string>,
+  children: Record<string, FileEntry[] | undefined>,
+  depth = 0,
+): TreeRow[] {
+  const out: TreeRow[] = [];
+  for (const entry of entries) {
+    const open = entry.is_dir && expanded.has(entry.path);
+    const kids = open ? children[entry.path] : undefined;
+    out.push({ entry, depth, expanded: open, pending: open && kids === undefined });
+    if (open && kids) out.push(...flattenTree(kids, expanded, children, depth + 1));
+  }
+  return out;
+}
+
+/** Drop `paths` on `dir`: the ones that actually move, and why the rest do not. */
+export function planMove(paths: string[], dir: string): { moves: string[]; skipped: string[] } {
+  const moves: string[] = [];
+  const skipped: string[] = [];
+  for (const p of paths) {
+    const inside = dir === p || dir.startsWith(`${p}/`);
+    if (parentPath(p) === dir || inside) skipped.push(p);
+    else moves.push(p);
+  }
+  return { moves, skipped };
+}

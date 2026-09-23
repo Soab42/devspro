@@ -220,7 +220,7 @@ fn build_command(db: &State<crate::db::Db>, command: PtyCommand) -> Result<Comma
     Ok(cmd)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_open(
     app: AppHandle,
     window: Window,
@@ -273,7 +273,7 @@ pub fn pty_open(
     Ok(id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_write(state: State<SshState>, id: String, data: String) -> Result<(), String> {
     let mut map = state.pty.lock().map_err(|e| e.to_string())?;
     let handle = map.get_mut(&id).ok_or("terminal is not open")?;
@@ -285,7 +285,7 @@ pub fn pty_write(state: State<SshState>, id: String, data: String) -> Result<(),
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_resize(state: State<SshState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
     let map = state.pty.lock().map_err(|e| e.to_string())?;
     let handle = map.get(&id).ok_or("terminal is not open")?;
@@ -298,7 +298,7 @@ pub fn pty_resize(state: State<SshState>, id: String, cols: u16, rows: u16) -> R
 /// Makes the calling window the owner of an already-running session. Used by
 /// a popped-out terminal window: the session keeps running, only the window
 /// whose destruction would kill it changes.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_adopt(window: Window, state: State<SshState>, id: String) -> Result<(), String> {
     let mut map = state.pty.lock().map_err(|e| e.to_string())?;
     let handle = map.get_mut(&id).ok_or("terminal is not open")?;
@@ -311,7 +311,7 @@ pub fn pty_adopt(window: Window, state: State<SshState>, id: String) -> Result<(
 /// local `ssh` client, whose cwd says nothing about the remote side (that
 /// comes from the shell's OSC 7 reports instead). `None` when the process
 /// has gone or `/proc` is unreadable.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_cwd(state: State<SshState>, id: String) -> Result<Option<String>, String> {
     let map = state.pty.lock().map_err(|e| e.to_string())?;
     let handle = map.get(&id).ok_or("terminal is not open")?;
@@ -338,7 +338,7 @@ pub fn kill_owned_by(state: &SshState, window_label: &str) {
 /// Kills the child; the reader thread then sees EOF, reaps it, and emits the
 /// exit event. The handle is left in the map for the thread to remove, so the
 /// exit code still gets reported.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn pty_close(state: State<SshState>, id: String) -> Result<(), String> {
     let mut map = state.pty.lock().map_err(|e| e.to_string())?;
     if let Some(handle) = map.get_mut(&id) {

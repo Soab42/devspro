@@ -97,12 +97,12 @@ pub fn list_ports() -> Result<Vec<PortEntry>, String> {
     Ok(entries)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn processes_list_ports() -> Result<Vec<PortEntry>, String> {
     list_ports()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn processes_kill(pid: u32, force: bool) -> Result<String, String> {
     let signal = if force { "-9" } else { "-15" };
     let output = Command::new("kill")

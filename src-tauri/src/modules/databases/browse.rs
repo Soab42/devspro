@@ -746,7 +746,7 @@ fn bootstrap_database(kind: DbKind) -> &'static str {
 // ---------------------------------------------------------------------------
 // Commands
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_list_databases(
     app: tauri::AppHandle,
     db: State<crate::db::Db>,
@@ -758,7 +758,7 @@ pub fn databases_list_databases(
 
 /// Dials the server and reports what answered, so a connection can be checked
 /// from the form before anything else is attempted against it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_test_connection(
     db: State<crate::db::Db>,
     input: super::connections::ConnectionInput,
@@ -778,7 +778,7 @@ pub fn databases_test_connection(
 }
 
 /// The sidebar's contents: every table and view in one database.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_list_tables(
     app: tauri::AppHandle,
     db: State<crate::db::Db>,
@@ -803,7 +803,7 @@ pub fn databases_list_tables(
 
 /// Columns, indexes and foreign keys for one table — the Structure tab, and
 /// the source of the primary key the grid edits through.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_table_structure(
     app: tauri::AppHandle,
     db: State<crate::db::Db>,
@@ -830,7 +830,7 @@ pub fn databases_table_structure(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_table_rows(
     app: tauri::AppHandle,
     db: State<crate::db::Db>,
@@ -887,7 +887,7 @@ fn require_writable(db: &crate::db::Db, connection: &str) -> Result<(), String> 
 /// The key columns are read from the catalogue here, not taken from the
 /// request: the frontend says which row it read and what changed, and this
 /// decides what identifies that row.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_apply_edits(
     app: tauri::AppHandle,
     db: State<crate::db::Db>,
@@ -1032,7 +1032,7 @@ pub fn databases_export(
     Ok(format!("exported {} rows to {path}", rs.rows.len()))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_query(
     app: tauri::AppHandle,
     db: State<crate::db::Db>,
@@ -1077,7 +1077,7 @@ pub fn databases_query(
 /// picked. Unlike `databases_backup` (which names the file itself under the app
 /// data dir), this is the "Save as…" flavour — and unlike it, this one works
 /// for saved custom connections too.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_dump(
     app: tauri::AppHandle,
     db: State<crate::db::Db>,
@@ -1105,7 +1105,7 @@ pub fn databases_dump(
 /// Restores a SQL dump into the selected database. The Manage tab's
 /// `databases_restore` only knows about compose services; this is its
 /// equivalent for anything the browser can open.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_restore_dump(
     app: tauri::AppHandle,
     db: State<crate::db::Db>,

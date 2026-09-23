@@ -13,7 +13,7 @@ pub fn get(conn: &Connection, key: &str) -> Option<String> {
         .ok()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_get(db: State<crate::db::Db>, key: String) -> Result<Option<String>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     match conn.query_row("SELECT value FROM settings WHERE key = ?1", [&key], |row| row.get(0)) {
@@ -23,7 +23,7 @@ pub fn settings_get(db: State<crate::db::Db>, key: String) -> Result<Option<Stri
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn settings_set(db: State<crate::db::Db>, key: String, value: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute(

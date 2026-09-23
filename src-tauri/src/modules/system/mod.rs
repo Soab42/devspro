@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 /// One thermal sensor reading. `high_c` is the vendor's "running hot" point
@@ -104,11 +104,46 @@ struct CpuTicks {
     total: u64,
 }
 
+/// What the machine is, as opposed to what it is doing. None of this changes
+/// while the app runs, so it is read once instead of on every 2-second poll —
+/// `lspci` in particular is a process spawn plus a walk of the PCI bus.
+struct StaticInfo {
+    cpu_model: String,
+    os_name: String,
+    os_version: String,
+    kernel_version: String,
+    /// `(name, driver, pci slot)` per display adapter, from `lspci`. The live
+    /// temperature is still read from `/sys` on each poll.
+    lspci_gpus: Vec<(String, Option<String>, String)>,
+}
+
 #[derive(Default)]
 pub struct SystemState {
     // Index 0 is the aggregate "cpu" line, the rest are "cpu0", "cpu1", ...
     prev_cpu: Mutex<Option<Vec<CpuTicks>>>,
     prev_net: Mutex<Option<(Instant, HashMap<String, (u64, u64)>)>>,
+    static_info: OnceLock<StaticInfo>,
+    /// `nvidia-smi` is absent on most machines; remember that rather than
+    /// failing to spawn it on every poll.
+    nvidia_smi_available: OnceLock<bool>,
+}
+
+impl SystemState {
+    fn static_info(&self) -> &StaticInfo {
+        self.static_info.get_or_init(|| {
+            let (os_name, os_version) = read_os_release();
+            StaticInfo {
+                cpu_model: cpu_model(),
+                os_name,
+                os_version,
+                kernel_version: fs::read_to_string("/proc/sys/kernel/osrelease")
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string(),
+                lspci_gpus: lspci_display_adapters(),
+            }
+        })
+    }
 }
 
 fn read_cpu_ticks() -> Vec<CpuTicks> {
@@ -432,7 +467,13 @@ fn temp_for_pci_slot(slot: &str) -> Option<TemperatureReading> {
     None
 }
 
-fn read_gpus_from_nvidia_smi() -> Option<Vec<GpuInfo>> {
+fn read_gpus_from_nvidia_smi(state: &SystemState) -> Option<Vec<GpuInfo>> {
+    let available = *state
+        .nvidia_smi_available
+        .get_or_init(|| Command::new("nvidia-smi").arg("-L").output().is_ok_and(|o| o.status.success()));
+    if !available {
+        return None;
+    }
     let output = Command::new("nvidia-smi")
         .args([
             "--query-gpu=name,driver_version,utilization.gpu,memory.used,memory.total,temperature.gpu",
@@ -475,7 +516,7 @@ fn read_gpus_from_nvidia_smi() -> Option<Vec<GpuInfo>> {
 // Fallback for GPUs without a queryable vendor tool (e.g. an open-source driver
 // like nouveau, which doesn't expose live utilization) — at least surface what's
 // there, honestly reporting usage/memory as unavailable rather than faking a number.
-fn read_gpus_from_lspci() -> Vec<GpuInfo> {
+fn lspci_display_adapters() -> Vec<(String, Option<String>, String)> {
     let output = Command::new("lspci").args(["-mm"]).output();
     let Ok(output) = output else {
         return vec![];
@@ -495,28 +536,39 @@ fn read_gpus_from_lspci() -> Vec<GpuInfo> {
             let slot = fields.first().cloned().unwrap_or_default();
             let vendor = fields.get(2).cloned().unwrap_or_default();
             let device = fields.get(3).cloned().unwrap_or_default();
-            GpuInfo {
-                name: format!("{vendor} {device}").trim().to_string(),
-                driver: driver_for_pci_slot(&slot),
-                usage_percent: None,
-                memory_used_mb: None,
-                memory_total_mb: None,
-                temperature: temp_for_pci_slot(&slot),
-            }
+            let name = format!("{vendor} {device}").trim().to_string();
+            let driver = driver_for_pci_slot(&slot);
+            (name, driver, slot)
         })
         .collect()
 }
 
-fn read_gpus() -> Vec<GpuInfo> {
-    if let Some(gpus) = read_gpus_from_nvidia_smi() {
+fn read_gpus_from_lspci(state: &SystemState) -> Vec<GpuInfo> {
+    state
+        .static_info()
+        .lspci_gpus
+        .iter()
+        .map(|(name, driver, slot)| GpuInfo {
+            name: name.clone(),
+            driver: driver.clone(),
+            usage_percent: None,
+            memory_used_mb: None,
+            memory_total_mb: None,
+            temperature: temp_for_pci_slot(slot),
+        })
+        .collect()
+}
+
+fn read_gpus(state: &SystemState) -> Vec<GpuInfo> {
+    if let Some(gpus) = read_gpus_from_nvidia_smi(state) {
         if !gpus.is_empty() {
             return gpus;
         }
     }
-    read_gpus_from_lspci()
+    read_gpus_from_lspci(state)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn system_info_snapshot(state: tauri::State<SystemState>) -> SystemSnapshot {
     let cur_cpu = read_cpu_ticks();
     let per_core_len = cur_cpu.len().saturating_sub(1);
@@ -540,8 +592,9 @@ pub fn system_info_snapshot(state: tauri::State<SystemState>) -> SystemSnapshot 
 
     let (load_avg_1, load_avg_5, load_avg_15) = load_avg();
     let temperatures = read_cpu_temps();
+    let info = state.static_info();
     let cpu = CpuInfo {
-        model: cpu_model(),
+        model: info.cpu_model.clone(),
         core_count: per_core_len,
         usage_percent,
         per_core_percent,
@@ -592,23 +645,17 @@ pub fn system_info_snapshot(state: tauri::State<SystemState>) -> SystemSnapshot 
         .unwrap_or_default()
         .trim()
         .to_string();
-    let (os_name, os_version) = read_os_release();
-    let kernel_version = fs::read_to_string("/proc/sys/kernel/osrelease")
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-
     SystemSnapshot {
         hostname,
-        os_name,
-        os_version,
-        kernel_version,
+        os_name: info.os_name.clone(),
+        os_version: info.os_version.clone(),
+        kernel_version: info.kernel_version.clone(),
         uptime_seconds: read_uptime(),
         cpu,
         memory: read_memory(),
         disks: read_disks(),
         network,
-        gpus: read_gpus(),
+        gpus: read_gpus(&state),
     }
 }
 

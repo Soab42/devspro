@@ -382,7 +382,7 @@ fn status_of(dirs: &[PathBuf], custom: Option<&CustomAgent>, def: Option<&AgentD
 
 /// Every agent, catalog first then custom, each with whether its command
 /// resolves. One shell spawn for the PATH, then only filesystem checks.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ai_agents_list(db: State<crate::db::Db>) -> Result<Vec<AgentStatus>, String> {
     let custom = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -397,7 +397,7 @@ pub fn ai_agents_list(db: State<crate::db::Db>) -> Result<Vec<AgentStatus>, Stri
     Ok(out)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ai_custom_agent_save(
     db: State<crate::db::Db>,
     id: Option<String>,
@@ -425,7 +425,7 @@ pub fn ai_custom_agent_save(
     Ok(status_of(&dirs, Some(&agent), None))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ai_custom_agent_delete(db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut agents = load_custom(&conn);

@@ -4,6 +4,7 @@ import {
   EMPTY_WORKSPACE,
   editorKey,
   focusedSession,
+  newSession,
   sessionOrdinal,
   workspaceReducer,
   type TerminalSession,
@@ -171,5 +172,15 @@ describe("editor tabs", () => {
     expect(state.windows.map((w) => w.id)).toEqual(["w-a"]);
     expect(state.activeWindow).toBe("w-a");
     expect(state.sessions.a).toBeDefined();
+  });
+});
+
+describe("newSession startIn", () => {
+  it("names a local shell after the folder it starts in and remembers it", () => {
+    const s = newSession(EMPTY_WORKSPACE, "local", [], "/home/me/projects/app");
+    expect(s.title).toBe("app");
+    expect(s.startIn).toBe("/home/me/projects/app");
+    expect(newSession(EMPTY_WORKSPACE, "local", []).startIn).toBeUndefined();
+    expect(newSession(EMPTY_WORKSPACE, { ssh: "x" }, [], "/tmp").startIn).toBeUndefined();
   });
 });

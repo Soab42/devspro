@@ -110,11 +110,13 @@ function TerminalModulePage() {
 
   const host = params.get("host");
   const local = params.get("local");
+  // `?cwd=` (from the Files module) is a local shell started in that folder.
+  const cwd = params.get("cwd");
   useEffect(() => {
-    if (!host && !local) return;
-    workspace.current?.openWindow(host ? { ssh: host } : "local");
+    if (!host && !local && !cwd) return;
+    workspace.current?.openWindow(host ? { ssh: host } : "local", cwd ?? undefined);
     setParams({}, { replace: true });
-  }, [host, local, setParams]);
+  }, [host, local, cwd, setParams]);
 
   // The top bar's "new window" button takes the terminal you're in with it,
   // the same as the pane's own pop-out button; with nothing open it falls

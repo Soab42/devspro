@@ -323,7 +323,7 @@ pub struct CreateDatabaseResult {
     pub ui_port: Option<u16>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_create(app: tauri::AppHandle, input: CreateDatabaseInput) -> Result<CreateDatabaseResult, String> {
     let name = input.name.trim().to_lowercase().replace('-', "_");
     if !valid_name(&name) {
@@ -430,7 +430,7 @@ pub struct DevsproContainer {
     pub ports: String,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_list() -> Result<Vec<DevsproContainer>, String> {
     let output = Command::new("docker")
         .args([
@@ -470,7 +470,7 @@ pub struct Credentials {
     pub password: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_get_credentials(app: tauri::AppHandle, name: String) -> Result<Credentials, String> {
     let file = compose_file(&app)?;
     let contents = fs::read_to_string(&file).unwrap_or_default();
@@ -481,7 +481,7 @@ pub fn databases_get_credentials(app: tauri::AppHandle, name: String) -> Result<
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_remove(app: tauri::AppHandle, name: String, delete_data: bool) -> Result<String, String> {
     let file = compose_file(&app)?;
     let existing = fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;
@@ -883,7 +883,7 @@ fn set_redis_requirepass(contents: &str, service: &str, new_password: &str) -> R
     Ok(new_lines.join("\n") + "\n")
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_change_admin_password(app: tauri::AppHandle, name: String, new_password: String) -> Result<String, String> {
     let new_password = new_password.trim();
     if !valid_password(new_password) {
@@ -918,7 +918,7 @@ pub fn databases_change_admin_password(app: tauri::AppHandle, name: String, new_
     Ok(format!("changed the admin password for '{name}'"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_change_user_password(
     app: tauri::AppHandle,
     name: String,
@@ -941,7 +941,7 @@ pub fn databases_change_user_password(
     Ok(format!("changed password for '{username}'"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_list_users(app: tauri::AppHandle, name: String) -> Result<Vec<String>, String> {
     let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
     let container = container_name(&name);
@@ -953,7 +953,7 @@ pub fn databases_list_users(app: tauri::AppHandle, name: String) -> Result<Vec<S
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_create_user(
     app: tauri::AppHandle,
     name: String,
@@ -1051,7 +1051,7 @@ fn mongo_create_database(container: &str, admin_user: &str, admin_password: &str
 /// Creates a database (schema) named `name` on the DevsPro-managed server
 /// `connection` (the compose service name, e.g. `mysql8`). Idempotent: an
 /// existing database of that name is left alone and reported as such.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_create_database(app: tauri::AppHandle, connection: String, name: String) -> Result<String, String> {
     let name = name.trim();
     if !valid_schema_name(name) {
@@ -1112,7 +1112,7 @@ pub fn laravel_env_for(app: &tauri::AppHandle, connection: &str, db_name: &str) 
     ])
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_drop_user(app: tauri::AppHandle, name: String, username: String) -> Result<String, String> {
     let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
     let container = container_name(&name);
@@ -1303,7 +1303,7 @@ fn redis_restore(container: &str, file_path: &Path) -> Result<(), String> {
     command_failed(&out).map_or(Ok(()), Err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_backup(app: tauri::AppHandle, name: String) -> Result<String, String> {
     let (kind, admin_user, admin_password) = admin_context(&app, &name)?;
     let container = container_name(&name);
@@ -1325,7 +1325,7 @@ pub fn databases_backup(app: tauri::AppHandle, name: String) -> Result<String, S
 /// service — used by the browser, which lets the user pick any database on the
 /// server. Mongo/Redis restores ignore it since their archives carry their own
 /// scope.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_restore(
     app: tauri::AppHandle,
     name: String,

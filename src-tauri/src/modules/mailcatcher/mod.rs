@@ -150,17 +150,17 @@ fn status(app: &tauri::AppHandle) -> Result<MailcatcherStatus, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mailcatcher_detect_docker() -> super::docker::DockerDetection {
     super::docker::detect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mailcatcher_status(app: tauri::AppHandle) -> Result<MailcatcherStatus, String> {
     status(&app)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mailcatcher_start(app: tauri::AppHandle, smtp_port: u16, http_port: u16) -> Result<MailcatcherStatus, String> {
     if !valid_port(smtp_port) || !valid_port(http_port) {
         return Err("ports must be between 1 and 65535".to_string());
@@ -198,7 +198,7 @@ pub fn mailcatcher_start(app: tauri::AppHandle, smtp_port: u16, http_port: u16) 
     status(&app)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mailcatcher_stop(app: tauri::AppHandle) -> Result<MailcatcherStatus, String> {
     let file = compose_file(&app)?;
     let file_str = file.to_string_lossy().to_string();
@@ -211,7 +211,7 @@ pub fn mailcatcher_stop(app: tauri::AppHandle) -> Result<MailcatcherStatus, Stri
     status(&app)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn mailcatcher_remove(app: tauri::AppHandle) -> Result<MailcatcherStatus, String> {
     let file = compose_file(&app)?;
     let existing = fs::read_to_string(&file).map_err(|e| format!("could not read {}: {e}", file.display()))?;

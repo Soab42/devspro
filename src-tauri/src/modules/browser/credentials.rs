@@ -213,31 +213,40 @@ fn fill_script(username: &str, password: &str) -> String {
 }
 
 /// On page load: fill when the origin has exactly one saved login.
+/// Called from wry's page-load callback on the GTK main thread. The lookup
+/// (database lock, key file, AES) runs on a worker so a page finishing its
+/// load never waits on the app database; only the final script injection
+/// hops back, because the tab map lives on the main thread.
 pub(super) fn autofill(app: &AppHandle, tab_id: &str, url: &str) {
     let Some(origin) = super::origin_of(url) else { return };
-    let Some(db) = app.try_state::<crate::db::Db>() else { return };
-    let row: Option<(String, String)> = {
-        let Ok(conn) = db.0.lock() else { return };
-        let count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM browser_credentials WHERE origin = ?1", [&origin], |r| r.get(0))
-            .unwrap_or(0);
-        if count != 1 {
-            return;
-        }
-        conn.query_row(
-            "SELECT username, secret FROM browser_credentials WHERE origin = ?1",
-            [&origin],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()
-        .unwrap_or(None)
-    };
-    let Some((username, sealed)) = row else { return };
-    let Ok(password) = cipher(app).and_then(|c| open(&c, &sealed)) else { return };
-    super::eval_in_tab(tab_id, &fill_script(&username, &password));
+    let app = app.clone();
+    let tab_id = tab_id.to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(db) = app.try_state::<crate::db::Db>() else { return };
+        let row: Option<(String, String)> = {
+            let Ok(conn) = db.0.lock() else { return };
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM browser_credentials WHERE origin = ?1", [&origin], |r| r.get(0))
+                .unwrap_or(0);
+            if count != 1 {
+                return;
+            }
+            conn.query_row(
+                "SELECT username, secret FROM browser_credentials WHERE origin = ?1",
+                [&origin],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .unwrap_or(None)
+        };
+        let Some((username, sealed)) = row else { return };
+        let Ok(password) = cipher(&app).and_then(|c| open(&c, &sealed)) else { return };
+        let script = fill_script(&username, &password);
+        let _ = app.run_on_main_thread(move || super::eval_in_tab(&tab_id, &script));
+    });
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_credentials_list(db: State<crate::db::Db>) -> Result<Vec<Credential>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
@@ -251,7 +260,7 @@ pub fn browser_credentials_list(db: State<crate::db::Db>) -> Result<Vec<Credenti
     rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_credentials_for(db: State<crate::db::Db>, origin: String) -> Result<Vec<Credential>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
@@ -265,7 +274,7 @@ pub fn browser_credentials_for(db: State<crate::db::Db>, origin: String) -> Resu
     rows.collect::<Result<_, _>>().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_credential_save(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -284,7 +293,7 @@ pub fn browser_credential_save(
     upsert(&conn, &origin, &username, &sealed)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_credential_delete(db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM browser_credentials WHERE id = ?1", [id])
@@ -294,7 +303,7 @@ pub fn browser_credential_delete(db: State<crate::db::Db>, id: String) -> Result
 
 /// The plaintext, for the "show password" eye in the manager. Deliberately a
 /// separate call from the list so a listing never carries secrets.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_credential_reveal(app: AppHandle, db: State<crate::db::Db>, id: String) -> Result<String, String> {
     let sealed: String = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -309,7 +318,7 @@ pub fn browser_credential_reveal(app: AppHandle, db: State<crate::db::Db>, id: S
 /// Fill a chosen login into a tab. Refuses unless the tab is currently on the
 /// login's origin — a saved GitHub password must never be typed into a page
 /// that merely looks like GitHub.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn browser_credential_fill(
     app: AppHandle,
     db: State<crate::db::Db>,

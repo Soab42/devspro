@@ -50,6 +50,17 @@ fn all_migrations() -> Vec<&'static str> {
 pub fn open(app_data_dir: &Path) -> rusqlite::Result<Connection> {
     std::fs::create_dir_all(app_data_dir).expect("failed to create app data directory");
     let conn = Connection::open(app_data_dir.join("app.db"))?;
+    // WAL + NORMAL: a write no longer fsyncs the journal twice, so the many
+    // small writes (browser history on every page load, query history, task
+    // logs) stop stalling whichever thread holds the connection. Durability
+    // is still guaranteed across application crashes; only an OS crash can
+    // lose the last few transactions, which is fine for a local dev tool.
+    // busy_timeout covers the helper or a second instance touching the file.
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = NORMAL;
+         PRAGMA busy_timeout = 5000;",
+    )?;
     migrate(&conn)?;
     Ok(conn)
 }

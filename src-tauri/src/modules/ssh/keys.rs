@@ -177,7 +177,7 @@ pub fn list_in(dir: &Path) -> Result<Vec<SshKey>, String> {
     Ok(keys)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ssh_keys_list() -> Result<Vec<SshKey>, String> {
     list_in(&super::ssh_dir()?)
 }
@@ -219,7 +219,7 @@ pub fn keygen_args(args: &GenerateKeyArgs, private_path: &Path) -> Result<Vec<St
     Ok(out)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ssh_keys_generate(args: GenerateKeyArgs) -> Result<SshKey, String> {
     let name = validate_key_name(&args.name)?;
     let dir = super::ensure_ssh_dir()?;
@@ -240,7 +240,7 @@ pub fn ssh_keys_generate(args: GenerateKeyArgs) -> Result<SshKey, String> {
     read_key(&pub_path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ssh_keys_delete(name: String) -> Result<(), String> {
     let name = validate_key_name(&name)?;
     let dir = super::ssh_dir()?;

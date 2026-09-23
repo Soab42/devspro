@@ -103,7 +103,7 @@ pub fn list(conn: &Connection, connection: &str, limit: i64) -> Result<Vec<Histo
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_history_list(
     db: State<crate::db::Db>,
     connection: String,
@@ -113,7 +113,7 @@ pub fn databases_history_list(
     list(&conn, &connection, limit.unwrap_or(50))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_history_clear(db: State<crate::db::Db>, connection: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM db_query_history WHERE connection = ?1", [&connection])

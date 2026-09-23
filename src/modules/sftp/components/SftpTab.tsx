@@ -1,4 +1,5 @@
 import {
+  DragEvent,
   KeyboardEvent,
   PointerEvent,
   ReactNode,
@@ -67,6 +68,7 @@ import {
   FileEntry,
   fmList,
   fmMkdir,
+  fmMove,
   fmPlaces,
   fmReadFile,
   fmRename,
@@ -91,8 +93,22 @@ import {
   sftpWriteFile,
 } from "../../ssh/api";
 import {
+  FileDragPayload,
+  canMoveInto,
+  currentFileDrag,
+  dirAtPoint,
+  dropDirOf,
+  endFileDrag,
+  hasFileDrag,
+  readFileDrag,
+  sameOrigin,
+  startFileDrag,
+  useOsFileDrop,
+} from "../../ssh/dnd";
+import {
   EntrySortKey,
   SortableEntry,
+  baseName,
   errorMessage,
   formatModified,
   formatSize,
@@ -288,7 +304,10 @@ function useDirectory<T>(
 /**
  * Local on the left, remote on the right. Each row carries an arrow that
  * copies it straight into the other pane's current folder — no file dialog,
- * no picking a destination twice.
+ * no picking a destination twice. Rows can also be dragged: across to the
+ * other pane (or onto one of its folders) to copy, onto a folder in their
+ * own pane to move, and files from the desktop drop onto the remote pane
+ * to upload.
  */
 function DualPaneBrowser({
   session,
@@ -331,9 +350,12 @@ function DualPaneBrowser({
   } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  function uploadEntry(entry: FileEntry) {
-    if (remote.path === null) return;
-    const target = joinPath(remote.path, entry.name);
+  function uploadEntry(
+    entry: Pick<PaneEntry, "name" | "path">,
+    dir: string | null = remote.path,
+  ) {
+    if (dir === null) return;
+    const target = joinPath(dir, entry.name);
     transfers.enqueue(
       { name: entry.name, direction: "upload", source: entry.path },
       (id) => sftpUpload(session.id, entry.path, target, id),
@@ -341,14 +363,47 @@ function DualPaneBrowser({
     );
   }
 
-  function downloadEntry(entry: SftpEntry) {
-    if (local.path === null) return;
-    const target = joinPath(local.path, entry.name);
+  function downloadEntry(
+    entry: Pick<PaneEntry, "name" | "path">,
+    dir: string | null = local.path,
+  ) {
+    if (dir === null) return;
+    const target = joinPath(dir, entry.name);
     transfers.enqueue(
       { name: entry.name, direction: "download", source: entry.path },
       (id) => sftpDownload(session.id, entry.path, target, id),
       local.refresh,
     );
+  }
+
+  /**
+   * A row dropped into a local folder: a remote row downloads there, a local
+   * row moves there. Resolves true when the pane should refresh now — a
+   * transfer refreshes on its own when it finishes.
+   */
+  async function dropOnLocal(payload: FileDragPayload, dir: string) {
+    if (payload.source === "remote") {
+      if (payload.session === session.id) downloadEntry(payload, dir);
+      return false;
+    }
+    if (!canMoveInto(payload, dir)) return false;
+    await fmMove(payload.path, dir);
+    return true;
+  }
+
+  async function dropOnRemote(payload: FileDragPayload, dir: string) {
+    if (payload.source === "local") {
+      uploadEntry(payload, dir);
+      return false;
+    }
+    if (payload.session !== session.id || !canMoveInto(payload, dir)) return false;
+    await sftpRename(session.id, payload.path, joinPath(dir, payload.name));
+    return true;
+  }
+
+  /** Files dragged in from the desktop, dropped on the remote pane. */
+  function uploadFiles(paths: string[], dir: string) {
+    for (const p of paths) uploadEntry({ name: baseName(p), path: p }, dir);
   }
 
   const localEntries = useMemo(
@@ -391,6 +446,8 @@ function DualPaneBrowser({
           onNavigate={local.setPath}
           onRefresh={local.refresh}
           pending={transfers.pending}
+          origin={{ source: "local" }}
+          onDrop={dropOnLocal}
           onEdit={(entry) => setEditing({ side: "local", path: entry.path })}
           onOpenExternal={(entry) =>
             setEditing({ side: "local", path: entry.path, external: true })
@@ -462,6 +519,9 @@ function DualPaneBrowser({
           onNavigate={remote.setPath}
           onRefresh={remote.refresh}
           pending={transfers.pending}
+          origin={{ source: "remote", session: session.id }}
+          onDrop={dropOnRemote}
+          onDropFiles={uploadFiles}
           onEdit={(entry) => setEditing({ side: "remote", path: entry.path })}
           onOpenExternal={(entry) =>
             setEditing({ side: "remote", path: entry.path, external: true })
@@ -833,6 +893,9 @@ function FilePane<T extends PaneEntry>({
   onNavigate,
   onRefresh,
   pending,
+  origin,
+  onDrop,
+  onDropFiles,
   onEdit,
   onOpenExternal,
   transfer,
@@ -858,6 +921,15 @@ function FilePane<T extends PaneEntry>({
   onRefresh: () => void;
   /** Rows (by path) with a transfer queued or running. */
   pending: Map<string, TransferStatus>;
+  /** Which filesystem this pane shows, stamped on every drag that starts here. */
+  origin: Pick<FileDragPayload, "source" | "session">;
+  /**
+   * A dragged row landed in `dir` — the pane's folder, or a folder row. Resolves
+   * true when the listing changed and the pane should refresh.
+   */
+  onDrop: (payload: FileDragPayload, dir: string) => Promise<boolean>;
+  /** Files dragged in from the desktop landed in `dir`. Absent: not a target. */
+  onDropFiles?: (paths: string[], dir: string) => void;
   onEdit: (entry: T) => void;
   onOpenExternal: (entry: T) => void;
   transfer: TransferAction<T>;
@@ -874,6 +946,72 @@ function FilePane<T extends PaneEntry>({
   const [nameDialog, setNameDialog] = useState<
     { kind: "mkdir" } | { kind: "rename"; entry: T } | null
   >(null);
+
+  // Drag and drop. `dropDir` is where a drag hovering over the pane would
+  // land: the pane's own folder (the whole pane lights up) or a folder row
+  // (that row does). Enter/leave are counted because a drag crossing the
+  // table's cells fires a leave for every element it passes.
+  const dropZone = useRef<HTMLDivElement>(null);
+  const dragDepth = useRef(0);
+  const [dropDir, setDropDir] = useState<string | null>(null);
+
+  /** Where a drag over `target` would land, or null when a drop would do nothing. */
+  function dropTargetOf(target: EventTarget | null): string | null {
+    const dir = dropDirOf(target, path);
+    if (dir === null) return null;
+    const drag = currentFileDrag();
+    if (drag && sameOrigin(drag, origin) && !canMoveInto(drag, dir)) return null;
+    return dir;
+  }
+
+  function onDragEnter(e: DragEvent<HTMLDivElement>) {
+    if (!hasFileDrag(e.dataTransfer)) return;
+    dragDepth.current += 1;
+    onDragOver(e);
+  }
+
+  function onDragOver(e: DragEvent<HTMLDivElement>) {
+    if (!hasFileDrag(e.dataTransfer)) return;
+    const dir = dropTargetOf(e.target);
+    if (dir === null) {
+      if (dropDir !== null) setDropDir(null);
+      return;
+    }
+    e.preventDefault();
+    const drag = currentFileDrag();
+    e.dataTransfer.dropEffect = drag && sameOrigin(drag, origin) ? "move" : "copy";
+    if (dir !== dropDir) setDropDir(dir);
+  }
+
+  function onDragLeave(e: DragEvent<HTMLDivElement>) {
+    if (!hasFileDrag(e.dataTransfer)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDropDir(null);
+  }
+
+  function onDropRow(e: DragEvent<HTMLDivElement>) {
+    if (!hasFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDropDir(null);
+    const payload = readFileDrag(e.dataTransfer);
+    const dir = dropTargetOf(e.target);
+    endFileDrag();
+    if (!payload || dir === null) return;
+    void withBusy(() => onDrop(payload, dir));
+  }
+
+  useOsFileDrop({
+    onHover: (point) => {
+      if (!onDropFiles) return;
+      setDropDir(point ? dirAtPoint(dropZone.current, point, path) : null);
+    },
+    onDrop: (paths, point) => {
+      if (!onDropFiles) return;
+      const dir = dirAtPoint(dropZone.current, point, path);
+      if (dir !== null) onDropFiles(paths, dir);
+    },
+  });
 
   const sorted = useMemo(
     () => sortEntries(entries, sort.key as EntrySortKey, sort.dir),
@@ -1107,19 +1245,48 @@ function FilePane<T extends PaneEntry>({
           {shownError}
         </Callout>
       )}
-      <DataTable
-        columns={columns}
-        rows={sorted}
-        rowKey={(e) => e.path}
-        sort={sort}
-        onSortChange={setSort}
-        loading={loading && entries.length === 0}
-        onRowDoubleClick={activate}
-        density="compact"
-        fillHeight
-        caption={caption}
-        empty={{ icon: Folder, title: "Empty directory" }}
-      />
+      <div
+        ref={dropZone}
+        className={[
+          "sftp-drop",
+          dropDir !== null && dropDir === path && "sftp-drop-active",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDropRow}
+      >
+        <DataTable
+          columns={columns}
+          rows={sorted}
+          rowKey={(e) => e.path}
+          rowProps={(e) => ({
+            draggable: true,
+            "data-drop-dir": e.is_dir ? e.path : undefined,
+            onDragStart: (ev) =>
+              startFileDrag(ev.dataTransfer, {
+                ...origin,
+                path: e.path,
+                name: e.name,
+                is_dir: e.is_dir,
+              }),
+            onDragEnd: endFileDrag,
+          })}
+          rowClassName={(e) =>
+            e.is_dir && dropDir === e.path ? "sftp-drop-row" : undefined
+          }
+          sort={sort}
+          onSortChange={setSort}
+          loading={loading && entries.length === 0}
+          onRowDoubleClick={activate}
+          density="compact"
+          fillHeight
+          caption={caption}
+          empty={{ icon: Folder, title: "Empty directory" }}
+        />
+      </div>
 
       {nameDialog && (
         <NameDialog

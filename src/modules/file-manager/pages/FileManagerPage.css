@@ -1,12 +1,13 @@
 /* Finder-style explorer. Layout only — colours and type come from tokens, and
    the places column is the SideList primitive. */
-.fm {
-  min-height: 60vh;
-}
-
+/* The page is `fill`, so the card takes the window's leftover height and the
+   listing scrolls inside .fm-body while the places column and toolbar stay
+   put. Every link needs min-height: 0 or a flex child refuses to shrink and
+   the whole content area scrolls instead. */
 .fm > .card-body,
 .fm .split-view {
-  min-height: 60vh;
+  flex: 1;
+  min-height: 0;
 }
 
 .fm-main {
@@ -139,8 +140,39 @@
   color: var(--color-text-secondary);
 }
 
-.fm-tile-icon-dir {
-  color: var(--color-accent);
+/* ---- thumbnails ---- */
+/* Tiles: a fixed box so a photo and an icon line up; the image is fitted,
+   never cropped, since the point is to recognise the file. */
+.fm-tile .fm-thumb {
+  width: 64px;
+  height: 48px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.fm-tile img.fm-thumb {
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  background-color: var(--color-surface);
+}
+
+.fm-tile .fm-thumb-icon {
+  width: 32px;
+  height: 32px;
+}
+
+.fm-preview-hero img.fm-thumb {
+  max-width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.fm-aside-hint {
+  padding: 0 var(--space-2) var(--space-3);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
 }
 
 .fm-tile-name {
@@ -174,4 +206,256 @@
   gap: var(--space-1);
   margin-left: auto;
   min-width: 0;
+}
+
+/* ---- column view (Miller columns) ---- */
+.fm-columns {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+}
+
+.fm-col {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--color-border-subtle);
+}
+
+.fm-col-list {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-1) 0;
+  outline: none;
+}
+
+.fm-col-list:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--color-accent-border);
+}
+
+.fm-col-spacer {
+  position: relative;
+}
+
+.fm-col-note {
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.fm-col-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 26px;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+
+.fm-col-item:hover {
+  background-color: var(--color-hover);
+}
+
+.fm-col-item-hidden .fm-col-item-name {
+  color: var(--color-text-muted);
+}
+
+.fm-col-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fm-col-icon {
+  color: var(--color-text-secondary);
+  flex: 0 0 auto;
+}
+
+.fm-col-icon-dir {
+  color: var(--color-accent);
+  flex: 0 0 auto;
+}
+
+.fm-col-item-chevron {
+  color: var(--color-text-muted);
+  flex: 0 0 auto;
+}
+
+.fm-col-item-actions {
+  display: none;
+  flex: 0 0 auto;
+}
+
+.fm-col-item:hover .fm-col-item-actions,
+.fm-col-item-selected .fm-col-item-actions {
+  display: inline-flex;
+}
+
+/* The path stays visible in every column: the item leading onwards keeps a
+   quiet highlight, and the column with keyboard focus uses the accent. */
+.fm-col-item-ancestor,
+.fm-col-item-ancestor:hover {
+  background-color: var(--color-surface-2);
+  box-shadow: inset 2px 0 0 var(--color-border);
+}
+
+.fm-col-item-selected,
+.fm-col-item-selected:hover {
+  background-color: var(--color-accent-subtle);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.fm-col-item-selected .fm-col-icon-dir,
+.fm-col-item-selected .fm-col-item-chevron {
+  color: var(--color-accent);
+}
+
+.fm-col-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.fm-col-resizer:hover {
+  background-color: var(--color-accent-border);
+}
+
+/* ---- preview card ---- */
+.fm-col-preview {
+  width: 300px;
+  border-right: 0;
+}
+
+.fm-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.fm-preview-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-2);
+  text-align: center;
+}
+
+.fm-preview-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--color-text-secondary);
+}
+
+.fm-preview-name {
+  max-width: 100%;
+  font-weight: var(--fw-semibold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fm-preview-kind {
+  font-size: var(--text-xs);
+}
+
+.fm-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.fm-preview-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: var(--text-xs);
+}
+
+.fm-preview-meta dt {
+  color: var(--color-text-muted);
+}
+
+.fm-preview-meta dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- list view: fold / unfold ---- */
+.fm-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+.fm-tree-toggle:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+.fm-tree-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.fm-tree-pending {
+  opacity: 0.4;
+}
+
+.dt-row[draggable] {
+  cursor: default;
+}
+
+/* ---- drag and drop ---- */
+/* Everything that can receive a drop lights the same way: a folder row, a
+   tile, a column, a crumb, a place, or the folder itself via the body. */
+.fm-drop-target,
+.fm-row-selected.fm-drop-target .dt-td,
+.fm-drop-target .dt-td,
+.side-list-item[data-drop="true"] {
+  background-color: var(--color-accent-subtle) !important;
+  box-shadow: inset 0 0 0 2px var(--color-accent-border);
+}
+
+.fm-crumb.fm-drop-target {
+  border-radius: var(--radius-sm);
+}
+
+.fm-body.fm-drop-target {
+  box-shadow: inset 0 0 0 2px var(--color-accent-border);
 }

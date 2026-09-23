@@ -8,7 +8,7 @@ pub fn is_laravel_project(path: &Path) -> bool {
     path.join("artisan").is_file() && path.join("public").join("index.php").is_file()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_validate_laravel_project(path: String) -> Result<(), String> {
     let p = Path::new(&path);
     if !p.is_dir() {

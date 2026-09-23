@@ -175,6 +175,18 @@ export {
   Star, // bookmark this page (filled when bookmarked)
   Bookmark, // a saved bookmark
   Columns2, // split view; SFTP panes side by side
+  Columns3, // file manager column view
+  FileImage, // file manager: image kinds
+  FileVideo, // file manager: video kinds
+  FileAudio, // file manager: audio kinds
+  FileArchive, // file manager: archives
+  FileTerminal, // file manager: shell scripts
+  FileLock, // file manager: lock files
+  FileCog, // file manager: config files
+  FolderSymlink, // file manager: a link to a folder
+  StarOff, // file manager: remove from favourites
+  Wifi, // host status strip: network
+  Scissors, // cut to the file clipboard
   Rows2, // SFTP panes stacked
   ChevronsRightLeft, // fold an SFTP pane (side by side)
   ChevronsLeftRight, // unfold an SFTP pane (side by side)
@@ -193,3 +205,18 @@ export {
   FileSpreadsheet, // export as CSV
   LockOpen, // read & write mode (Lock, for read-only, is already exported above)
 } from "lucide-react";
+
+/* ---- composed icons ------------------------------------------------------
+   Lucide has no PDF glyph, and its FileType "T" reads as a plain text file.
+   This is the file outline with "PDF" lettered in strokes, built through
+   Lucide's own factory so it sizes and themes like every other icon. */
+import { createLucideIcon } from "lucide-react";
+
+export const FilePdf = createLucideIcon("file-pdf", [
+  ["path", { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z", key: "outline" }],
+  ["path", { d: "M14 2v4a2 2 0 0 0 2 2h4", key: "fold" }],
+  ["path", { d: "M7 18.5v-6h2a1.5 1.5 0 0 1 0 3H7", key: "p" }],
+  ["path", { d: "M11.5 18.5v-6h1a3 3 0 0 1 0 6Z", key: "d" }],
+  ["path", { d: "M16.5 18.5v-6h3", key: "f-stem" }],
+  ["path", { d: "M16.5 15.25h2.25", key: "f-bar" }],
+]);

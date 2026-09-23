@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { DragEvent, Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { openTerminalWindow } from "../../../app/popout";
 import { Button, EmptyState, IconButton, Select, Spinner } from "../../../ui";
@@ -14,9 +14,10 @@ import {
 import { Icon } from "../../../ui/Icon";
 import { PaneLayout } from "../../../ui/PaneLayout";
 import { TerminalWorkspace, clampAside } from "../../../ui/Terminal";
-import { sftpConnect, sftpDisconnect, writePty, type SshHost } from "../../ssh/api";
+import { sftpConnect, sftpDisconnect, sftpUpload, writePty, type SshHost } from "../../ssh/api";
 import { useConnectFlow } from "../../ssh/components/useConnectFlow";
-import { baseName, errorMessage, followHookCommand, hostLabel } from "../../ssh/utils";
+import { elementAtPoint, endFileDrag, hasFileDrag, readFileDrag, useOsFileDrop, type Point } from "../../ssh/dnd";
+import { baseName, cdCommand, errorMessage, followHookCommand, hostLabel, joinPath, shellQuote } from "../../ssh/utils";
 import {
   EMPTY_WORKSPACE,
   activeTerminalWindow,
@@ -30,6 +31,7 @@ import {
   type TerminalSession,
   type WorkspaceState,
 } from "../workspace";
+import HostStatsBar from "./HostStatsBar";
 import TerminalSidebar, { type RemoteBrowser } from "./TerminalSidebar";
 
 /* Lazy: xterm.js and CodeMirror are a few hundred kB each that only this
@@ -55,8 +57,8 @@ function readAside(): { open: boolean; width: number } {
 
 /** What the page can ask the workspace to do; handed back through `onReady`. */
 export interface WorkspaceHandle {
-  /** A new window with one terminal running `command`. */
-  openWindow: (command: PtyCommand) => void;
+  /** A new window with one terminal running `command`; a local one can start in `startIn`. */
+  openWindow: (command: PtyCommand, startIn?: string) => void;
   /** Split the focused pane with a new terminal running `command`. */
   split: (command: PtyCommand, direction: "row" | "column") => void;
   /** Move the focused pane into its own window. Resolves false when there is no pane to move. */
@@ -114,8 +116,8 @@ export default function TerminalsTab({
   const hostsRef = useRef(hosts);
   hostsRef.current = hosts;
 
-  const openWindow = useCallback((command: PtyCommand) => {
-    dispatch({ type: "open-window", session: newSession(stateRef.current, command, hostsRef.current), windowId: crypto.randomUUID() });
+  const openWindow = useCallback((command: PtyCommand, startIn?: string) => {
+    dispatch({ type: "open-window", session: newSession(stateRef.current, command, hostsRef.current, startIn), windowId: crypto.randomUUID() });
   }, []);
   const split = useCallback((command: PtyCommand, direction: "row" | "column") => {
     dispatch({
@@ -224,6 +226,68 @@ export default function TerminalsTab({
     [onError],
   );
   const recordCwd = useCallback((id: string, cwd: string) => dispatch({ type: "cwd", id, cwd }), []);
+
+  /* ---- drops onto a terminal pane ---- */
+  // A file row from the browser (or the SFTP page) types its path, quoted,
+  // into the shell; a run of plain text is typed as it is. Files from the
+  // desktop type their paths into a local shell; a remote shell can't see
+  // them, so they are uploaded to where the shell is first and the remote
+  // paths typed instead.
+  const [dropPane, setDropPane] = useState<string | null>(null);
+
+  function paneDragOver(e: DragEvent<HTMLDivElement>) {
+    const types = Array.from(e.dataTransfer.types);
+    if (!hasFileDrag(e.dataTransfer) && !types.includes("text/plain")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function paneDrop(e: DragEvent<HTMLDivElement>, id: string) {
+    const payload = readFileDrag(e.dataTransfer);
+    const text = payload ? `${shellQuote(payload.path)} ` : e.dataTransfer.getData("text/plain");
+    endFileDrag();
+    if (!text) return;
+    e.preventDefault();
+    send(id, text);
+  }
+
+  async function dropFilesOnPane(id: string, paths: string[]) {
+    const s = stateRef.current.sessions[id];
+    if (!s || s.exited) return;
+    if (s.command === "local") {
+      send(id, `${paths.map(shellQuote).join(" ")} `);
+      return;
+    }
+    const sftpId = sftpRef.current[s.command.ssh];
+    if (!sftpId) {
+      onError("Connect the file browser to this host first, so the files can be uploaded to it.");
+      return;
+    }
+    if (!s.cwd) {
+      onError("The shell has not reported its folder yet, so there is nowhere to upload to.");
+      return;
+    }
+    try {
+      const uploaded: string[] = [];
+      for (const p of paths) {
+        const target = joinPath(s.cwd, baseName(p));
+        await sftpUpload(sftpId, p, target);
+        uploaded.push(target);
+      }
+      send(id, `${uploaded.map(shellQuote).join(" ")} `);
+    } catch (e) {
+      onError(errorMessage(e));
+    }
+  }
+
+  const paneAt = (point: Point) => elementAtPoint<HTMLDivElement>(document.body, point, ".term-pane")?.dataset.sessionId ?? null;
+  useOsFileDrop({
+    onHover: (point) => setDropPane(point ? paneAt(point) : null),
+    onDrop: (paths, point) => {
+      const id = paneAt(point);
+      if (id) void dropFilesOnPane(id, paths);
+    },
+  });
 
   // The OSC 7 hook is typed into a remote shell exactly once per session,
   // whatever remounts the terminal component goes through. An adopted
@@ -371,6 +435,7 @@ export default function TerminalsTab({
       }
       asideWidth={aside.width}
       onAsideResize={resizeAside}
+      footer={<HostStatsBar session={focused} sftpId={focusedHostId ? (sftp[focusedHostId] ?? null) : null} />}
       empty={
         state.windows.length === 0 && (
           <EmptyState
@@ -418,7 +483,12 @@ export default function TerminalsTab({
                 if (!s) return null;
                 const isFocused = w.focused === paneId && w.id === activeTerminalWindow(state)?.id;
                 return (
-                  <div className={`term-pane${s.exited ? " term-pane-exited" : ""}`}>
+                  <div
+                    className={["term-pane", s.exited && "term-pane-exited", dropPane === s.id && "term-pane-drop"].filter(Boolean).join(" ")}
+                    data-session-id={s.id}
+                    onDragOver={paneDragOver}
+                    onDrop={(e) => paneDrop(e, s.id)}
+                  >
                     <div className="term-pane-bar">
                       <span className="term-pane-title" title={s.title}>
                         {s.title}
@@ -442,7 +512,13 @@ export default function TerminalsTab({
                       onExit={() => dispatch({ type: "exited", id: s.id })}
                       onError={onError}
                       onCwd={(cwd) => recordCwd(s.id, cwd)}
-                      onPrompt={s.command === "local" ? undefined : () => installHook(s.id)}
+                      onPrompt={
+                        s.command === "local"
+                          ? s.startIn
+                            ? () => send(s.id, cdCommand(s.startIn as string))
+                            : undefined
+                          : () => installHook(s.id)
+                      }
                       onDetached={() => dispatch({ type: "detach", id: s.id })}
                     />
                   </div>

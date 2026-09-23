@@ -133,12 +133,12 @@ fn nginx_config_path(bin: &str) -> Option<String> {
         .find_map(|tok| tok.strip_prefix("--conf-path=").map(str::to_string))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_detect_nginx() -> NginxDetection {
     detect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_install_nginx(app: tauri::AppHandle) -> Result<String, String> {
     let manager = linux_package_manager()
         .ok_or_else(|| "no supported package manager (apt/dnf/pacman) was found".to_string())?;

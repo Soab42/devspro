@@ -424,7 +424,7 @@ pub struct AppStatus {
 /// process-spawn latency, so it parallelises almost perfectly, and the borrowed
 /// catalog needs no `'static` bound or cloning. Order is preserved by writing
 /// each result into its own slot rather than collecting as threads finish.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apps_list() -> Vec<AppStatus> {
     let defs = catalog();
     // Built with a loop, not `vec![None; n]` — that needs `AppStatus: Clone`,
@@ -544,12 +544,12 @@ fn list_installed_nvm_versions() -> Vec<String> {
     versions
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apps_list_nvm_versions() -> Vec<String> {
     list_installed_nvm_versions()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apps_write_nvmrc(project_path: String, version: String) -> Result<(), String> {
     let path = std::path::Path::new(&project_path);
     if !path.is_dir() {
@@ -591,7 +591,7 @@ pub struct InstallSelection {
     pub version: Option<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apps_install_batch(app: tauri::AppHandle, selections: Vec<InstallSelection>) -> Vec<InstallOutcome> {
     let defs = catalog();
     let mut outcomes: Vec<InstallOutcome> = Vec::new();

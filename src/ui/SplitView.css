@@ -20,6 +20,20 @@
 .split-view-aside-200 .split-view-aside { width: 200px; }
 .split-view-aside-240 .split-view-aside { width: 240px; }
 
+/* A 6px grab strip straddling the aside's border. Only on wide layouts; the
+   stacked phone layout has no vertical edge to drag. */
+.split-view-resizer {
+  flex: 0 0 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.split-view-resizer:hover,
+.split-view-resizer:active {
+  background-color: var(--color-accent-border);
+}
+
 .split-view-main {
   flex: 1;
   min-width: 0;
@@ -33,11 +47,15 @@
     flex-direction: column;
   }
 
+  .split-view-resizer {
+    display: none;
+  }
+
   .split-view-aside,
   .split-view-aside-180 .split-view-aside,
   .split-view-aside-200 .split-view-aside,
   .split-view-aside-240 .split-view-aside {
-    width: auto;
+    width: auto !important;
     border-right: 0;
     border-bottom: 1px solid var(--color-border-subtle);
   }

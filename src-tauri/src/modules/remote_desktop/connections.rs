@@ -151,7 +151,7 @@ pub fn validate(input: DesktopInput) -> Result<DesktopInput, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remote_desktop_list(db: State<crate::db::Db>) -> Result<Vec<RemoteDesktop>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     list(&conn)
@@ -159,7 +159,7 @@ pub fn remote_desktop_list(db: State<crate::db::Db>) -> Result<Vec<RemoteDesktop
 
 /// Insert when `id` is absent, update when present — one command, because the
 /// form is the same either way and the UI shouldn't have to care.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remote_desktop_save(
     db: State<crate::db::Db>,
     id: Option<String>,
@@ -224,7 +224,7 @@ pub fn remote_desktop_save(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remote_desktop_delete(db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM remote_desktops WHERE id = ?1", [&id])

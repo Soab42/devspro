@@ -495,7 +495,7 @@ fn read_bundle_file(path: &str) -> Result<Bundle, String> {
     parse(&text)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn backup_export(app: AppHandle, db: State<crate::db::Db>, path: String) -> Result<Inspection, String> {
     let certs_dir = super::nginx_ssl::certs_dir(&app)?;
     let bundle = {
@@ -507,12 +507,12 @@ pub fn backup_export(app: AppHandle, db: State<crate::db::Db>, path: String) -> 
     Ok(inspect(&bundle))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn backup_inspect(path: String) -> Result<Inspection, String> {
     Ok(inspect(&read_bundle_file(&path)?))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn backup_import(
     app: AppHandle,
     db: State<crate::db::Db>,

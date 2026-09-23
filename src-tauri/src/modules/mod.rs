@@ -20,5 +20,6 @@ pub mod scheduled;
 pub mod settings;
 pub mod ssh;
 pub mod system;
+pub mod tail;
 pub mod tunnel;
 pub mod workers;

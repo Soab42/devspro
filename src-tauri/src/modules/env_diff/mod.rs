@@ -19,7 +19,7 @@ fn regular_file(path: &str) -> Result<fs::Metadata, String> {
     Ok(meta)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn env_diff_read_file(path: String) -> Result<String, String> {
     let meta = regular_file(&path)?;
     if meta.len() > MAX_BYTES {
@@ -40,7 +40,7 @@ pub fn env_diff_read_file(path: String) -> Result<String, String> {
 /// Written in place (not via temp file + rename) so the file keeps its
 /// permissions — `.env` files are commonly 0600 — and no `.bak` is left behind,
 /// since an unignored `.env.bak` full of secrets is how they end up committed.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn env_diff_write_file(path: String, contents: String) -> Result<String, String> {
     regular_file(&path)?;
     fs::write(&path, contents).map_err(|e| format!("could not write {path}: {e}"))?;

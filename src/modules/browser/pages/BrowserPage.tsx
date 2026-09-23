@@ -254,17 +254,46 @@ export default function BrowserPage() {
 
   // ---------------------------------------------------------- native views
 
+  // Every bounds update is a native relayout of the whole window. A window
+  // resize or a divider drag fires the observers many times per frame, so
+  // the work is coalesced to one pass per animation frame, and a pane whose
+  // box has not moved is left alone.
+  const lastBounds = useRef(new Map<string, Bounds>());
   const fit = useCallback((id: string | null, el: HTMLElement | null) => {
     if (!id) return;
     const bounds = measure(el);
-    if (bounds) browserSetBounds(id, bounds).catch(() => undefined);
+    if (!bounds) return;
+    const prev = lastBounds.current.get(id);
+    if (
+      prev &&
+      prev.x === bounds.x &&
+      prev.y === bounds.y &&
+      prev.width === bounds.width &&
+      prev.height === bounds.height
+    )
+      return;
+    lastBounds.current.set(id, bounds);
+    browserSetBounds(id, bounds).catch(() => {
+      lastBounds.current.delete(id);
+    });
   }, []);
 
+  const fitFrame = useRef<number | null>(null);
   const fitAll = useCallback(() => {
-    const s = getState();
-    fit(s.activeId, mainRef.current);
-    fit(s.splitId, splitRef.current);
+    if (fitFrame.current !== null) return;
+    fitFrame.current = requestAnimationFrame(() => {
+      fitFrame.current = null;
+      const s = getState();
+      fit(s.activeId, mainRef.current);
+      fit(s.splitId, splitRef.current);
+    });
   }, [fit]);
+  useEffect(
+    () => () => {
+      if (fitFrame.current !== null) cancelAnimationFrame(fitFrame.current);
+    },
+    [],
+  );
 
   const overlayUp = useRef(false);
 
@@ -303,6 +332,7 @@ export default function BrowserPage() {
     // Claim the agent before the view exists, so a refresh that runs in the
     // meantime sees nothing to do.
     updateTab(tab.id, { userAgent: ua });
+    lastBounds.current.set(tab.id, bounds);
     await browserOpen(tab.id, tab.url, bounds, ua);
     if (tab.zoom !== 1)
       await browserSetZoom(tab.id, tab.zoom).catch(() => undefined);

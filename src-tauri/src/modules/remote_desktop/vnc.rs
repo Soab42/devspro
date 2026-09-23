@@ -104,7 +104,7 @@ pub async fn remote_desktop_vnc_open(
     Ok(VncBridge { session, url })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remote_desktop_vnc_close(
     state: State<'_, super::RemoteDesktopState>,
     session: String,

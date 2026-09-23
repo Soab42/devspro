@@ -149,6 +149,30 @@
   padding: 0 var(--space-1);
 }
 
+/* ---- drag and drop: the pane or the folder row a drag would land in ---- */
+.sftp-drop {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--radius-sm);
+  transition: var(--transition-colors);
+}
+
+.sftp-drop-active {
+  background-color: var(--color-accent-subtle);
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+}
+
+.sftp-drop-row .dt-td {
+  background-color: var(--color-accent-subtle);
+  box-shadow: inset 0 2px 0 var(--color-accent), inset 0 -2px 0 var(--color-accent);
+}
+
+.sftp-drop .dt-row[draggable="true"] {
+  cursor: grab;
+}
+
 /* ---- editor dialog: the code box takes whatever height the dialog has ---- */
 .modal-panel:has(.sftp-editor-body) .modal-body {
   display: flex;

@@ -21,6 +21,7 @@ pub mod keys;
 pub mod pty;
 pub mod session;
 pub mod sftp;
+pub mod stats;
 
 use std::path::PathBuf;
 

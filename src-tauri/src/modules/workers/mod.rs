@@ -140,15 +140,6 @@ fn log_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     Ok(logs_dir(app)?.join(format!("{id}.log")))
 }
 
-fn tail_lines(content: &str, n: usize) -> String {
-    if n == 0 {
-        return String::new();
-    }
-    let lines: Vec<&str> = content.lines().collect();
-    let start = lines.len().saturating_sub(n);
-    lines[start..].join("\n")
-}
-
 /// Reconciles the live-handle map against reality: any child that has already
 /// exited (crashed, finished, or was reaped by a previous `try_wait`) is
 /// dropped from the map here rather than left dangling.
@@ -178,7 +169,7 @@ fn to_view(worker: Worker, running: &HashSet<String>) -> WorkerView {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workers_list(db: State<crate::db::Db>, state: State<WorkersState>) -> Result<Vec<WorkerView>, String> {
     let workers = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -188,7 +179,7 @@ pub fn workers_list(db: State<crate::db::Db>, state: State<WorkersState>) -> Res
     Ok(workers.into_iter().map(|w| to_view(w, &running)).collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workers_create(
     db: State<crate::db::Db>,
     name: String,
@@ -230,7 +221,7 @@ pub fn workers_create(
     Ok(worker)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workers_update(
     db: State<crate::db::Db>,
     id: String,
@@ -260,7 +251,7 @@ pub fn workers_update(
     find(&conn, &id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workers_delete(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -336,7 +327,7 @@ fn spawn_worker(app: &AppHandle, state: &WorkersState, worker: &Worker) -> Resul
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workers_start(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -357,7 +348,7 @@ pub fn workers_start(
     Ok(WorkerView { worker, running: true })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workers_stop(db: State<crate::db::Db>, state: State<WorkersState>, id: String) -> Result<WorkerView, String> {
     let worker = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -368,7 +359,7 @@ pub fn workers_stop(db: State<crate::db::Db>, state: State<WorkersState>, id: St
     Ok(WorkerView { worker, running })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workers_restart(
     app: AppHandle,
     db: State<crate::db::Db>,
@@ -391,14 +382,13 @@ pub fn workers_restart(
 /// live long-running process's output has to be captured continuously as it
 /// runs (redirected to disk at spawn time in `spawn_worker`), unlike
 /// `docker_logs`, which can just ask the daemon for history on demand.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn workers_logs(app: AppHandle, id: String, tail: u32) -> Result<String, String> {
     let path = log_path(&app, &id)?;
     if !path.exists() {
         return Ok("(no log output)".to_string());
     }
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let text = tail_lines(&content, tail as usize);
+    let text = crate::modules::tail::tail_file(&path, tail as usize).map_err(|e| e.to_string())?;
     if text.trim().is_empty() {
         Ok("(no log output)".to_string())
     } else {
@@ -409,6 +399,7 @@ pub fn workers_logs(app: AppHandle, id: String, tail: u32) -> Result<String, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::tail::tail_lines;
 
     #[test]
     fn tail_lines_returns_last_n_lines() {

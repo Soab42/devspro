@@ -149,27 +149,27 @@ fn run_action(action: &str, id: &str) -> Result<String, String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_detect() -> DockerDetection {
     detect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_list_containers() -> Result<Vec<Container>, String> {
     list_containers()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_start(id: String) -> Result<String, String> {
     run_action("start", &id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_stop(id: String) -> Result<String, String> {
     run_action("stop", &id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_restart(id: String) -> Result<String, String> {
     run_action("restart", &id)
 }
@@ -208,7 +208,7 @@ fn bulk(action: &str, ids: &[String]) -> Vec<ActionOutcome> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_bulk_action(action: String, ids: Vec<String>) -> Result<Vec<ActionOutcome>, String> {
     // The verb reaches the `docker` argv, so it is checked against a fixed list
     // rather than passed through — the frontend is not the right place for that
@@ -350,7 +350,7 @@ pub fn change_port(id: &str, container_port: u16, new_host_port: u16) -> Result<
     ))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_change_port(id: String, container_port: u16, new_host_port: u16) -> Result<String, String> {
     change_port(&id, container_port, new_host_port)
 }
@@ -434,7 +434,7 @@ fn run_compose(compose_file: &str, project: Option<&str>, args: &[&str]) -> Resu
 /// actually changed. Editing the file and hitting Update is therefore the way to
 /// apply a change, where `restart` would just bounce the containers with their
 /// old definition still in force.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_compose_project_action(project: String, action: String) -> Result<String, String> {
     let compose_file = project_compose_file(&project)?;
     // Same reasoning as `docker_bulk_action`: the verb lands in argv, so the
@@ -460,7 +460,7 @@ pub fn docker_compose_project_action(project: String, action: String) -> Result<
 /// never seen. Compose derives the project name from the containing directory,
 /// exactly as it would from a terminal, so a stack loaded here and one started by
 /// hand are the same stack rather than two competing copies.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_compose_up_file(path: String) -> Result<String, String> {
     let file = std::path::Path::new(&path);
     if !file.is_file() {
@@ -497,7 +497,7 @@ fn read_compose_source(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_read_container_compose(id: String) -> Result<ComposeSource, String> {
     let info = compose_info(&id)?;
     // Read the project off the container rather than deriving it from the
@@ -508,7 +508,7 @@ pub fn docker_read_container_compose(id: String) -> Result<ComposeSource, String
     read_compose_source(info.compose_file, project, Some(info.service))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_read_project_compose(project: String) -> Result<ComposeSource, String> {
     let compose_file = project_compose_file(&project)?;
     read_compose_source(compose_file, Some(project), None)
@@ -581,7 +581,7 @@ fn validate_contents(compose_file: &Path, contents: &str) -> Result<(), String> 
 /// stack up. Either way it is `up -d`, which re-reads the file and recreates only
 /// what changed — `restart` would bounce the containers with their old definition
 /// still in force.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_write_compose(
     path: String,
     contents: String,
@@ -615,7 +615,7 @@ pub fn docker_write_compose(
 /// Validates a compose file without changing anything — `config` parses it,
 /// resolves variables, and fails on anything malformed. Used to catch a bad file
 /// before the user is left reading a half-finished `up`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_compose_validate(path: String) -> Result<String, String> {
     let file = std::path::Path::new(&path);
     if !file.is_file() {
@@ -730,7 +730,7 @@ services:
 /// separately and concatenated, not merged in true chronological order — an
 /// acceptable simplification for a quick-look viewer, not a substitute for
 /// `docker logs -f` in a real terminal.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_logs(id: String, tail: u32) -> Result<String, String> {
     let output = Command::new("docker")
         .args(["logs", "--tail", &tail.to_string(), &id])

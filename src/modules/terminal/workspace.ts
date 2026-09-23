@@ -12,7 +12,7 @@ import type { PtyCommand, SshHost } from "../ssh/api";
 /** What the terminal workspace opens: a shell, here or on a host. Programs run
  *  through `exec` belong to the AI agents module, which has its own sessions. */
 export type ShellCommand = Exclude<PtyCommand, { exec: unknown }>;
-import { terminalTitle } from "../ssh/utils";
+import { baseName, terminalTitle } from "../ssh/utils";
 
 /**
  * The terminal workspace, tmux-shaped: any number of *windows* (the tab
@@ -31,6 +31,8 @@ export interface TerminalSession {
   exited: boolean;
   /** Last working directory the shell reported, for the file browser to follow. */
   cwd: string | null;
+  /** A folder to `cd` into once the prompt appears — "Open in Terminal" from Files. Local shells only. */
+  startIn?: string;
 }
 
 export interface TerminalWindow {
@@ -146,13 +148,17 @@ export function sessionOrdinal(state: WorkspaceState, command: ShellCommand): nu
   return same + 1;
 }
 
-export function newSession(state: WorkspaceState, command: ShellCommand, hosts: SshHost[]): TerminalSession {
+export function newSession(state: WorkspaceState, command: ShellCommand, hosts: SshHost[], startIn?: string): TerminalSession {
+  const inFolder = command === "local" && startIn ? startIn : undefined;
   return {
     id: crypto.randomUUID(),
     command,
-    title: terminalTitle(command, hosts, sessionOrdinal(state, command)),
+    // A shell opened on a folder is named after it, so two "Local" tabs don't
+    // hide which project each one is in.
+    title: inFolder ? baseName(inFolder) || "/" : terminalTitle(command, hosts, sessionOrdinal(state, command)),
     exited: false,
     cwd: null,
+    ...(inFolder ? { startIn: inFolder } : {}),
   };
 }
 

@@ -106,12 +106,12 @@ pub fn require_socket() -> Result<String, String> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_detect_php_fpm() -> PhpFpmDetection {
     detect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn nginx_ssl_list_php_versions() -> Vec<PhpFpmVersion> {
     list_available_versions()
 }

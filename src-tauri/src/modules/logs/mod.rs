@@ -67,32 +67,26 @@ fn list_sources(app: &AppHandle, sites: &[Site]) -> Result<Vec<LogSource>, Strin
     Ok(sites.iter().flat_map(|site| sources_for_site(&logs_dir, site)).collect())
 }
 
-pub fn tail_lines(contents: &str, n: u32) -> String {
-    let lines: Vec<&str> = contents.lines().collect();
-    let start = lines.len().saturating_sub(n as usize);
-    lines[start..].join("\n")
-}
-
-#[tauri::command]
+#[tauri::command(async)]
 pub fn logs_list_sources(app: AppHandle, db: State<crate::db::Db>) -> Result<Vec<LogSource>, String> {
     let all_sites = sites::nginx_ssl_list_sites(db)?;
     list_sources(&app, &all_sites)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn logs_tail(app: AppHandle, db: State<crate::db::Db>, source_id: String, lines: u32) -> Result<String, String> {
     let all_sites = sites::nginx_ssl_list_sites(db)?;
     let source = list_sources(&app, &all_sites)?
         .into_iter()
         .find(|s| s.id == source_id)
         .ok_or_else(|| "unknown log source".to_string())?;
-    let contents = std::fs::read_to_string(&source.path).map_err(|e| format!("failed to read log: {e}"))?;
-    Ok(tail_lines(&contents, lines))
+    crate::modules::tail::tail_file(std::path::Path::new(&source.path), lines as usize)
+        .map_err(|e| format!("failed to read log: {e}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::modules::tail::tail_lines;
 
     #[test]
     fn tail_lines_keeps_all_when_fewer_than_n() {

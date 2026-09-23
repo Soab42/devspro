@@ -149,12 +149,12 @@ pub fn arguments(client: &str, desktop: &RemoteDesktop, password: Option<&str>) 
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remote_desktop_rdp_clients() -> Vec<RdpClient> {
     detect(&std::env::var("PATH").unwrap_or_default())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn remote_desktop_rdp_launch(
     app: AppHandle,
     db: State<crate::db::Db>,

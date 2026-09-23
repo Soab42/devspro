@@ -291,7 +291,7 @@ fn row_to_record(row: &rusqlite::Row) -> rusqlite::Result<HttpRequestRecord> {
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn http_history_list(
     db: State<crate::db::Db>,
     limit: Option<u32>,
@@ -312,7 +312,7 @@ pub fn http_history_list(
     Ok(rows)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn http_history_save(
     db: State<crate::db::Db>,
     name: Option<String>,
@@ -349,7 +349,7 @@ pub fn http_history_save(
     Ok(record)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn http_history_delete(db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM http_requests WHERE id = ?1", [id])
@@ -357,7 +357,7 @@ pub fn http_history_delete(db: State<crate::db::Db>, id: String) -> Result<(), S
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn http_history_clear(db: State<crate::db::Db>) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM http_requests", [])

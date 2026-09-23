@@ -29,13 +29,41 @@ use modules::tunnel;
 use modules::workers;
 use tauri::Manager;
 
-#[tauri::command]
+#[tauri::command(async)]
 fn elevate_ping(app: tauri::AppHandle) -> Result<String, String> {
     elevate::ping(&app)
 }
 
+/// WebKitGTK 2.42+ renders through DMA-BUF by default, and on the proprietary
+/// NVIDIA driver that path is the well-known cause of stuttering and blank
+/// webviews (the Tauri Linux troubleshooting guide's first suggestion). The
+/// app's own UI and every Browser tab are WebKit views, so switch to the
+/// older renderer when that driver is loaded. An explicit setting in the
+/// environment always wins, so `WEBKIT_DISABLE_DMABUF_RENDERER=0` restores
+/// the default for anyone who wants to compare.
+#[cfg(target_os = "linux")]
+fn tune_webkit_for_gpu() {
+    const VAR: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
+    if std::env::var_os(VAR).is_some() {
+        return;
+    }
+    let nvidia_bound = std::fs::read_dir("/sys/bus/pci/drivers/nvidia")
+        .map(|entries| {
+            entries
+                .flatten()
+                .any(|e| e.file_name().to_string_lossy().starts_with("0000:"))
+        })
+        .unwrap_or(false);
+    if nvidia_bound {
+        std::env::set_var(VAR, "1");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    tune_webkit_for_gpu();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -129,9 +157,16 @@ pub fn run() {
             file_manager::fm_places,
             file_manager::fm_list,
             file_manager::fm_stat,
+            file_manager::fm_stat_detail,
             file_manager::fm_mkdir,
             file_manager::fm_create_file,
             file_manager::fm_rename,
+            file_manager::fm_move,
+            file_manager::fm_copy,
+            file_manager::fm_dir_stats,
+            file_manager::fm_editors,
+            file_manager::fm_open_terminal,
+            file_manager::fm_thumbnail,
             file_manager::fm_trash,
             file_manager::fm_read_file,
             file_manager::fm_write_file,
@@ -273,6 +308,7 @@ pub fn run() {
             ssh::sftp::sftp_read_file,
             ssh::sftp::sftp_write_file,
             ssh::sftp::sftp_open_in_editor,
+            ssh::stats::term_host_stats,
             remote_desktop::connections::remote_desktop_list,
             remote_desktop::connections::remote_desktop_save,
             remote_desktop::connections::remote_desktop_delete,

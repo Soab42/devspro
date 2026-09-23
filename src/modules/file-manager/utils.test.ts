@@ -3,6 +3,10 @@ import type { FileEntry } from "./api";
 import {
   canGoBack,
   canGoForward,
+  clickSelect,
+  columnChain,
+  flattenTree,
+  planMove,
   fileKind,
   filterEntries,
   historyPush,
@@ -102,5 +106,92 @@ describe("history", () => {
     h = historyPush(h, "/c");
     expect(h.entries).toEqual(["/a", "/c"]);
     expect(historyStep(h, 1)).toBe(h);
+  });
+});
+
+describe("columnChain", () => {
+  const places = ["/home/me", "/home/me/Downloads", "/"];
+
+  it("starts at the deepest place containing the path", () => {
+    expect(columnChain("/home/me/projects/app", places)).toEqual(["/home/me", "/home/me/projects", "/home/me/projects/app"]);
+    expect(columnChain("/home/me/Downloads/x", places)).toEqual(["/home/me/Downloads", "/home/me/Downloads/x"]);
+  });
+
+  it("is a single column at the place itself", () => {
+    expect(columnChain("/home/me", places)).toEqual(["/home/me"]);
+  });
+
+  it("falls back to / for paths under no place", () => {
+    expect(columnChain("/var/log", ["/home/me"])).toEqual(["/", "/var", "/var/log"]);
+    expect(columnChain("/", [])).toEqual(["/"]);
+  });
+
+  it("does not treat a sibling with a shared prefix as an ancestor", () => {
+    expect(columnChain("/home/me2/x", ["/home/me"])).toEqual(["/", "/home", "/home/me2", "/home/me2/x"]);
+  });
+});
+
+describe("clickSelect", () => {
+  const rows = ["a", "b", "c", "d", "e"];
+
+  it("plain click selects one and sets the anchor", () => {
+    expect(clickSelect(rows, ["a", "b"], "a", "c", {})).toEqual({ selected: ["c"], anchor: "c" });
+  });
+
+  it("ctrl toggles and moves the anchor", () => {
+    expect(clickSelect(rows, ["a"], "a", "c", { ctrl: true })).toEqual({ selected: ["a", "c"], anchor: "c" });
+    expect(clickSelect(rows, ["a", "c"], "c", "a", { ctrl: true })).toEqual({ selected: ["c"], anchor: "a" });
+  });
+
+  it("shift extends from the anchor in either direction and keeps it", () => {
+    expect(clickSelect(rows, ["b"], "b", "d", { shift: true })).toEqual({ selected: ["b", "c", "d"], anchor: "b" });
+    expect(clickSelect(rows, ["d"], "d", "b", { shift: true })).toEqual({ selected: ["b", "c", "d"], anchor: "d" });
+  });
+
+  it("shift with no usable anchor falls back to a plain click", () => {
+    expect(clickSelect(rows, [], null, "b", { shift: true })).toEqual({ selected: ["b"], anchor: "b" });
+  });
+
+  it("ctrl+shift adds the range to the existing selection", () => {
+    expect(clickSelect(rows, ["a", "e"], "e", "d", { shift: true, ctrl: true })).toEqual({ selected: ["a", "d", "e"], anchor: "e" });
+  });
+});
+
+describe("flattenTree", () => {
+  const dir = (path: string) => entry({ name: path.split("/").pop(), path, is_dir: true });
+  const file = (path: string) => entry({ name: path.split("/").pop(), path });
+
+  it("interleaves unfolded children under their parent, depth-first", () => {
+    const rows = flattenTree(
+      [dir("/p/a"), file("/p/z")],
+      new Set(["/p/a", "/p/a/b"]),
+      { "/p/a": [dir("/p/a/b"), file("/p/a/c")], "/p/a/b": [file("/p/a/b/d")] },
+    );
+    expect(rows.map((r) => [r.entry.path, r.depth, r.expanded, r.pending])).toEqual([
+      ["/p/a", 0, true, false],
+      ["/p/a/b", 1, true, false],
+      ["/p/a/b/d", 2, false, false],
+      ["/p/a/c", 1, false, false],
+      ["/p/z", 0, false, false],
+    ]);
+  });
+
+  it("marks an open folder whose listing is missing as pending", () => {
+    const rows = flattenTree([dir("/p/a")], new Set(["/p/a"]), {});
+    expect(rows).toHaveLength(1);
+    expect(rows[0].pending).toBe(true);
+  });
+
+  it("ignores expansion state for files and folded folders", () => {
+    const rows = flattenTree([file("/p/f"), dir("/p/a")], new Set(["/p/f"]), { "/p/a": [file("/p/a/x")] });
+    expect(rows.map((r) => r.entry.path)).toEqual(["/p/f", "/p/a"]);
+  });
+});
+
+describe("planMove", () => {
+  it("skips items already in the folder and folders dropped on themselves or their descendants", () => {
+    expect(planMove(["/a/x", "/b/y", "/c", "/d"], "/c/deep")).toEqual({ moves: ["/a/x", "/b/y", "/d"], skipped: ["/c"] });
+    expect(planMove(["/a/x"], "/a")).toEqual({ moves: [], skipped: ["/a/x"] });
+    expect(planMove(["/c"], "/c")).toEqual({ moves: [], skipped: ["/c"] });
   });
 });

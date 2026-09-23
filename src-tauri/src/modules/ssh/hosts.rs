@@ -124,7 +124,7 @@ pub fn validate(
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ssh_hosts_list(db: State<crate::db::Db>) -> Result<Vec<SshHost>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     list(&conn)
@@ -194,7 +194,7 @@ pub fn ssh_hosts_save(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ssh_hosts_delete(db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM ssh_hosts WHERE id = ?1", [&id])

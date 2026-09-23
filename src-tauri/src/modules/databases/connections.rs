@@ -361,13 +361,13 @@ pub fn is_writable(conn: &Connection, connection: &str) -> bool {
     mode(conn, connection) == MODE_READ_WRITE
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_mode_get(db: State<crate::db::Db>, connection: String) -> Result<String, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     Ok(mode(&conn, &connection))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_mode_set(
     db: State<crate::db::Db>,
     connection: String,
@@ -458,7 +458,7 @@ pub fn credentials_from_env(env: &[String]) -> ContainerCredentials {
 
 /// Reads one container's environment. The name reaches `docker`'s argv, so it
 /// is checked rather than passed through.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_inspect_container(name: String) -> Result<ContainerCredentials, String> {
     if name.is_empty() || name.starts_with('-') || name.chars().any(char::is_whitespace) {
         return Err(format!("'{name}' is not a usable container name"));
@@ -478,7 +478,7 @@ pub fn databases_inspect_container(name: String) -> Result<ContainerCredentials,
 // ---------------------------------------------------------------------------
 // Commands
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_connections_list(db: State<crate::db::Db>) -> Result<Vec<ConnectionView>, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     Ok(list(&conn)?.iter().map(ConnectionView::from).collect())
@@ -486,7 +486,7 @@ pub fn databases_connections_list(db: State<crate::db::Db>) -> Result<Vec<Connec
 
 /// Insert when `input.id` is absent, update when present — one command,
 /// because the form is the same either way.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_connections_save(
     db: State<crate::db::Db>,
     input: ConnectionInput,
@@ -495,7 +495,7 @@ pub fn databases_connections_save(
     Ok(ConnectionView::from(&save(&conn, &input)?))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn databases_connections_delete(db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM db_connections WHERE id = ?1", [&id]).map_err(|e| e.to_string())?;

@@ -112,6 +112,21 @@ fn err(e: ssh2::Error) -> String {
     e.message().to_string()
 }
 
+/// Runs a command on the SSH connection behind an SFTP session and returns
+/// its stdout — for the status strip, which samples the remote host the same
+/// way it samples the local one. Holds the session lock for the duration,
+/// which is a few tens of milliseconds for a `/proc` read.
+pub fn exec_on_session(state: &SshState, id: &str, script: &str) -> Result<String, String> {
+    with_session(state, id, |s| {
+        let mut channel = s.session.channel_session().map_err(err)?;
+        channel.exec(script).map_err(err)?;
+        let mut stdout = String::new();
+        channel.read_to_string(&mut stdout).map_err(|e| e.to_string())?;
+        let _ = channel.wait_close();
+        Ok(stdout)
+    })
+}
+
 fn with_session<T>(
     state: &SshState,
     id: &str,
