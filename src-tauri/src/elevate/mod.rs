@@ -77,6 +77,19 @@ pub enum Operation {
         /// its own import even after Chrome's succeeds.
         nss_db_paths: Vec<String>,
     },
+    /// Memory module: `systemctl <action> -- <unit>`. The helper accepts only
+    /// "start" or "stop", and only a unit name matching
+    /// `^[A-Za-z0-9@._:-]{1,128}$` that doesn't start with `-`.
+    ServiceControl { action: String, unit: String },
+    /// Memory module: `sync`, then `3` into /proc/sys/vm/drop_caches (page
+    /// cache, dentries and inodes). Only clean pages are dropped, hence the sync.
+    DropCaches,
+    /// Memory module: `swapoff -a && swapon -a`, pulling everything in swap
+    /// back into RAM. Refused when what's in swap is more than 80 % of
+    /// MemAvailable, since swapoff would then push the machine into the OOM
+    /// killer; succeeds without doing anything when swap is empty. Put it last
+    /// in a manifest: the helper skips everything after a failed operation.
+    ReclaimSwap,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

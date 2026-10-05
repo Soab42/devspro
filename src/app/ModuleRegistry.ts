@@ -10,6 +10,7 @@ import {
   Globe,
   LayoutDashboard,
   Mail,
+  MemoryStick,
   Network,
   Package,
   ScreenShare,
@@ -189,6 +190,17 @@ export const modules: ModuleDefinition[] = [
     Component: lazy(() => import("../modules/processes/pages/ProcessesPage")),
     description: "Listening ports and the processes behind them.",
     keywords: ["ports", "listen", "kill", "pid", "netstat"],
+  },
+  {
+    id: "memory",
+    label: "Memory",
+    icon: MemoryStick,
+    group: "monitoring",
+    path: "/memory",
+    Component: lazy(() => import("../modules/memory/pages/MemoryPage")),
+    description:
+      "See which apps use your RAM, stop them, and let a watchdog close idle ones when memory runs out.",
+    keywords: ["killer", "ram", "apps", "kill", "watchdog", "swap", "cache", "task manager"],
   },
   {
     id: "logs",

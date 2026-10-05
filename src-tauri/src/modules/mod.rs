@@ -11,6 +11,7 @@ pub mod hosts_file;
 pub mod http_client;
 pub mod logs;
 pub mod mailcatcher;
+pub mod memory;
 pub mod nginx_ssl;
 pub mod processes;
 pub mod redis;

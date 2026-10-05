@@ -16,6 +16,7 @@ use modules::hosts_file;
 use modules::http_client;
 use modules::logs;
 use modules::mailcatcher;
+use modules::memory;
 use modules::nginx_ssl::{ca, laravel, nginx, php_fpm, ports, sites};
 use modules::processes;
 use modules::redis;
@@ -83,6 +84,10 @@ pub fn run() {
             app.manage(workers::WorkersState::default());
             app.manage(ssh::SshState::default());
             app.manage(remote_desktop::RemoteDesktopState::default());
+            app.manage(memory::MemoryState::default());
+            // After the Db and MemoryState it reads are managed. Runs for the
+            // life of the process, window open or not.
+            memory::watchdog::start(app.handle().clone());
 
             tray::setup(app.handle())?;
 
@@ -222,6 +227,17 @@ pub fn run() {
             mailcatcher::mailcatcher_start,
             mailcatcher::mailcatcher_stop,
             mailcatcher::mailcatcher_remove,
+            memory::memory_snapshot,
+            memory::memory_stop,
+            memory::memory_start,
+            memory::memory_apps_get,
+            memory::memory_apps_set,
+            memory::memory_watchdog_get,
+            memory::memory_watchdog_set,
+            memory::memory_watchdog_log,
+            memory::memory_drop_caches,
+            memory::memory_reset_preview,
+            memory::memory_reset,
             processes::processes_list_ports,
             processes::processes_kill,
             redis::redis_ping,

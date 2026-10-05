@@ -34,6 +34,9 @@ enum Operation {
     },
     InstallPackage { manager: String, packages: Vec<String> },
     FixLaravelPermissions { project_path: String },
+    ServiceControl { action: String, unit: String },
+    DropCaches,
+    ReclaimSwap,
 }
 
 #[derive(Debug, Deserialize)]
@@ -488,6 +491,153 @@ fn fix_laravel_permissions(project_path: &str) -> OpResult {
     }
 }
 
+/// `^[A-Za-z0-9@._:-]{1,128}$` without a regex crate, plus no leading `-`: a
+/// unit can never be read as a `systemctl` option, and `-.mount` (the root
+/// filesystem) is out of reach.
+fn is_valid_unit_name(unit: &str) -> bool {
+    !unit.is_empty()
+        && unit.len() <= 128
+        && !unit.starts_with('-')
+        && unit.chars().all(|c| c.is_ascii_alphanumeric() || "@._:-".contains(c))
+}
+
+fn service_control(action: &str, unit: &str) -> OpResult {
+    if action != "start" && action != "stop" {
+        return OpResult {
+            success: false,
+            message: format!("unsupported service action: {action}"),
+        };
+    }
+    if !is_valid_unit_name(unit) {
+        return OpResult {
+            success: false,
+            message: format!("{unit:?} is not a valid unit name — refusing"),
+        };
+    }
+    match Command::new("systemctl").args([action, "--", unit]).output() {
+        Ok(out) if out.status.success() => OpResult {
+            success: true,
+            message: format!("{} {unit}", if action == "start" { "started" } else { "stopped" }),
+        },
+        Ok(out) => OpResult {
+            success: false,
+            message: format!(
+                "systemctl {action} {unit} failed: {}{}",
+                String::from_utf8_lossy(&out.stdout).trim(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+        },
+        Err(e) => OpResult {
+            success: false,
+            message: format!("failed to run systemctl: {e}"),
+        },
+    }
+}
+
+/// `drop_caches` only frees clean pages, so `sync` first writes the dirty ones
+/// out. A failed sync is reported but doesn't stop the drop.
+fn drop_caches() -> OpResult {
+    let synced = matches!(Command::new("sync").status(), Ok(s) if s.success());
+    match fs::write("/proc/sys/vm/drop_caches", "3") {
+        Ok(()) => OpResult {
+            success: true,
+            message: if synced {
+                "dropped page cache, dentries and inodes".to_string()
+            } else {
+                "dropped caches (sync failed, so dirty pages stayed)".to_string()
+            },
+        },
+        Err(e) => OpResult {
+            success: false,
+            message: format!("failed to write /proc/sys/vm/drop_caches: {e}"),
+        },
+    }
+}
+
+/// The `/proc/meminfo` figures the swap guard needs, in kB:
+/// (swap in use, MemAvailable).
+fn swap_figures(meminfo: &str) -> (u64, u64) {
+    let field = |name: &str| {
+        meminfo
+            .lines()
+            .find_map(|l| l.strip_prefix(name)?.strip_prefix(':'))
+            .and_then(|rest| rest.split_whitespace().next()?.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    (field("SwapTotal").saturating_sub(field("SwapFree")), field("MemAvailable"))
+}
+
+#[derive(Debug, PartialEq)]
+enum SwapPlan {
+    /// Nothing in swap.
+    Nothing,
+    /// Safe to run swapoff/swapon.
+    Reclaim,
+    /// Too much in swap for the free RAM; the message says so.
+    Refuse(String),
+}
+
+/// `swapoff` has to fit everything in swap into RAM, and the kernel will OOM-kill
+/// to make room rather than give up — so refuse when what's in swap is more
+/// than 80 % of MemAvailable.
+fn plan_swap_reclaim(swap_used_kb: u64, mem_available_kb: u64) -> SwapPlan {
+    if swap_used_kb == 0 {
+        SwapPlan::Nothing
+    } else if swap_used_kb.saturating_mul(100) > mem_available_kb.saturating_mul(80) {
+        SwapPlan::Refuse(format!(
+            "{} MB is in swap but only {} MB of RAM is free — close some apps first; reclaiming now could run out of memory",
+            swap_used_kb / 1024,
+            mem_available_kb / 1024
+        ))
+    } else {
+        SwapPlan::Reclaim
+    }
+}
+
+fn reclaim_swap() -> OpResult {
+    let meminfo = match fs::read_to_string("/proc/meminfo") {
+        Ok(s) => s,
+        Err(e) => {
+            return OpResult {
+                success: false,
+                message: format!("could not read /proc/meminfo: {e}"),
+            }
+        }
+    };
+    let (swap_used_kb, mem_available_kb) = swap_figures(&meminfo);
+    match plan_swap_reclaim(swap_used_kb, mem_available_kb) {
+        SwapPlan::Nothing => OpResult {
+            success: true,
+            message: "no swap in use".to_string(),
+        },
+        SwapPlan::Refuse(message) => OpResult {
+            success: false,
+            message,
+        },
+        SwapPlan::Reclaim => {
+            let off = Command::new("swapoff").arg("-a").output();
+            // Always turn swap back on, even after a failed swapoff — a partial
+            // one may have disabled some devices already.
+            let on = Command::new("swapon").arg("-a").output();
+            let failure = |name: &str, r: &io::Result<std::process::Output>| match r {
+                Ok(o) if o.status.success() => None,
+                Ok(o) => Some(format!("{name} -a failed: {}", String::from_utf8_lossy(&o.stderr).trim())),
+                Err(e) => Some(format!("failed to run {name}: {e}")),
+            };
+            match (failure("swapoff", &off), failure("swapon", &on)) {
+                (None, None) => OpResult {
+                    success: true,
+                    message: format!("moved {} MB from swap back into RAM", swap_used_kb / 1024),
+                },
+                (a, b) => OpResult {
+                    success: false,
+                    message: [a, b].into_iter().flatten().collect::<Vec<_>>().join("; "),
+                },
+            }
+        }
+    }
+}
+
 fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
     match op {
         Operation::Ping => OpResult {
@@ -518,6 +668,9 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
         }
         Operation::InstallPackage { manager, packages } => install_package(&manager, &packages),
         Operation::FixLaravelPermissions { project_path } => fix_laravel_permissions(&project_path),
+        Operation::ServiceControl { action, unit } => service_control(&action, &unit),
+        Operation::DropCaches => drop_caches(),
+        Operation::ReclaimSwap => reclaim_swap(),
     }
 }
 
@@ -577,4 +730,70 @@ fn main() {
     // operation from the result file. A non-zero exit here is reserved for the
     // helper itself failing to run (unreadable manifest, unwritable result file),
     // which platform::launch_helper treats as "the elevated call itself failed."
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unit_names_are_checked_before_systemctl_runs() {
+        for ok in ["nginx", "php8.3-fpm", "postgresql@16-main", "docker.service", "a:b", &"x".repeat(128)] {
+            assert!(is_valid_unit_name(ok), "{ok}");
+        }
+        for bad in ["", "-.mount", "--now", "nginx; reboot", "a b", "$(id)", "a/b", &"x".repeat(129), "ünit"] {
+            assert!(!is_valid_unit_name(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn service_control_refuses_other_actions_and_bad_units_without_running_anything() {
+        for action in ["restart", "mask", "disable", "", "stop --now"] {
+            let r = service_control(action, "nginx");
+            assert!(!r.success);
+            assert!(r.message.contains("unsupported"), "{}", r.message);
+        }
+        let r = service_control("stop", "--force");
+        assert!(!r.success);
+        assert!(r.message.contains("not a valid unit name"), "{}", r.message);
+    }
+
+    #[test]
+    fn swap_guard() {
+        assert_eq!(plan_swap_reclaim(0, 0), SwapPlan::Nothing);
+        assert_eq!(plan_swap_reclaim(0, 4_000_000), SwapPlan::Nothing);
+        // Exactly 80 % of available is still allowed; a kB more is not.
+        assert_eq!(plan_swap_reclaim(800_000, 1_000_000), SwapPlan::Reclaim);
+        assert!(matches!(plan_swap_reclaim(800_001, 1_000_000), SwapPlan::Refuse(_)));
+        // This machine as the spec saw it: 6.6 GB in swap, 5 GB available.
+        match plan_swap_reclaim(6_600 * 1024, 5_000 * 1024) {
+            SwapPlan::Refuse(m) => assert_eq!(
+                m,
+                "6600 MB is in swap but only 5000 MB of RAM is free — close some apps first; reclaiming now could run out of memory"
+            ),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        assert!(matches!(plan_swap_reclaim(1, 0), SwapPlan::Refuse(_)));
+    }
+
+    #[test]
+    fn swap_figures_come_from_meminfo() {
+        let meminfo = "MemTotal:       16066572 kB\nMemAvailable:    5620872 kB\nSwapCached:         7220 kB\nSwapTotal:      20260340 kB\nSwapFree:       12845860 kB\n";
+        assert_eq!(swap_figures(meminfo), (7_414_480, 5_620_872));
+        assert_eq!(swap_figures(""), (0, 0));
+    }
+
+    #[test]
+    fn new_operations_deserialize_from_the_apps_manifest_shape() {
+        let raw = r#"{"allowed_write_prefix":"","operations":[
+            {"type":"ServiceControl","action":"stop","unit":"nginx"},
+            {"type":"DropCaches"},
+            {"type":"ReclaimSwap"}
+        ]}"#;
+        let manifest: Manifest = serde_json::from_str(raw).unwrap();
+        assert_eq!(manifest.operations.len(), 3);
+        assert!(matches!(&manifest.operations[0], Operation::ServiceControl { action, unit } if action == "stop" && unit == "nginx"));
+        assert!(matches!(manifest.operations[1], Operation::DropCaches));
+        assert!(matches!(manifest.operations[2], Operation::ReclaimSwap));
+    }
 }

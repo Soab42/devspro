@@ -208,6 +208,9 @@ export {
   /* ---- code editor ---- */
   ListOrdered, // go to line
   Redo2, // redo (Undo2 is exported above)
+
+  /* ---- memory ---- */
+  Eraser, // drop the disk cache
 } from "lucide-react";
 
 /* ---- composed icons ------------------------------------------------------
