@@ -116,17 +116,40 @@ export default function TerminalsTab({
   const hostsRef = useRef(hosts);
   hostsRef.current = hosts;
 
-  const openWindow = useCallback((command: PtyCommand, startIn?: string) => {
-    dispatch({ type: "open-window", session: newSession(stateRef.current, command, hostsRef.current, startIn), windowId: crypto.randomUUID() });
-  }, []);
-  const split = useCallback((command: PtyCommand, direction: "row" | "column") => {
-    dispatch({
-      type: "split",
-      session: newSession(stateRef.current, command, hostsRef.current),
-      direction,
-      splitId: crypto.randomUUID(),
-    });
-  }, []);
+  // Every new ssh terminal — the host picker, a host row's `?host=`, a
+  // split — starts through here, so a key file ssh would refuse is caught
+  // before ssh runs rather than read about in its output.
+  const { prepareOpenSsh } = connectFlow;
+  const whenReady = useCallback(
+    (command: PtyCommand, start: () => void) => {
+      if (command === "local") return start();
+      prepareOpenSsh(command.ssh).then(
+        (ok) => ok && start(),
+        (e) => onError(errorMessage(e)),
+      );
+    },
+    [prepareOpenSsh, onError],
+  );
+
+  const openWindow = useCallback(
+    (command: PtyCommand, startIn?: string) =>
+      whenReady(command, () =>
+        dispatch({ type: "open-window", session: newSession(stateRef.current, command, hostsRef.current, startIn), windowId: crypto.randomUUID() }),
+      ),
+    [whenReady],
+  );
+  const split = useCallback(
+    (command: PtyCommand, direction: "row" | "column") =>
+      whenReady(command, () =>
+        dispatch({
+          type: "split",
+          session: newSession(stateRef.current, command, hostsRef.current),
+          direction,
+          splitId: crypto.randomUUID(),
+        }),
+      ),
+    [whenReady],
+  );
   const popOutFocused = useCallback(async () => {
     const session = focusedSession(stateRef.current);
     if (!session) return false;

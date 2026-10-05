@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button, Callout, Field, Form, FormGrid, FormRow, Select, Stack, TextInput } from "../../../ui";
-import { AuthMethod, SshHost, SshKey, saveHost } from "../api";
-import { validateHostForm } from "../utils";
+import { AuthMethod, SshHost, SshKey, keyPermissions, restrictKey, saveHost } from "../api";
+import { errorMessage, validateHostForm } from "../utils";
 
 const AUTH_OPTIONS: { value: AuthMethod; label: string }[] = [
   { value: "agent", label: "SSH agent / default keys" },
@@ -31,6 +31,33 @@ export default function HostForm({
   const [busy, setBusy] = useState(false);
 
   const localKeys = keys.filter((k) => k.has_private);
+
+  // The terminal's ssh refuses a key others can read, though SFTP doesn't
+  // mind; say so here rather than leave it to a failed terminal. The mode
+  // while the chosen key is too open, else null.
+  const keyToCheck = auth === "key" ? keyPath.trim() : "";
+  const [openMode, setOpenMode] = useState<number | null>(null);
+  useEffect(() => {
+    setOpenMode(null);
+    if (!keyToCheck) return;
+    let live = true;
+    keyPermissions(keyToCheck).then(
+      (p) => live && setOpenMode(p.too_open ? p.mode : null),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [keyToCheck]);
+
+  async function handleRestrict() {
+    try {
+      await restrictKey(keyToCheck);
+      setOpenMode(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
 
   async function handleBrowse() {
     const selected = await open({ multiple: false, title: "Choose a private key" });
@@ -147,6 +174,19 @@ export default function HostForm({
                   Choose file…
                 </Button>
               </FormRow>
+              {openMode !== null && (
+                <Callout
+                  tone="warning"
+                  actions={
+                    <Button size="sm" variant="secondary" onClick={() => void handleRestrict()}>
+                      Fix
+                    </Button>
+                  }
+                >
+                  Other users can read this key (mode {openMode.toString(8)}), so ssh will refuse it in the terminal. Fix
+                  restricts it to you (chmod 600).
+                </Callout>
+              )}
             </Stack>
           </Field>
         )}

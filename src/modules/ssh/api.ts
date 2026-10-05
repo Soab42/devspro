@@ -81,6 +81,23 @@ export const generateKey = (args: {
     },
   });
 
+/** Saves a pasted key pair into ~/.ssh under `name`. The passphrase only
+    works out a missing public key; it is never stored. */
+export const importKey = (args: {
+  name: string;
+  privateKey: string;
+  publicKey: string;
+  passphrase: string;
+}) =>
+  invoke<SshKey>("ssh_keys_import", {
+    args: {
+      name: args.name,
+      private_key: args.privateKey,
+      public_key: args.publicKey,
+      passphrase: args.passphrase,
+    },
+  });
+
 export const deleteKey = (name: string) =>
   invoke<void>("ssh_keys_delete", { name });
 
@@ -95,6 +112,21 @@ export const installKeyOnHost = (
     password: creds.password ?? null,
     passphrase: creds.passphrase ?? null,
   });
+
+/** What the system `ssh` will make of a private key file's mode. */
+export interface KeyPermissions {
+  /** Permission bits, e.g. 0o664. */
+  mode: number;
+  /** ssh will refuse it: you own it and group or others have access. */
+  too_open: boolean;
+}
+
+export const keyPermissions = (path: string) =>
+  invoke<KeyPermissions>("ssh_key_permissions", { path });
+
+/** `chmod 600`. Rejects a file you don't own, with what to run instead. */
+export const restrictKey = (path: string) =>
+  invoke<void>("ssh_key_restrict", { path });
 
 /* ---- terminal ---- */
 

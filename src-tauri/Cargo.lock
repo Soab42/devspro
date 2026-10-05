@@ -981,6 +981,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "gtk",
+ "libc",
  "portable-pty",
  "rand_core 0.6.4",
  "rcgen",

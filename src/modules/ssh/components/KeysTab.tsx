@@ -14,15 +14,17 @@ import {
   Section,
   Stack,
 } from "../../../ui";
-import { KeyRound, Plus, Trash2 } from "../../../ui/icons";
+import { ClipboardPaste, KeyRound, Plus, Trash2 } from "../../../ui/icons";
 import type { Resource } from "../../../ui";
 import { SshKey, deleteKey } from "../api";
 import { errorMessage } from "../utils";
 import GenerateKeyForm from "./GenerateKeyForm";
+import ImportKeyForm from "./ImportKeyForm";
 
 export default function KeysTab({ keys }: { keys: Resource<SshKey[]> }) {
   const confirmAction = useConfirm();
   const [showGenerate, setShowGenerate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [busyName, setBusyName] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
 
@@ -117,19 +119,30 @@ export default function KeysTab({ keys }: { keys: Resource<SshKey[]> }) {
         title="Keys in ~/.ssh"
         padding="none"
         actions={
-          <Button variant="primary" size="sm" icon={Plus} onClick={() => setShowGenerate(true)}>
-            Generate key
-          </Button>
+          <>
+            <Button variant="secondary" size="sm" icon={ClipboardPaste} onClick={() => setShowImport(true)}>
+              Import key
+            </Button>
+            <Button variant="primary" size="sm" icon={Plus} onClick={() => setShowGenerate(true)}>
+              Generate key
+            </Button>
+          </>
         }
         isEmpty={!keys.loading && rows.length === 0}
         empty={{
           icon: KeyRound,
           title: "No SSH keys",
-          description: "Generate a key pair here, then install its public half on a host to log in without a password.",
+          description:
+            "Generate a key pair here, or import one you already have, then pick it in a host to log in without a password.",
           action: (
-            <Button variant="primary" icon={Plus} onClick={() => setShowGenerate(true)}>
-              Generate key
-            </Button>
+            <Stack direction="row" gap={2}>
+              <Button variant="secondary" icon={ClipboardPaste} onClick={() => setShowImport(true)}>
+                Import key
+              </Button>
+              <Button variant="primary" icon={Plus} onClick={() => setShowGenerate(true)}>
+                Generate key
+              </Button>
+            </Stack>
           ),
         }}
       >
@@ -142,6 +155,23 @@ export default function KeysTab({ keys }: { keys: Resource<SshKey[]> }) {
           caption="SSH keys"
         />
       </Section>
+
+      {showImport && (
+        <Modal size="md" title="Import key" icon={ClipboardPaste} onClose={() => setShowImport(false)}>
+          <ImportKeyForm
+            existing={rows}
+            onImported={(key) => {
+              setShowImport(false);
+              setNotice({
+                tone: "success",
+                text: `Imported ${key.name} (${key.fingerprint || key.type}). Pick it as a host's key to use it.`,
+              });
+              void keys.refresh();
+            }}
+            onCancel={() => setShowImport(false)}
+          />
+        </Modal>
+      )}
 
       {showGenerate && (
         <Modal size="md" title="Generate key" icon={KeyRound} onClose={() => setShowGenerate(false)}>

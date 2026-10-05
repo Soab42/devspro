@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useRef, useState } from "react";
 import { useConfirm } from "../../../app/ConfirmContext";
 import { Mono, Stack } from "../../../ui";
-import { Credentials, SshHost, sftpTrustHost } from "../api";
+import { Credentials, SshHost, keyPermissions, listHosts, restrictKey, sftpTrustHost } from "../api";
 import { errorMessage, hostLabel, isPasswordRequired, unknownHostFingerprint } from "../utils";
 import CredentialsPrompt, { PromptKind } from "./CredentialsPrompt";
 
@@ -20,9 +20,9 @@ const MAX_ATTEMPTS = 6;
  * trust dialog, a password host gets a password prompt, an encrypted key gets
  * a passphrase prompt, and a rejected secret is asked for again with the
  * reason shown. The terminal tab doesn't need any of this — there the real
- * `ssh` asks its own questions in the PTY.
+ * `ssh` asks its own questions in the PTY — except `prepareOpenSsh`, below.
  *
- * Returns `null` when the user cancels at any prompt; rethrows anything else.
+ * `run` returns `null` when the user cancels at any prompt; rethrows anything else.
  */
 export function useConnectFlow() {
   const confirmAction = useConfirm();
@@ -104,6 +104,35 @@ export function useConnectFlow() {
     [ask, confirmAction],
   );
 
+  /**
+   * Run before starting the system `ssh` for a saved host. ssh refuses a key
+   * file that group or others can access, which ssh2 (SFTP) doesn't check,
+   * so this offers the `chmod 600` that fixes it. Resolves false when the
+   * user declines, and the caller doesn't start ssh. The host is read fresh,
+   * so a key changed since the caller's list loaded is the one checked.
+   */
+  const prepareOpenSsh = useCallback(
+    async (hostId: string): Promise<boolean> => {
+      const host = (await listHosts().catch(() => [])).find((h) => h.id === hostId);
+      const path = host?.auth === "key" ? host.key_path?.trim() : null;
+      if (!path) return true;
+      // A missing or unreadable key is ssh's to report, in the terminal.
+      const perms = await keyPermissions(path).catch(() => null);
+      if (!perms?.too_open) return true;
+      const ok = await confirmAction(
+        <span>
+          <Mono>{path}</Mono> can be read by other users (mode {perms.mode.toString(8)}), so ssh will refuse it.
+          Restrict it to you (chmod 600) and connect?
+        </span>,
+        { title: "Private key is too open", confirmLabel: "Restrict and connect" },
+      );
+      if (!ok) return false;
+      await restrictKey(path);
+      return true;
+    },
+    [confirmAction],
+  );
+
   const element: ReactNode = prompt ? (
     <CredentialsPrompt
       host={prompt.host}
@@ -114,5 +143,5 @@ export function useConnectFlow() {
     />
   ) : null;
 
-  return { run, element };
+  return { run, prepareOpenSsh, element };
 }

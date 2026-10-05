@@ -17,6 +17,7 @@
 //! travel from the prompt to the session and are dropped with it.
 
 pub mod hosts;
+pub mod key_perms;
 pub mod keys;
 pub mod pty;
 pub mod session;
