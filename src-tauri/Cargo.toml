@@ -47,6 +47,11 @@ rcgen = { version = "0.13", features = ["x509-parser"] }
 time = "0.3"
 portable-pty = "0.9.0"
 ssh2 = "0.9.6"
+# SFTP "Download as zip". Deflate only: the other formats bring C libraries for
+# archives nobody asked for. flate2 is named here just to pick its pure-Rust
+# backend rather than rely on another crate happening to choose one.
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
+flate2 = "1"
 base64 = "0.23.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["native-tls"] }
 tokio = { version = "1.53.1", features = ["net", "io-util", "sync", "macros", "time", "rt"] }

@@ -9,10 +9,12 @@
 use serde::Serialize;
 use ssh2::{Session, Sftp};
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
 use super::session::{connect, trust_host, Credentials};
 use super::SshState;
@@ -451,6 +453,153 @@ pub fn sftp_upload(
     })
 }
 
+/// What a zip download produced: bytes packed, and each file or folder left
+/// out because the server wouldn't hand it over, as "path: why".
+#[derive(Debug, Clone, Serialize)]
+pub struct ZipSummary {
+    pub bytes: u64,
+    pub skipped: Vec<String>,
+}
+
+fn archive_err(e: impl std::fmt::Display) -> String {
+    format!("could not write the archive: {e}")
+}
+
+/// Adds one file to the archive from `reader`. The outer `Err` is the archive
+/// failing, which ends the download. The inner one is the source failing part
+/// way: the half-written entry is taken out again, so the archive only ever
+/// holds whole files, and the caller notes it and moves on.
+fn zip_file<W: Write + Seek>(
+    zip: &mut ZipWriter<W>,
+    name: &str,
+    mut reader: impl Read,
+    options: SimpleFileOptions,
+    mut on_chunk: impl FnMut(u64),
+) -> Result<Result<u64, String>, String> {
+    zip.start_file(name, options).map_err(archive_err)?;
+    let mut buf = vec![0u8; CHUNK];
+    let mut total = 0u64;
+    loop {
+        let n = match reader.read(&mut buf) {
+            Ok(0) => return Ok(Ok(total)),
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                zip.abort_file().map_err(archive_err)?;
+                return Ok(Err(e.to_string()));
+            }
+        };
+        zip.write_all(&buf[..n]).map_err(archive_err)?;
+        total += n as u64;
+        on_chunk(n as u64);
+    }
+}
+
+/// A remote file, or a folder and everything under it, into the archive as
+/// `name`. Symlinks are followed, as `download_tree` does. Whatever the
+/// server refuses goes into `skipped` and the rest carries on.
+fn zip_tree<W: Write + Seek>(
+    s: &SftpSession,
+    zip: &mut ZipWriter<W>,
+    remote: &Path,
+    name: &str,
+    progress: &mut Progress,
+    skipped: &mut Vec<String>,
+) -> Result<u64, String> {
+    let mut skip = |why: String| skipped.push(format!("{}: {why}", remote.display()));
+    let stat = match s.sftp.stat(remote) {
+        Ok(stat) => stat,
+        Err(e) => {
+            skip(e.message().to_string());
+            return Ok(0);
+        }
+    };
+    let options = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .unix_permissions(stat.perm.unwrap_or(0o644) & 0o777);
+    if !stat.is_dir() {
+        let file = match s.sftp.open(remote) {
+            Ok(file) => file,
+            Err(e) => {
+                skip(e.message().to_string());
+                return Ok(0);
+            }
+        };
+        // Past 4 GiB an entry needs zip64 headers, which have to be asked for
+        // before the first byte is written.
+        let options = options.large_file(stat.size.unwrap_or(0) >= u64::from(u32::MAX));
+        return Ok(match zip_file(zip, name, file, options, |n| progress.advance(n))? {
+            Ok(n) => n,
+            Err(why) => {
+                skip(why);
+                0
+            }
+        });
+    }
+    let children = match s.sftp.readdir(remote) {
+        Ok(children) => children,
+        Err(e) => {
+            skip(e.message().to_string());
+            return Ok(0);
+        }
+    };
+    // Written even when empty, so an empty folder survives the round trip.
+    zip.add_directory(name, options).map_err(archive_err)?;
+    let mut total = 0u64;
+    for (child, _) in children {
+        let Some(child_name) = child.file_name() else { continue };
+        let entry = format!("{name}/{}", child_name.to_string_lossy());
+        total += zip_tree(s, zip, &child, &entry, progress, skipped)?;
+    }
+    Ok(total)
+}
+
+/// Packs remote files and folders into one zip archive at `local`, each at
+/// the archive's top level under its own name. Something the server won't
+/// read is left out and listed rather than failing the lot; only a failure
+/// to write the archive itself does that, and then the partial file goes.
+/// With a `transfer` id, progress is emitted on `sftp:progress` as it goes.
+#[tauri::command(async)]
+pub fn sftp_download_zip(
+    app: AppHandle,
+    state: State<SshState>,
+    session: String,
+    remotes: Vec<String>,
+    local: String,
+    transfer: Option<String>,
+) -> Result<ZipSummary, String> {
+    with_session(&state, &session, |s| {
+        // Sized up front for one bar. Anything unreadable counts as nothing
+        // here; the copy below is what reports it.
+        let total = remotes
+            .iter()
+            .map(|r| remote_tree_size(s, Path::new(r)).unwrap_or(0))
+            .sum();
+        let mut progress = Progress::new(transfer.map(|id| (&app, id)), total);
+        let file = std::fs::File::create(&local).map_err(|e| format!("could not create {local}: {e}"))?;
+        let mut zip = ZipWriter::new(std::io::BufWriter::new(file));
+        let mut skipped = Vec::new();
+        let packed = (|| {
+            let mut bytes = 0u64;
+            for remote in &remotes {
+                let path = Path::new(remote);
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "root".into());
+                bytes += zip_tree(s, &mut zip, path, &name, &mut progress, &mut skipped)?;
+            }
+            zip.finish().map_err(archive_err)?.into_inner().map_err(|e| archive_err(e.error()))?;
+            Ok::<u64, String>(bytes)
+        })();
+        let bytes = packed.inspect_err(|_| {
+            let _ = std::fs::remove_file(&local);
+        })?;
+        progress.finish();
+        Ok(ZipSummary { bytes, skipped })
+    })
+}
+
 /// Where a remote file is parked for an external editor: under the user's
 /// cache dir, keyed by session so two hosts' `/etc/nginx/nginx.conf` don't
 /// collide. The remote path is kept whole so the editor's tab shows a
@@ -562,6 +711,46 @@ mod tests {
         assert_eq!(n as usize, data.len());
         assert_eq!(seen as usize, data.len());
         assert_eq!(out, data);
+    }
+
+    /// Hands over `good` bytes, then fails the way a dropped connection does.
+    struct FailsPartWay {
+        good: usize,
+    }
+
+    impl Read for FailsPartWay {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.good == 0 {
+                return Err(std::io::Error::other("connection lost"));
+            }
+            let n = self.good.min(buf.len());
+            buf[..n].fill(b'x');
+            self.good -= n;
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn zip_file_leaves_out_a_file_whose_source_fails_and_keeps_going() {
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        let mut zip = ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let mut seen = 0u64;
+
+        let first = zip_file(&mut zip, "a.txt", &b"hello"[..], options, |n| seen += n).unwrap();
+        assert_eq!(first, Ok(5));
+        let broken = zip_file(&mut zip, "dir/b.bin", FailsPartWay { good: CHUNK * 2 }, options, |_| {}).unwrap();
+        assert_eq!(broken, Err("connection lost".to_string()));
+        let after = zip_file(&mut zip, "c.txt", &b"!"[..], options, |_| {}).unwrap();
+        assert_eq!(after, Ok(1));
+        assert_eq!(seen, 5);
+
+        let mut archive = zip.finish_into_readable().unwrap();
+        let mut names: Vec<&str> = archive.file_names().collect();
+        names.sort();
+        assert_eq!(names, ["a.txt", "c.txt"]);
+        let mut text = String::new();
+        archive.by_name("a.txt").unwrap().read_to_string(&mut text).unwrap();
+        assert_eq!(text, "hello");
     }
 
     #[test]

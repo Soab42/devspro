@@ -182,6 +182,26 @@ export const sftpDownload = (
     transfer: transfer ?? null,
   });
 
+/** What went into a zip download; `skipped` lists what the server refused, as "path: why". */
+export interface ZipSummary {
+  bytes: number;
+  skipped: string[];
+}
+
+/** Packs `remotes` (files or folders) into one zip at `local`. */
+export const sftpDownloadZip = (
+  session: string,
+  remotes: string[],
+  local: string,
+  transfer?: string,
+) =>
+  invoke<ZipSummary>("sftp_download_zip", {
+    session,
+    remotes,
+    local,
+    transfer: transfer ?? null,
+  });
+
 export const sftpUpload = (
   session: string,
   local: string,

@@ -9,12 +9,14 @@ import {
   useRef,
   useState,
 } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
 import { useConfirm } from "../../../app/ConfirmContext";
 import {
   ActionGroup,
   Badge,
   Button,
   Callout,
+  Checkbox,
   Column,
   DataTable,
   EmptyState,
@@ -24,6 +26,7 @@ import {
   Icon,
   IconButton,
   Menu,
+  MenuItem,
   Meter,
   Modal,
   Mono,
@@ -39,6 +42,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Bookmark,
   ChevronsDownUp,
   ChevronsLeftRight,
   ChevronsRightLeft,
@@ -50,6 +54,7 @@ import {
   Eye,
   EyeOff,
   File,
+  FileArchive,
   Folder,
   FolderPlus,
   HardDrive,
@@ -57,12 +62,16 @@ import {
   LucideIcon,
   Pencil,
   RefreshCw,
+  Scissors,
   SquareArrowOutUpRight,
   Rows2,
   Server,
+  Star,
+  StarOff,
   Trash2,
   Unplug,
   Upload,
+  X,
 } from "../../../ui/icons";
 import {
   FileEntry,
@@ -83,6 +92,7 @@ import {
   onSftpProgress,
   sftpDelete,
   sftpDownload,
+  sftpDownloadZip,
   sftpHome,
   sftpList,
   sftpMkdir,
@@ -118,6 +128,9 @@ import {
   sortEntries,
   splitBreadcrumb,
 } from "../../ssh/utils";
+import { clickSelect } from "../../file-manager/utils";
+import { countLabel, failureSummary, settleEach, zipName } from "../bulk";
+import { SftpFavouritesStore, normalisePath, useSftpFavourites } from "../favourites";
 import EditFileModal from "./EditFileModal";
 import "./SftpTab.css";
 
@@ -228,11 +241,19 @@ export default function SftpTab({
   layout: PaneLayout;
 }) {
   const active = sessions.find((s) => s.id === activeId) ?? null;
+  // Held here rather than in the browser, which remounts with every session
+  // switch: one load per visit, and no switch racing a save still in flight.
+  const favourites = useSftpFavourites();
 
   return (
     <Stack gap={5} className="sftp-tab">
       {active ? (
-        <DualPaneBrowser key={active.id} session={active} layout={layout} />
+        <DualPaneBrowser
+          key={active.id}
+          session={active}
+          layout={layout}
+          favourites={favourites}
+        />
       ) : (
         <Section padding="none">
           <EmptyState
@@ -262,17 +283,23 @@ function useDirectory<T>(
   const [entries, setEntries] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The folder on screen right now. A listing is slow enough to outlive a
+  // click into another folder, and a transfer can finish long after the user
+  // has moved on; either one, reading `path` from when it started, would put
+  // that folder's files under this one's name.
+  const shown = useRef<string | null>(null);
 
   const load = useCallback(
     async (target: string) => {
       setLoading(true);
       setError(null);
       try {
-        setEntries(await list(target));
+        const listed = await list(target);
+        if (shown.current === target) setEntries(listed);
       } catch (e) {
-        setError(errorMessage(e));
+        if (shown.current === target) setError(errorMessage(e));
       } finally {
-        setLoading(false);
+        if (shown.current === target) setLoading(false);
       }
     },
     [list],
@@ -291,12 +318,15 @@ function useDirectory<T>(
   }, []);
 
   useEffect(() => {
+    shown.current = path;
     if (path !== null) void load(path);
   }, [path, load]);
 
+  // Whatever folder is showing when it is called, not when it was handed out:
+  // a queued transfer holds on to this until it finishes.
   const refresh = useCallback(() => {
-    if (path !== null) void load(path);
-  }, [path, load]);
+    if (shown.current !== null) void load(shown.current);
+  }, [load]);
 
   return { path, setPath, entries, loading, error, setError, refresh };
 }
@@ -307,14 +337,17 @@ function useDirectory<T>(
  * no picking a destination twice. Rows can also be dragged: across to the
  * other pane (or onto one of its folders) to copy, onto a folder in their
  * own pane to move, and files from the desktop drop onto the remote pane
- * to upload.
+ * to upload. Remote rows can also be selected several at a time and copied,
+ * moved, zipped or deleted together.
  */
 function DualPaneBrowser({
   session,
   layout,
+  favourites,
 }: {
   session: SftpSessionInfo;
   layout: PaneLayout;
+  favourites: SftpFavouritesStore;
 }) {
   const confirmAction = useConfirm();
   const [folded, setFolded] = useState<{ local: boolean; remote: boolean }>({
@@ -411,6 +444,170 @@ function DualPaneBrowser({
       showHidden ? local.entries : local.entries.filter((e) => !e.is_hidden),
     [local.entries, showHidden],
   );
+
+  // Favourite folders, for this host only.
+  const host = session.host.name;
+  const hostId = session.host.id;
+  const favouritePaths = favourites.byHost[hostId] ?? [];
+  const starred =
+    remote.path !== null && favouritePaths.includes(normalisePath(remote.path));
+  const [editingFavourites, setEditingFavourites] = useState(false);
+
+  function toggleFavourite() {
+    if (remote.path === null) return;
+    const change = starred
+      ? favourites.remove(hostId, remote.path)
+      : favourites.add(hostId, remote.path);
+    change.catch((e) =>
+      remote.setError(`Couldn't save favourites: ${errorMessage(e)}`),
+    );
+  }
+
+  const favouriteMenu: MenuItem[] =
+    favouritePaths.length === 0
+      ? [
+          {
+            key: "none",
+            label: "No favourites yet. Star a folder to add it.",
+            disabled: true,
+            onClick: () => undefined,
+          },
+        ]
+      : [
+          ...favouritePaths.map((p) => ({
+            key: p,
+            label: p,
+            icon: Star,
+            onClick: () => remote.setPath(p),
+          })),
+          {
+            key: "edit",
+            label: "Edit favourites…",
+            icon: Pencil,
+            separatorBefore: true,
+            onClick: () => setEditingFavourites(true),
+          },
+        ];
+
+  /**
+   * Each entry downloads, then is deleted on the server once its own copy has
+   * landed, so a failed download never costs the original. Folders are copied
+   * but kept: `sftp_delete` only removes empty ones, on purpose, so the user
+   * is told so before anything starts.
+   */
+  async function moveToLocal(entries: SftpEntry[]) {
+    const dir = local.path;
+    if (dir === null) return false;
+    const folders = entries.filter((e) => e.is_dir).length;
+    if (folders > 0) {
+      const ok = await confirmAction(
+        `Files are deleted on ${host} as soon as each one is copied. ${
+          folders === 1 ? "The folder" : `The ${folders} folders`
+        } will be copied but kept on ${host}, since folders are only removed here when empty.`,
+        {
+          title: `Move ${countLabel(entries.length)} to ${dir}?`,
+          confirmLabel: "Move",
+        },
+      );
+      if (!ok) return false;
+    }
+    for (const entry of entries) {
+      const target = joinPath(dir, entry.name);
+      transfers.enqueue(
+        { name: entry.name, direction: "download", source: entry.path },
+        async (id) => {
+          await sftpDownload(session.id, entry.path, target, id);
+          local.refresh();
+          if (entry.is_dir) return;
+          try {
+            await sftpDelete(session.id, entry.path);
+          } catch (e) {
+            throw new Error(`Copied, but not deleted on ${host}: ${errorMessage(e)}`);
+          }
+        },
+        remote.refresh,
+      );
+    }
+    return true;
+  }
+
+  async function downloadZip(entries: SftpEntry[]) {
+    const target = await save({
+      title: "Save as zip",
+      defaultPath: joinPath(local.path ?? localHome, zipName(entries, remote.path, host)),
+      filters: [{ name: "Zip archive", extensions: ["zip"] }],
+    });
+    if (!target) return false;
+    transfers.enqueue(
+      { name: baseName(target), direction: "download", source: target },
+      async (id) => {
+        const { skipped } = await sftpDownloadZip(
+          session.id,
+          entries.map((e) => e.path),
+          target,
+          id,
+        );
+        local.refresh();
+        // The archive is saved either way; what's missing from it shows on
+        // the transfer's row.
+        if (skipped.length > 0)
+          throw new Error(
+            `Saved without ${countLabel(skipped.length)}: ${skipped.join("; ")}`,
+          );
+      },
+      () => undefined,
+    );
+    return true;
+  }
+
+  async function deleteRemote(entries: SftpEntry[]) {
+    const ok = await confirmAction(
+      `${countLabel(entries.length)} will be permanently deleted on ${host}.${
+        entries.some((e) => e.is_dir)
+          ? " Folders are removed only if they are empty."
+          : ""
+      }`,
+      {
+        title: `Delete ${countLabel(entries.length)}?`,
+        confirmLabel: "Delete",
+        danger: true,
+      },
+    );
+    if (!ok) return false;
+    const failures = await settleEach(entries, (e) =>
+      sftpDelete(session.id, e.path),
+    );
+    // Refresh first: a reload clears the pane's error, and the failures
+    // should outlast it.
+    remote.refresh();
+    if (failures.length > 0)
+      remote.setError(failureSummary("delete", failures, entries.length));
+    const deleted = entries.length - failures.length;
+    if (deleted > 0) setNotice(`Deleted ${countLabel(deleted)} on ${host}.`);
+    return true;
+  }
+
+  const remoteBulk: BulkAction<SftpEntry>[] = [
+    {
+      key: "copy",
+      label: "Copy to local",
+      icon: ArrowLeft,
+      disabled: local.path === null,
+      run: async (entries) => {
+        for (const e of entries) downloadEntry(e);
+        return true;
+      },
+    },
+    {
+      key: "move",
+      label: "Move to local",
+      icon: Scissors,
+      disabled: local.path === null,
+      run: moveToLocal,
+    },
+    { key: "zip", label: "Download as zip", icon: FileArchive, run: downloadZip },
+    { key: "delete", label: "Delete", icon: Trash2, danger: true, run: deleteRemote },
+  ];
 
   return (
     <>
@@ -532,6 +729,27 @@ function DualPaneBrowser({
             disabled: local.path === null,
             onClick: downloadEntry,
           }}
+          bulkActions={remoteBulk}
+          extraTools={
+            <>
+              <IconButton
+                icon={starred ? StarOff : Star}
+                label={
+                  starred
+                    ? "Remove this folder from favourites"
+                    : "Add this folder to favourites"
+                }
+                disabled={remote.path === null}
+                onClick={toggleFavourite}
+              />
+              <Menu
+                icon={Bookmark}
+                label="Favourite folders"
+                size="md"
+                items={favouriteMenu}
+              />
+            </>
+          }
           onMkdir={async (name) => {
             if (remote.path !== null)
               await sftpMkdir(session.id, joinPath(remote.path, name));
@@ -567,6 +785,25 @@ function DualPaneBrowser({
         transfers={transfers.items}
         onClear={transfers.clearFinished}
       />
+
+      {editingFavourites && (
+        <FavouritesDialog
+          host={host}
+          paths={favouritePaths}
+          onOpen={(p) => {
+            remote.setPath(p);
+            setEditingFavourites(false);
+          }}
+          onRemove={(p) =>
+            favourites
+              .remove(hostId, p)
+              .catch((e) =>
+                remote.setError(`Couldn't save favourites: ${errorMessage(e)}`),
+              )
+          }
+          onClose={() => setEditingFavourites(false)}
+        />
+      )}
 
       {editing && (
         <EditFileModal
@@ -878,6 +1115,17 @@ interface TransferAction<T> {
   onClick: (entry: T) => void;
 }
 
+/** Something to do with every selected row at once. */
+interface BulkAction<T> {
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  danger?: boolean;
+  disabled?: boolean;
+  /** Resolves false when the user backed out, so the selection stays. */
+  run: (entries: T[]) => Promise<boolean>;
+}
+
 function FilePane<T extends PaneEntry>({
   title,
   icon,
@@ -899,6 +1147,7 @@ function FilePane<T extends PaneEntry>({
   onEdit,
   onOpenExternal,
   transfer,
+  bulkActions,
   extraTools,
   onMkdir,
   onRename,
@@ -933,6 +1182,11 @@ function FilePane<T extends PaneEntry>({
   onEdit: (entry: T) => void;
   onOpenExternal: (entry: T) => void;
   transfer: TransferAction<T>;
+  /**
+   * Makes rows selectable — checkboxes, ctrl/shift-click, Ctrl+A — and shows
+   * these over the table while anything is selected. Absent: one row at a time.
+   */
+  bulkActions?: BulkAction<T>[];
   extraTools?: ReactNode;
   onMkdir: (name: string) => Promise<void>;
   onRename: (entry: T, name: string) => Promise<void>;
@@ -1017,6 +1271,57 @@ function FilePane<T extends PaneEntry>({
     () => sortEntries(entries, sort.key as EntrySortKey, sort.dir),
     [entries, sort],
   );
+
+  // Multi-select, by path, the file manager's way: click picks one, ctrl
+  // toggles, shift extends from the anchor. A selection belongs to one folder.
+  const selectable = bulkActions !== undefined;
+  const [selected, setSelected] = useState<string[]>([]);
+  const [anchor, setAnchor] = useState<string | null>(null);
+  useEffect(() => {
+    setSelected([]);
+    setAnchor(null);
+  }, [path]);
+  const rowOrder = useMemo(() => sorted.map((e) => e.path), [sorted]);
+  // Rows a refresh took away drop out here rather than lingering.
+  const chosen = useMemo(() => {
+    const set = new Set(selected);
+    return sorted.filter((e) => set.has(e.path));
+  }, [sorted, selected]);
+  const chosenPaths = useMemo(() => new Set(chosen.map((e) => e.path)), [chosen]);
+  const allChosen = sorted.length > 0 && chosen.length === sorted.length;
+
+  function clearSelection() {
+    setSelected([]);
+    setAnchor(null);
+  }
+
+  function selectRow(clicked: string, mods: { ctrl: boolean; shift: boolean }) {
+    const next = clickSelect(rowOrder, selected, anchor, clicked, mods);
+    setSelected(next.selected);
+    setAnchor(next.anchor);
+  }
+
+  function onSelectionKey(e: KeyboardEvent<HTMLDivElement>) {
+    if ((e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      setSelected(rowOrder);
+    } else if (e.key === "Escape" && chosen.length > 0) {
+      e.preventDefault();
+      clearSelection();
+    }
+  }
+
+  async function runBulk(action: BulkAction<T>) {
+    setBusy(true);
+    setLocalError(null);
+    try {
+      if (await action.run(chosen)) clearSelection();
+    } catch (e) {
+      setLocalError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function openDir(entry: T) {
     if (entry.is_dir) onNavigate(entry.path);
@@ -1153,6 +1458,37 @@ function FilePane<T extends PaneEntry>({
     },
   ];
 
+  const selectColumn: Column<T> = {
+    key: "select",
+    header: (
+      <Checkbox
+        label="Select all"
+        hideLabel
+        checked={allChosen}
+        indeterminate={chosen.length > 0}
+        disabled={sorted.length === 0}
+        onChange={(on) => (on ? setSelected(rowOrder) : clearSelection())}
+      />
+    ),
+    headerLabel: "Select",
+    priority: 1,
+    width: "1px",
+    render: (e) => (
+      <Checkbox
+        label={`Select ${e.name}`}
+        hideLabel
+        checked={chosenPaths.has(e.path)}
+        onChange={(on) => {
+          setSelected((s) => [
+            ...s.filter((p) => p !== e.path),
+            ...(on ? [e.path] : []),
+          ]);
+          setAnchor(e.path);
+        }}
+      />
+    ),
+  };
+
   const crumbs = splitBreadcrumb(path ?? "/");
   const shownError = error ?? localError;
 
@@ -1245,6 +1581,37 @@ function FilePane<T extends PaneEntry>({
           {shownError}
         </Callout>
       )}
+      {bulkActions && chosen.length > 0 && (
+        <Toolbar
+          className="sftp-selection"
+          end={
+            <>
+              {bulkActions.map((action) => (
+                <Button
+                  key={action.key}
+                  size="sm"
+                  variant={action.danger ? "danger" : "secondary"}
+                  icon={action.icon}
+                  disabled={busy || action.disabled}
+                  onClick={() => void runBulk(action)}
+                >
+                  {action.label}
+                </Button>
+              ))}
+              <IconButton
+                icon={X}
+                label="Clear selection"
+                size="sm"
+                onClick={clearSelection}
+              />
+            </>
+          }
+        >
+          <span className="sftp-selection-count">
+            {countLabel(chosen.length)} selected
+          </span>
+        </Toolbar>
+      )}
       <div
         ref={dropZone}
         className={[
@@ -1253,13 +1620,16 @@ function FilePane<T extends PaneEntry>({
         ]
           .filter(Boolean)
           .join(" ")}
+        /* Focusable so Ctrl+A and Escape reach it once a row is clicked. */
+        tabIndex={selectable ? -1 : undefined}
+        onKeyDown={selectable ? onSelectionKey : undefined}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDropRow}
       >
         <DataTable
-          columns={columns}
+          columns={selectable ? [selectColumn, ...columns] : columns}
           rows={sorted}
           rowKey={(e) => e.path}
           rowProps={(e) => ({
@@ -1273,9 +1643,27 @@ function FilePane<T extends PaneEntry>({
                 is_dir: e.is_dir,
               }),
             onDragEnd: endFileDrag,
+            onClick: (ev) => {
+              // The row's own buttons and checkbox do their own thing.
+              const own = (ev.target as HTMLElement).closest("button, input, label, a");
+              if (!selectable || own) return;
+              selectRow(e.path, {
+                ctrl: ev.ctrlKey || ev.metaKey,
+                shift: ev.shiftKey,
+              });
+            },
+            // Shift-click extends the selection, not a text highlight.
+            onMouseDown: (ev) => {
+              if (selectable && ev.shiftKey) ev.preventDefault();
+            },
           })}
           rowClassName={(e) =>
-            e.is_dir && dropDir === e.path ? "sftp-drop-row" : undefined
+            [
+              e.is_dir && dropDir === e.path && "sftp-drop-row",
+              chosenPaths.has(e.path) && "sftp-row-selected",
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined
           }
           sort={sort}
           onSortChange={setSort}
@@ -1302,6 +1690,74 @@ function FilePane<T extends PaneEntry>({
         />
       )}
     </Section>
+  );
+}
+
+/**
+ * The host's favourite folders, each one to open or remove. The menu in the
+ * pane opens them too, but a menu item has room for one action, and a folder
+ * deleted on the server is one you want to remove without opening first.
+ */
+function FavouritesDialog({
+  host,
+  paths,
+  onOpen,
+  onRemove,
+  onClose,
+}: {
+  host: string;
+  paths: string[];
+  onOpen: (path: string) => void;
+  onRemove: (path: string) => void;
+  onClose: () => void;
+}) {
+  const columns: Column<string>[] = [
+    {
+      key: "path",
+      header: "Folder",
+      priority: 1,
+      render: (p) => (
+        <Button variant="link" onClick={() => onOpen(p)}>
+          <Mono>{p}</Mono>
+        </Button>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      priority: 1,
+      align: "end",
+      width: "1px",
+      render: (p) => (
+        <IconButton
+          icon={StarOff}
+          label={`Remove ${p} from favourites`}
+          onClick={() => onRemove(p)}
+        />
+      ),
+    },
+  ];
+  return (
+    <Modal
+      size="md"
+      title={`Favourite folders on ${host}`}
+      icon={Bookmark}
+      onClose={onClose}
+    >
+      <DataTable
+        columns={columns}
+        rows={paths}
+        rowKey={(p) => p}
+        density="compact"
+        minWidth={0}
+        caption={`Favourite folders on ${host}`}
+        empty={{
+          icon: Star,
+          title: "No favourites",
+          description: "Star a folder in the path bar to add it here.",
+        }}
+      />
+    </Modal>
   );
 }
 

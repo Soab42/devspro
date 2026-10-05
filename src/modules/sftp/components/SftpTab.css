@@ -173,6 +173,32 @@
   cursor: grab;
 }
 
+/* Focusable only so Ctrl+A and Escape land here after a click; it is not in
+   the tab order, so a ring round the whole table would mark nothing. */
+.sftp-drop:focus {
+  outline: none;
+}
+
+/* ---- multi-select: the chosen rows, and the bar of what to do with them ---- */
+.sftp-row-selected .dt-td {
+  background-color: var(--color-accent-subtle);
+}
+
+.sftp-row-selected .dt-td:first-child {
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.sftp-selection {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.sftp-selection-count {
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
 /* ---- editor dialog: the code box takes whatever height the dialog has ---- */
 .modal-panel:has(.sftp-editor-body) .modal-body {
   display: flex;
