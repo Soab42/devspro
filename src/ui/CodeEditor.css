@@ -18,10 +18,24 @@
   box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
+/* Fill mode is sized by its flex parent, which bounds this box but gives it no
+   definite height unless every ancestor has one, and a content-sized dialog
+   doesn't. The editor's `height: 100%` below then falls back to auto:
+   CodeMirror grows to the whole document, this box's overflow clips it, and
+   the mouse wheel has nothing to scroll (the SFTP edit dialog did exactly
+   this). So the height is handed down by flex instead, which needs no
+   definite size to resolve. */
 .code-editor-fill {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   height: 100%;
+}
+
+.code-editor-fill .cm-editor {
+  flex: 1;
+  min-height: 0;
 }
 
 /* Drag the bottom edge to see more of the file; `rows` is only the starting
