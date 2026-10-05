@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyChanges,
+  arrangeLike,
   countStatuses,
   diffEnv,
   emptySide,
@@ -86,6 +87,76 @@ describe("parseEnv", () => {
     expect(parsed.issues[0].message).toContain("never closed");
   });
 
+  it("reports a variable that shares another's value, naming keys but never the value", () => {
+    const parsed = parseEnv("JWT_SECRET=s3cret\nPORT=3000\nSESSION_SECRET=s3cret\nCOOKIE_SECRET=s3cret\n");
+    expect(parsed.issues).toEqual([
+      { line: 3, message: "SESSION_SECRET has the same value as JWT_SECRET on line 1." },
+      { line: 4, message: "COOKIE_SECRET has the same value as JWT_SECRET on line 1." },
+    ]);
+  });
+
+  it("compares shared values as read, so quoting doesn't hide a match", () => {
+    expect(parseEnv(`A="x y"\nB='x y'\nC=x y # note\n`).issues.map((i) => i.line)).toEqual([2, 3]);
+  });
+
+  it("lets empty and on/off values repeat without comment", () => {
+    expect(parseEnv("A=\nB=\nC=true\nD=TRUE\nE=0\nF=0\nG=off\nH=off\n").issues).toEqual([]);
+  });
+
+  it("checks shared values against the definition that counts", () => {
+    const parsed = parseEnv("A=x\nA=y\nB=x\nC=y\n");
+    expect(parsed.issues.map((i) => i.message)).toEqual([
+      expect.stringContaining("already set on line 1"),
+      "C has the same value as A on line 2.",
+    ]);
+  });
+
+  it("lists issues in line order", () => {
+    const parsed = parseEnv("A=x\nB=x\nJUSTAKEY\n");
+    expect(parsed.issues.map((i) => i.line)).toEqual([2, 3]);
+  });
+
+  describe("commented-out variables", () => {
+    it("reads them as keys, flagged as commented", () => {
+      const parsed = parseEnv(`# A=1\n#B="x y" # note\n## export C=2\nD=live\n`);
+      expect(values(`# A=1\n#B="x y" # note\n## export C=2\nD=live\n`)).toEqual({
+        A: "1",
+        B: "x y",
+        C: "2",
+        D: "live",
+      });
+      expect(parsed.entries.get("A")).toMatchObject({ commented: true, line: 1 });
+      expect(parsed.entries.get("C")).toMatchObject({ commented: true, exported: true });
+      expect(parsed.entries.get("D")?.commented).toBe(false);
+      expect(parsed.issues).toEqual([]);
+    });
+
+    it("leaves prose comments alone", () => {
+      const text = "# set x = 1 to enable\n# see https://x.test/?a=b\n# TODO: fix=later\n# ----\n";
+      expect(parseEnv(text).entries.size).toBe(0);
+    });
+
+    it("reads an unclosed quote on one line, quietly, without swallowing the next", () => {
+      const parsed = parseEnv(`# A="oops\nB=2\n`);
+      expect(parsed.entries.get("A")).toMatchObject({ value: `"oops`, commented: true });
+      expect(parsed.entries.get("B")?.value).toBe("2");
+      expect(parsed.issues).toEqual([]);
+    });
+
+    it("lets a live definition win wherever it sits, without calling it a repeat", () => {
+      for (const text of ["# A=old\nA=new\n", "A=new\n# A=old\n"]) {
+        const parsed = parseEnv(text);
+        expect(parsed.entries.get("A")).toMatchObject({ value: "new", commented: false });
+        expect(parsed.issues).toEqual([]);
+      }
+      expect(parseEnv("# A=1\n# A=2\n").entries.get("A")?.value).toBe("2");
+    });
+
+    it("leaves them out of the shared-value check", () => {
+      expect(parseEnv("A=s3cret\n# B=s3cret\n").issues).toEqual([]);
+    });
+  });
+
   it("returns nothing for empty input", () => {
     expect(parseEnv("").entries.size).toBe(0);
     expect(parseEnv("\n\n# only a comment\n").entries.size).toBe(0);
@@ -148,9 +219,61 @@ describe("diffEnv", () => {
     expect(diff("A=old\nA=new\n", "A=new\n")).toEqual([["A", "same"]]);
   });
 
+  it("calls a variable switched off on one side only 'commented', even in keys-only mode", () => {
+    expect(diff("A=1\n# B=2\n# C=3\n", "# A=1\nB=2\n# C=3\n")).toEqual([
+      ["A", "commented"],
+      ["B", "commented"],
+      ["C", "same"],
+    ]);
+    expect(diff("A=1\n", "# A=9\n", true)).toEqual([["A", "commented"]]);
+    expect(diff("# A=1\n", "")).toEqual([["A", "only-left"]]);
+  });
+
+  describe("renames", () => {
+    const renames = (a: string, b: string, keysOnly = false) =>
+      diffEnv(parseEnv(a), parseEnv(b), { keysOnly })
+        .filter((r) => r.renamed)
+        .map((r) => [r.key, r.renamed]);
+
+    it("pairs a key only on one side with a key only on the other holding the same value", () => {
+      expect(renames("DB_HOST=db.internal\nA=1\n", "A=1\nDATABASE_HOST='db.internal'\n")).toEqual([
+        ["DATABASE_HOST", "DB_HOST"],
+        ["DB_HOST", "DATABASE_HOST"],
+      ]);
+    });
+
+    it("leaves keys present on both sides out of it", () => {
+      expect(renames("A=x\nB=x\n", "A=x\n")).toEqual([]);
+      expect(renames("A=x\nOLD=y\n", "A=y\n")).toEqual([]);
+    });
+
+    it("pairs only when the match is one-to-one", () => {
+      expect(renames("A=x\nB=x\n", "C=x\n")).toEqual([]);
+      expect(renames("A=x\n", "B=x\nC=x\n")).toEqual([]);
+    });
+
+    it("reads nothing into empty or on/off values", () => {
+      expect(renames("A=\nB=true\n", "C=\nD=true\n")).toEqual([]);
+    });
+
+    it("reads nothing into a commented-out key", () => {
+      expect(renames("# OLD=x\n", "NEW=x\n")).toEqual([]);
+    });
+
+    it("sets renames aside in keys-only mode", () => {
+      expect(renames("OLD=x\n", "NEW=x\n", true)).toEqual([]);
+    });
+  });
+
   it("counts every status", () => {
     const rows = diffEnv(parseEnv("A=1\nB=2\nC=3\n"), parseEnv("A=1\nB=9\nD=4\n"));
-    expect(countStatuses(rows)).toEqual({ same: 1, changed: 1, "only-left": 1, "only-right": 1 });
+    expect(countStatuses(rows)).toEqual({
+      same: 1,
+      changed: 1,
+      commented: 0,
+      "only-left": 1,
+      "only-right": 1,
+    });
   });
 });
 
@@ -230,6 +353,16 @@ describe("applyChanges", () => {
     expect(change("A=1\nA=2\n", ["A", "9"])).toBe("A=1\nA=9\n");
   });
 
+  it("copies a commented-out variable across still commented out", () => {
+    const off = parseEnv("# A=1\n").entries.get("A")!;
+    expect(applyChanges("B=2\n", [toChange(off)])).toBe("B=2\n# A=1\n");
+    expect(applyChanges("A=9 # live\n", [toChange(off)])).toBe("# A=1 # live\n");
+  });
+
+  it("switches a commented-out variable on in place when a live value arrives", () => {
+    expect(change("# A=old\nB=1\n", ["A", "new"])).toBe("A=new\nB=1\n");
+  });
+
   it("applies several changes at once", () => {
     expect(change("A=1\nB=2\n", ["B", "9"], ["X", "1"], ["Y", "2"])).toBe("A=1\nB=9\nX=1\nY=2\n");
   });
@@ -271,6 +404,60 @@ describe("applyChanges", () => {
     expect(after.find((r) => r.key === "ONLY_RIGHT")?.status).toBe("only-right");
     // The quote style of the source came with the value.
     expect(merged).toContain("C='$literal'");
+  });
+});
+
+describe("arrangeLike", () => {
+  const REFERENCE = "# --- db ---\nDB_HOST=ref\nDB_PORT=5432\n\n# --- app ---\nAPP_NAME=ref\nDEBUG=false\n";
+
+  it("puts each variable on the reference's line, keeping the target's own values", () => {
+    const target = "DEBUG=true\nAPP_NAME=mine\nDB_PORT=6543\nDB_HOST=mine\n";
+    const { text, gaps, extras } = arrangeLike(target, REFERENCE);
+    expect(text).toBe(
+      "# --- db ---\nDB_HOST=mine\nDB_PORT=6543\n\n# --- app ---\nAPP_NAME=mine\nDEBUG=true\n",
+    );
+    expect({ gaps, extras }).toEqual({ gaps: 0, extras: 0 });
+    // Same variables on the same lines, and nothing about the values changed.
+    const ref = parseEnv(REFERENCE);
+    const after = parseEnv(text);
+    for (const [key, entry] of ref.entries) expect(after.entries.get(key)?.line).toBe(entry.line);
+    expect(values(text)).toEqual(values(target));
+  });
+
+  it("leaves a blank line for a missing variable, so the lines below still pair up", () => {
+    const { text, gaps } = arrangeLike("DEBUG=true\nDB_HOST=mine\n", REFERENCE);
+    expect(text).toBe("# --- db ---\nDB_HOST=mine\n\n\n# --- app ---\n\nDEBUG=true\n");
+    expect(gaps).toBe(2);
+    expect(parseEnv(text).entries.get("DEBUG")?.line).toBe(7);
+  });
+
+  it("moves the target's own extras to the end, with the comments above them", () => {
+    const target = "# mine only\nEXTRA=1\nDB_HOST=mine\n# stray note\n";
+    const { text, extras } = arrangeLike(target, "DB_HOST=ref\n");
+    expect(text).toBe("DB_HOST=mine\n\n# mine only\nEXTRA=1\n");
+    expect(extras).toBe(1);
+  });
+
+  it("matches commented-out and live definitions like for like", () => {
+    const { text } = arrangeLike("PORT=1\n# PORT=2\n", "# PORT=3000\nPORT=8080\n");
+    expect(text).toBe("# PORT=2\nPORT=1\n");
+    // Only a live definition: it takes the effective slot, and the other stays blank.
+    expect(arrangeLike("PORT=1\n", "# PORT=3000\nPORT=8080\n").text).toBe("\nPORT=1\n");
+  });
+
+  it("pads a value shorter than the reference's so later lines still line up", () => {
+    const { text } = arrangeLike("B=2\nCERT=short\n", 'CERT="-----BEGIN\nabc\n-----END"\nB=1\n');
+    expect(parseEnv(text).entries.get("B")?.line).toBe(4);
+  });
+
+  it("never copies a reference line that isn't a comment or a blank", () => {
+    expect(arrangeLike("A=1\n", "sk-not-a-variable\nA=ref\n").text).toBe("\nA=1\n");
+  });
+
+  it("keeps the target's line endings and BOM, and leaves it alone with nothing to go on", () => {
+    expect(arrangeLike("\uFEFFB=2\r\nA=1\r\n", "A=x\nB=y\n").text).toBe("\uFEFFA=1\r\nB=2\r\n");
+    expect(arrangeLike("A=1\n", "# only comments\n").text).toBe("A=1\n");
+    expect(arrangeLike("", "A=1\n").text).toBe("");
   });
 });
 

@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useConfirm } from "../../../app/ConfirmContext";
 import { useModule } from "../../../app/ModuleRegistry";
 import {
   ActionGroup,
@@ -19,11 +20,16 @@ import {
   Switch,
   Toolbar,
 } from "../../../ui";
-import { ArrowLeft, ArrowRight, CircleCheck, FileDiff } from "../../../ui/icons";
-import EnvSource, { Notice } from "../components/EnvSource";
+import { ArrowLeft, ArrowRight, Bookmark, CircleCheck, FileDiff, Save } from "../../../ui/icons";
+import { readEnvFile } from "../api";
+import EnvSource, { messageOf, Notice } from "../components/EnvSource";
+import { SaveSessionModal, SessionsModal } from "../components/SessionModals";
+import type { CodeEditorHandle, ScrollPos } from "../../../ui/CodeEditor";
 import {
   applyChanges,
+  arrangeLike,
   countStatuses,
+  DiffFilter,
   DiffRow,
   DiffStatus,
   diffEnv,
@@ -34,12 +40,12 @@ import {
   shortName,
   toChange,
 } from "../envFile";
-
-type Filter = "all" | "diff" | DiffStatus;
+import { EnvSession, suggestName, useEnvSessions } from "../sessions";
 
 const STATUS_LABEL: Record<DiffStatus, string> = {
   same: "Same",
   changed: "Different value",
+  commented: "Commented out",
   "only-left": "Only in left",
   "only-right": "Only in right",
 };
@@ -47,6 +53,7 @@ const STATUS_LABEL: Record<DiffStatus, string> = {
 const STATUS_TONE: Record<DiffStatus, BadgeTone> = {
   same: "neutral",
   changed: "warning",
+  commented: "info",
   "only-left": "info",
   "only-right": "info",
 };
@@ -54,10 +61,23 @@ const STATUS_TONE: Record<DiffStatus, BadgeTone> = {
 // Problems first when sorted by status.
 const STATUS_RANK: Record<DiffStatus, number> = {
   changed: 0,
-  "only-left": 1,
-  "only-right": 2,
-  same: 3,
+  commented: 1,
+  "only-left": 2,
+  "only-right": 3,
+  same: 4,
 };
+
+/** What copying `row` over to the `to` side will do, as a button label. */
+function copyLabel(row: DiffRow, to: "left" | "right"): string {
+  const fromName = to === "right" ? "left" : "right";
+  const from = row[fromName];
+  if (!row[to]) return `Add to ${to}`;
+  if (row.status === "commented") {
+    if (from?.commented) return `Comment out on ${to}`;
+    if (from?.value === row[to]?.value) return `Uncomment on ${to}`;
+  }
+  return `Use ${fromName} value on ${to}`;
+}
 
 const MASK = "••••••••";
 
@@ -79,9 +99,25 @@ export default function EnvDiffPage() {
   // Off by default: env files are where secrets live, and this page is the kind
   // of thing that ends up on a screen share.
   const [reveal, setReveal] = useState(false);
-  const [filter, setFilter] = useState<Filter>("diff");
+  const [filter, setFilter] = useState<DiffFilter>("diff");
   const [query, setQuery] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
+  // On by default: the usual job is reading two copies of the same file side by
+  // side, where the line numbers line up.
+  const [syncScroll, setSyncScroll] = useState(true);
+  const leftEditor = useRef<CodeEditorHandle>(null);
+  const rightEditor = useRef<CodeEditorHandle>(null);
+  const follow = (other: typeof leftEditor) => (pos: ScrollPos) => {
+    if (syncScroll) other.current?.scrollTo(pos);
+  };
+  const confirmAction = useConfirm();
+  const sessions = useEnvSessions();
+  const [dialog, setDialog] = useState<"save" | "sessions" | null>(null);
+  // Bumped when a session opens, so both sides remount and their path boxes
+  // show that session's files rather than whatever was typed there before.
+  const [generation, setGeneration] = useState(0);
+  // A session's files that could not be read, left in the path box to fix.
+  const [unread, setUnread] = useState<{ left?: string; right?: string }>({});
 
   const parsedLeft = useMemo(() => parseEnv(left.text), [left.text]);
   const parsedRight = useMemo(() => parseEnv(right.text), [right.text]);
@@ -90,14 +126,16 @@ export default function EnvDiffPage() {
     [parsedLeft, parsedRight, keysOnly],
   );
   const counts = countStatuses(rows);
-  const differences = counts.changed + counts["only-left"] + counts["only-right"];
+  const differences =
+    counts.changed + counts.commented + counts["only-left"] + counts["only-right"];
 
   const q = query.trim().toLowerCase();
   const visible = rows.filter((row) => {
     if (filter === "diff" ? row.status === "same" : filter !== "all" && row.status !== filter) {
       return false;
     }
-    return !q || row.key.toLowerCase().includes(q);
+    // A rename's partner matches too, so searching either name shows the pair.
+    return !q || [row.key, row.renamed].some((key) => key?.toLowerCase().includes(q));
   });
 
   function copyAcross(picked: DiffRow[], to: "left" | "right") {
@@ -119,12 +157,13 @@ export default function EnvDiffPage() {
   const missingFromRight = rows.filter((r) => r.status === "only-left");
   const missingFromLeft = rows.filter((r) => r.status === "only-right");
 
-  const filterOptions: { value: Filter; label: string; count: number }[] = [
+  const filterOptions: { value: DiffFilter; label: string; count: number }[] = [
     { value: "all", label: "All", count: rows.length },
     { value: "diff", label: "Differences", count: differences },
     { value: "only-left", label: "Only in left", count: counts["only-left"] },
     { value: "only-right", label: "Only in right", count: counts["only-right"] },
     ...(keysOnly ? [] : [{ value: "changed" as const, label: "Different value", count: counts.changed }]),
+    { value: "commented", label: "Commented", count: counts.commented },
     { value: "same", label: "Same", count: counts.same },
   ];
 
@@ -135,14 +174,37 @@ export default function EnvDiffPage() {
       priority: 1,
       mono: true,
       sortValue: (r) => r.key,
-      render: (r) => r.key,
+      render: (r) =>
+        // Off everywhere it appears; where it is off on one side only, the
+        // status says which.
+        r.status !== "commented" && [r.left, r.right].every((e) => !e || e.commented) ? (
+          <Stack direction="row" gap={2} wrap align="center">
+            <span>{r.key}</span>
+            <Badge>Commented out</Badge>
+          </Stack>
+        ) : (
+          r.key
+        ),
     },
     {
       key: "status",
       header: "Status",
       priority: 1,
       sortValue: (r) => STATUS_RANK[r.status],
-      render: (r) => <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge>,
+      render: (r) => (
+        <Stack direction="row" gap={2} wrap align="center">
+          <Badge tone={STATUS_TONE[r.status]}>
+            {r.status === "commented"
+              ? `Commented out in ${r.left?.commented ? "left" : "right"}`
+              : STATUS_LABEL[r.status]}
+          </Badge>
+          {r.renamed && (
+            <Badge tone="accent">
+              {r.status === "only-left" ? "Renamed to" : "Renamed from"} {r.renamed}?
+            </Badge>
+          )}
+        </Stack>
+      ),
     },
     ...(keysOnly
       ? []
@@ -170,17 +232,17 @@ export default function EnvDiffPage() {
       width: "1px",
       render: (r) => (
         <ActionGroup>
-          {(r.status === "only-left" || r.status === "changed") && (
+          {r.status !== "same" && r.status !== "only-right" && (
             <IconButton
               icon={ArrowRight}
-              label={r.status === "changed" ? "Use left value on right" : "Add to right"}
+              label={copyLabel(r, "right")}
               onClick={() => copyAcross([r], "right")}
             />
           )}
-          {(r.status === "only-right" || r.status === "changed") && (
+          {r.status !== "same" && r.status !== "only-left" && (
             <IconButton
               icon={ArrowLeft}
-              label={r.status === "changed" ? "Use right value on left" : "Add to left"}
+              label={copyLabel(r, "left")}
               onClick={() => copyAcross([r], "left")}
             />
           )}
@@ -188,6 +250,88 @@ export default function EnvDiffPage() {
       ),
     },
   ];
+
+  function arrange(to: "left" | "right") {
+    const from = to === "right" ? "left" : "right";
+    const [target, reference] = to === "right" ? [right, left] : [left, right];
+    const { text, gaps, extras } = arrangeLike(target.text, reference.text);
+    (to === "right" ? setRight : setLeft)((side) => ({ ...side, text }));
+    setNotice({
+      tone: "success",
+      text: [
+        `The ${to} file now follows the ${from} file's layout.`,
+        gaps === 1 && "1 variable it doesn't have is left as a blank line.",
+        gaps > 1 && `${gaps} variables it doesn't have are left as blank lines.`,
+        extras === 1 && "Its 1 own variable is at the end.",
+        extras > 1 && `Its ${extras} own variables are at the end.`,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    });
+  }
+  const canArrange = parsedLeft.definitions.length > 0 && parsedRight.definitions.length > 0;
+
+  async function openSession(session: EnvSession) {
+    setDialog(null);
+    // Pasted text counts too: it is on no disk, so opening a session loses it.
+    const unsaved = [left, right].some((side) => side.text !== (side.disk ?? ""));
+    if (
+      unsaved &&
+      !(await confirmAction("Edits and pasted text that aren't saved to a file will be lost.", {
+        title: `Open "${session.name}"?`,
+        confirmLabel: "Discard and open",
+        danger: true,
+      }))
+    ) {
+      return;
+    }
+    const read = async (path: string | null): Promise<{ side: EnvSide; error?: string }> => {
+      if (!path) return { side: emptySide() };
+      try {
+        const text = await readEnvFile(path);
+        return { side: { text, path, disk: text } };
+      } catch (e) {
+        return { side: emptySide(), error: messageOf(e) };
+      }
+    };
+    const [l, r] = await Promise.all([read(session.left), read(session.right)]);
+    setLeft(l.side);
+    setRight(r.side);
+    setUnread({
+      left: l.error ? (session.left ?? undefined) : undefined,
+      right: r.error ? (session.right ?? undefined) : undefined,
+    });
+    setKeysOnly(session.keysOnly);
+    setSyncScroll(session.syncScroll);
+    setFilter(session.filter);
+    setGeneration((g) => g + 1);
+    const errors = [l.error, r.error].filter(Boolean);
+    setNotice(
+      errors.length === 0
+        ? { tone: "success", text: `Opened session "${session.name}".` }
+        : {
+            tone: "danger",
+            text: `Opened session "${session.name}", but ${errors.length === 1 ? "a file" : "both files"} couldn't be read: ${errors.join("; ")}`,
+          },
+    );
+  }
+
+  function saveSession(name: string) {
+    setDialog(null);
+    sessions
+      .save({ name, left: left.path, right: right.path, keysOnly, syncScroll, filter })
+      .then(() => setNotice({ tone: "success", text: `Saved session "${name}".` }))
+      .catch((e) => setNotice({ tone: "danger", text: `Couldn't save the session: ${messageOf(e)}` }));
+  }
+
+  function deleteSession(session: EnvSession) {
+    sessions
+      .remove(session.name)
+      .catch((e) => setNotice({ tone: "danger", text: `Couldn't delete the session: ${messageOf(e)}` }));
+  }
+
+  // Re-saving the files a session already holds should offer to update it.
+  const currentSession = sessions.list.find((s) => s.left === left.path && s.right === right.path);
 
   const nothingYet = !left.text.trim() && !right.text.trim();
 
@@ -203,6 +347,16 @@ export default function EnvDiffPage() {
           layout.
         </>
       }
+      actions={
+        <>
+          <Button variant="secondary" icon={Bookmark} onClick={() => setDialog("sessions")}>
+            Sessions
+          </Button>
+          <Button variant="secondary" icon={Save} onClick={() => setDialog("save")}>
+            Save session
+          </Button>
+        </>
+      }
     >
       <Stack gap={5}>
         {notice && (
@@ -211,20 +365,52 @@ export default function EnvDiffPage() {
           </Callout>
         )}
 
+        <Stack direction="row" justify="end" align="center" gap={3} wrap>
+          {/* Lines up the same variables on the same line numbers — what makes
+              sync scroll useful when the files were written in different orders. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={ArrowRight}
+            disabled={!canArrange}
+            onClick={() => arrange("right")}
+          >
+            Arrange right like left
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={ArrowLeft}
+            disabled={!canArrange}
+            onClick={() => arrange("left")}
+          >
+            Arrange left like right
+          </Button>
+          <Switch checked={syncScroll} onChange={setSyncScroll} label="Sync scroll" />
+        </Stack>
+
         <FormGrid columns={2}>
           <EnvSource
+            key={`left-${generation}`}
             label="Left"
             side={left}
             issues={parsedLeft.issues}
             onChange={setLeft}
             onNotice={setNotice}
+            editorRef={leftEditor}
+            onScroll={follow(rightEditor)}
+            initialPath={unread.left}
           />
           <EnvSource
+            key={`right-${generation}`}
             label="Right"
             side={right}
             issues={parsedRight.issues}
             onChange={setRight}
             onNotice={setNotice}
+            editorRef={rightEditor}
+            onScroll={follow(leftEditor)}
+            initialPath={unread.right}
           />
         </FormGrid>
 
@@ -309,6 +495,25 @@ export default function EnvDiffPage() {
           />
         </Section>
       </Stack>
+
+      {dialog === "save" && (
+        <SaveSessionModal
+          left={left.path}
+          right={right.path}
+          initialName={currentSession?.name ?? suggestName(left.path, right.path)}
+          existing={sessions.list}
+          onSave={saveSession}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog === "sessions" && (
+        <SessionsModal
+          sessions={sessions.list}
+          onOpen={openSession}
+          onDelete={deleteSession}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </Page>
   );
 }

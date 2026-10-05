@@ -6,6 +6,19 @@ import EnvDiffPage from "./EnvDiffPage";
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+// CodeMirror needs layout jsdom doesn't have; a textarea keeps the same
+// value/onChange contract, which is all these tests exercise.
+vi.mock("../../../ui/CodeEditor", () => ({
+  CodeEditor: ({
+    id,
+    value,
+    onChange,
+  }: {
+    id?: string;
+    value: string;
+    onChange: (v: string) => void;
+  }) => <textarea id={id} value={value} onChange={(e) => onChange(e.target.value)} />,
+}));
 
 function renderPage() {
   return render(
@@ -25,6 +38,8 @@ const rowFor = (key: string) => within(table()).getByText(key).closest("tr") as 
 beforeEach(() => {
   cleanup();
   invoke.mockReset();
+  // The real invoke always returns a promise; code may chain on it.
+  invoke.mockResolvedValue(undefined);
 });
 
 describe("EnvDiffPage", () => {
@@ -117,6 +132,51 @@ describe("EnvDiffPage", () => {
     expect(screen.getByText(/already set on line 1/)).toBeDefined();
   });
 
+  it("marks a likely rename, and finds both halves when searching either name", () => {
+    renderPage();
+    const [left, right] = contents();
+    paste(left, "DB_HOST=db.internal\nA=1\n");
+    paste(right, "A=1\nDATABASE_HOST=db.internal\n");
+
+    expect(within(rowFor("DB_HOST")).getByText("Renamed to DATABASE_HOST?")).toBeDefined();
+    expect(within(rowFor("DATABASE_HOST")).getByText("Renamed from DB_HOST?")).toBeDefined();
+
+    fireEvent.change(screen.getByLabelText("Filter by variable name"), {
+      target: { value: "database" },
+    });
+    expect(within(table()).getByText("DB_HOST")).toBeDefined();
+  });
+
+  it("flags a variable commented out on one side, and switches it back on", () => {
+    renderPage();
+    const [left, right] = contents();
+    paste(left, "API_URL=x\nOLD=1\n");
+    paste(right, "# API_URL=x\nOLD=1\n# LEGACY=y\n");
+
+    expect(within(rowFor("API_URL")).getByText("Commented out in right")).toBeDefined();
+    expect(within(rowFor("LEGACY")).getByText("Commented out")).toBeDefined();
+    fireEvent.click(within(rowFor("API_URL")).getByRole("button", { name: "Uncomment on right" }));
+    expect(contents()[1].value).toBe("API_URL=x\nOLD=1\n# LEGACY=y\n");
+  });
+
+  it("arranges one file like the other, so the same variables share line numbers", () => {
+    renderPage();
+    const [left, right] = contents();
+    paste(left, "# db\nDB=1\nAPP=2\n");
+    paste(right, "APP=9\nEXTRA=x\nDB=8\n");
+
+    fireEvent.click(screen.getByRole("button", { name: "Arrange right like left" }));
+    expect(contents()[1].value).toBe("# db\nDB=8\nAPP=9\n\nEXTRA=x\n");
+    expect(contents()[0].value).toBe("# db\nDB=1\nAPP=2\n");
+    expect(screen.getByText(/Its 1 own variable is at the end/)).toBeDefined();
+  });
+
+  it("flags two variables holding the same value inside one file", () => {
+    renderPage();
+    paste(contents()[1], "API_KEY=abc123\nOTHER=1\nBACKUP_KEY=abc123\n");
+    expect(screen.getByText(/BACKUP_KEY has the same value as API_KEY on line 1/)).toBeDefined();
+  });
+
   it("loads a file by path, and saves edits back only after confirming", async () => {
     invoke.mockImplementation(async (cmd: string) =>
       cmd === "env_diff_read_file" ? "A=1\n" : "Saved /work/api/.env",
@@ -156,5 +216,113 @@ describe("EnvDiffPage", () => {
       fireEvent.click(screen.getAllByRole("button", { name: "Load" })[1]);
     });
     expect(await screen.findByText(/No such file or directory/)).toBeDefined();
+  });
+});
+
+describe("EnvDiffPage sessions", () => {
+  const FILES: Record<string, string> = {
+    "/w/api/.env": "A=1\nSECRET=hunter2\n",
+    "/w/api/.env.example": "A=1\nNEW=x\n",
+  };
+  const SAVED = {
+    name: "api",
+    left: "/w/api/.env",
+    right: "/w/api/.env.example",
+    keysOnly: false,
+    syncScroll: true,
+    filter: "all",
+  };
+  const withStored = (list: unknown[]) =>
+    invoke.mockImplementation(async (cmd: string, args: { path?: string }) => {
+      if (cmd === "settings_get") return JSON.stringify(list);
+      if (cmd === "env_diff_read_file") {
+        if (args.path && args.path in FILES) return FILES[args.path];
+        throw `could not read ${args.path}: No such file or directory`;
+      }
+      return undefined;
+    });
+  const openFromList = async (name: string) => {
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const row = (await screen.findByText(name)).closest("tr") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Open" }));
+    });
+  };
+
+  it("saves the loaded file paths and options, never the contents", async () => {
+    withStored([]);
+    renderPage();
+    fireEvent.change(screen.getAllByLabelText("File")[0], { target: { value: "/w/api/.env" } });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "Load" })[0]);
+    });
+    await waitFor(() => expect(contents()[0].value).toBe(FILES["/w/api/.env"]));
+    paste(contents()[1], "PASTED=topsecret\n");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save session" }));
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("api/.env");
+    expect(screen.getByText("pasted text, not saved")).toBeDefined();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+
+    const call = invoke.mock.calls.find(([cmd]) => cmd === "settings_set");
+    const { key, value } = call?.[1] as { key: string; value: string };
+    expect(key).toBe("env-diff.sessions");
+    expect(JSON.parse(value)).toEqual([
+      { name: "api/.env", left: "/w/api/.env", right: null, keysOnly: false, syncScroll: true, filter: "diff" },
+    ]);
+    expect(value).not.toContain("hunter2");
+    expect(value).not.toContain("topsecret");
+    expect(await screen.findByText('Saved session "api/.env".')).toBeDefined();
+  });
+
+  it("opens a saved session by reading its files from disk again", async () => {
+    withStored([SAVED]);
+    renderPage();
+    await openFromList("api");
+
+    await waitFor(() => expect(contents()[0].value).toBe(FILES["/w/api/.env"]));
+    expect(contents()[1].value).toBe(FILES["/w/api/.env.example"]);
+    expect(screen.getByText('Opened session "api".')).toBeDefined();
+    // The saved "all" filter came with it, so the matching variable shows too.
+    expect(within(table()).getByText("A")).toBeDefined();
+  });
+
+  it("asks before a session replaces text that isn't in a file", async () => {
+    withStored([SAVED]);
+    renderPage();
+    paste(contents()[0], "PASTED=1\n");
+    await openFromList("api");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Discard and open" })).toBeNull(),
+    );
+    expect(contents()[0].value).toBe("PASTED=1\n");
+    expect(invoke).not.toHaveBeenCalledWith("env_diff_read_file", expect.anything());
+  });
+
+  it("leaves a file it can't read in the path box, ready to fix", async () => {
+    withStored([{ ...SAVED, right: "/w/gone/.env" }]);
+    renderPage();
+    await openFromList("api");
+
+    expect(await screen.findByText(/a file couldn't be read: could not read \/w\/gone\/\.env/)).toBeDefined();
+    expect(contents()[0].value).toBe(FILES["/w/api/.env"]);
+    const pathBoxes = screen.getAllByLabelText("File") as HTMLInputElement[];
+    expect(pathBoxes[pathBoxes.length - 1].value).toBe("/w/gone/.env");
+  });
+
+  it("deletes a saved session", async () => {
+    withStored([SAVED]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const row = (await screen.findByText("api")).closest("tr") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(within(row).getByRole("button", { name: "Delete api" }));
+    });
+    expect(invoke).toHaveBeenCalledWith("settings_set", { key: "env-diff.sessions", value: "[]" });
+    expect(screen.getByText("No saved sessions")).toBeDefined();
   });
 });
