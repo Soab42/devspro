@@ -1,6 +1,6 @@
 [package]
 name = "devspro"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local development environment manager."
 # Feeds the Debian package's Maintainer field — tauri-bundler reads it from
 # here, not from bundle.publisher. Left at the template's ["you"], every
