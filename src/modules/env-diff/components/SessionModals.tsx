@@ -17,14 +17,35 @@ import {
 import { Bookmark, Save, Trash2 } from "../../../ui/icons";
 import type { EnvSession } from "../sessions";
 
-function PathLine({ side, path }: { side: string; path: string | null }) {
+/** What one side would be saved as. */
+export interface SideSummary {
+  path: string | null;
+  pasted: boolean;
+  /** A file with edits not yet saved to it — the session keeps the path, not the edits. */
+  dirty?: boolean;
+}
+
+function SideLine({ side, summary }: { side: string; summary: SideSummary }) {
+  const { path, pasted, dirty } = summary;
   return (
     <div>
       <span className="u-secondary">{side}: </span>
-      {path ? <Mono truncate>{path}</Mono> : <span className="u-muted">pasted text, not saved</span>}
+      {path ? (
+        <>
+          <Mono truncate>{path}</Mono>
+          {dirty && <span className="u-muted"> (unsaved edits aren&apos;t kept)</span>}
+        </>
+      ) : (
+        <span className="u-muted">{pasted ? "pasted text" : "empty"}</span>
+      )}
     </div>
   );
 }
+
+const sideOf = (s: EnvSession, side: "left" | "right"): SideSummary => ({
+  path: s[side],
+  pasted: s.pasted.includes(side),
+});
 
 export function SaveSessionModal({
   left,
@@ -34,8 +55,8 @@ export function SaveSessionModal({
   onSave,
   onClose,
 }: {
-  left: string | null;
-  right: string | null;
+  left: SideSummary;
+  right: SideSummary;
   initialName: string;
   existing: EnvSession[];
   onSave: (name: string) => void;
@@ -44,7 +65,7 @@ export function SaveSessionModal({
   const nameId = useId();
   const [name, setName] = useState(initialName);
   const trimmed = name.trim();
-  const nothingToSave = !left && !right;
+  const nothingToSave = !left.path && !left.pasted && !right.path && !right.pasted;
   const replaces = existing.some((s) => s.name === trimmed);
   const canSave = !nothingToSave && trimmed !== "";
   const submit = () => {
@@ -70,7 +91,7 @@ export function SaveSessionModal({
     >
       {nothingToSave ? (
         <Callout tone="info" title="Nothing to save yet">
-          A session remembers files, not pasted text. Load a file on either side first.
+          Load a file or paste an env file on either side first.
         </Callout>
       ) : (
         <Form onSubmit={submit}>
@@ -83,12 +104,13 @@ export function SaveSessionModal({
               <TextInput id={nameId} autoFocus value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
             <Stack gap={1}>
-              <PathLine side="Left" path={left} />
-              <PathLine side="Right" path={right} />
+              <SideLine side="Left" summary={left} />
+              <SideLine side="Right" summary={right} />
             </Stack>
             <p className="u-muted">
-              Saves the file paths and comparison options. The files are read from disk again
-              when the session is opened, so none of their contents are stored.
+              Files are saved by path and read from disk again when the session is opened.
+              {(left.pasted || right.pasted) &&
+                " Pasted text is saved as it is, on this machine only, and is left out of backups."}
             </p>
           </Stack>
         </Form>
@@ -117,8 +139,8 @@ export function SessionsModal({
       render: (s) => (
         <Stack gap={1}>
           <strong>{s.name}</strong>
-          <PathLine side="Left" path={s.left} />
-          <PathLine side="Right" path={s.right} />
+          <SideLine side="Left" summary={sideOf(s, "left")} />
+          <SideLine side="Right" summary={sideOf(s, "right")} />
         </Stack>
       ),
     },
@@ -142,7 +164,7 @@ export function SessionsModal({
   return (
     <Modal
       title="Sessions"
-      description="Saved pairs of env files. Opening one reads both files from disk again."
+      description="Saved pairs of env files. Opening one reads its files from disk again."
       icon={Bookmark}
       onClose={onClose}
     >
@@ -155,7 +177,7 @@ export function SessionsModal({
         empty={{
           icon: Bookmark,
           title: "No saved sessions",
-          description: "Load a file on either side, then use Save session.",
+          description: "Load or paste an env file on either side, then use Save session.",
         }}
       />
     </Modal>

@@ -106,8 +106,12 @@ export interface CodeEditorHandle {
   scrollTo: (pos: ScrollPos) => void;
   /** Opens the "go to line" prompt — the same one Ctrl/Cmd+Alt+G opens. */
   openGotoLine: () => void;
-  /** Moves the cursor to line `n` (1-based, clamped) and scrolls it into view. */
-  goToLine: (n: number) => void;
+  /**
+   * Selects line `n` (1-based, clamped) and scrolls it into view, bringing the
+   * editor itself on screen too. `focus: false` leaves the keyboard where it is,
+   * for moving a second editor in step with the one being focused.
+   */
+  goToLine: (n: number, options?: { focus?: boolean }) => void;
 }
 
 /* Only the tags YAML actually produces. Mapped to tokens so both themes and any
@@ -466,7 +470,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     openGotoLine: () => {
       if (view.current) gotoLine(view.current);
     },
-    goToLine: (n: number) => {
+    goToLine: (n: number, { focus = true } = {}) => {
       const editor = view.current;
       if (!editor) return;
       const doc = editor.state.doc;
@@ -475,7 +479,10 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         selection: { anchor: line.from, head: line.to },
         effects: EditorView.scrollIntoView(line.from, { y: "center" }),
       });
-      editor.focus();
+      // CodeMirror focuses without scrolling the page, so a caller further down
+      // it (a table row, an issue link) would otherwise move an editor off screen.
+      editor.dom.scrollIntoView?.({ block: "nearest" });
+      if (focus) editor.focus();
     },
     revealLine: (text: string) => {
       const editor = view.current;

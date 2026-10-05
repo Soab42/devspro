@@ -9,6 +9,7 @@ import {
   isDirty,
   parseEnv,
   QuoteStyle,
+  removeKeys,
   shortName,
   toChange,
 } from "./envFile";
@@ -404,6 +405,23 @@ describe("applyChanges", () => {
     expect(after.find((r) => r.key === "ONLY_RIGHT")?.status).toBe("only-right");
     // The quote style of the source came with the value.
     expect(merged).toContain("C='$literal'");
+  });
+});
+
+describe("removeKeys", () => {
+  it("removes every definition of a key, live, repeated or commented out", () => {
+    expect(removeKeys("A=1\nB=2\n# A=old\nA=3\nC=4\n", ["A"])).toBe("B=2\nC=4\n");
+  });
+
+  it("removes a multi-line value whole, and keeps the comments above", () => {
+    expect(removeKeys('# keys\nCERT="-----BEGIN\nabc\n-----END"\nB=1\n', ["CERT"])).toBe("# keys\nB=1\n");
+  });
+
+  it("keeps line endings and a BOM, and leaves the text alone when the key is absent", () => {
+    expect(removeKeys("\uFEFFA=1\r\nB=2\r\n", ["A"])).toBe("\uFEFFB=2\r\n");
+    expect(removeKeys("A=1", ["A"])).toBe("");
+    const text = "A=1\r\n# x";
+    expect(removeKeys(text, ["Z"])).toBe(text);
   });
 });
 

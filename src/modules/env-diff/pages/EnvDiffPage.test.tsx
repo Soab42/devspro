@@ -8,17 +8,28 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 // CodeMirror needs layout jsdom doesn't have; a textarea keeps the same
 // value/onChange contract, which is all these tests exercise.
-vi.mock("../../../ui/CodeEditor", () => ({
-  CodeEditor: ({
-    id,
-    value,
-    onChange,
-  }: {
-    id?: string;
-    value: string;
-    onChange: (v: string) => void;
-  }) => <textarea id={id} value={value} onChange={(e) => onChange(e.target.value)} />,
-}));
+// The handle records line jumps by which editor they went to.
+const goToLine = vi.fn();
+vi.mock("../../../ui/CodeEditor", async () => {
+  const { forwardRef, useImperativeHandle } = await import("react");
+  return {
+    CodeEditor: forwardRef(function CodeEditor(
+      {
+        id,
+        value,
+        onChange,
+        ariaLabel,
+      }: { id?: string; value: string; onChange: (v: string) => void; ariaLabel?: string },
+      ref,
+    ) {
+      useImperativeHandle(ref, () => ({
+        goToLine: (n: number, options?: { focus?: boolean }) => goToLine(ariaLabel, n, options),
+        scrollTo: () => {},
+      }));
+      return <textarea id={id} value={value} onChange={(e) => onChange(e.target.value)} />;
+    }),
+  };
+});
 
 function renderPage() {
   return render(
@@ -38,8 +49,10 @@ const rowFor = (key: string) => within(table()).getByText(key).closest("tr") as 
 beforeEach(() => {
   cleanup();
   invoke.mockReset();
+  goToLine.mockReset();
   // The real invoke always returns a promise; code may chain on it.
   invoke.mockResolvedValue(undefined);
+  localStorage.clear();
 });
 
 describe("EnvDiffPage", () => {
@@ -171,6 +184,45 @@ describe("EnvDiffPage", () => {
     expect(screen.getByText(/Its 1 own variable is at the end/)).toBeDefined();
   });
 
+  it("removes a variable only one file has from that file", () => {
+    renderPage();
+    const [left, right] = contents();
+    paste(left, "A=1\n");
+    paste(right, "A=1\n# not needed\nUNUSED=x\n");
+
+    fireEvent.click(within(rowFor("UNUSED")).getByRole("button", { name: "Remove from right" }));
+    expect(contents()[1].value).toBe("A=1\n# not needed\n");
+    expect(screen.getByText("No differences")).toBeDefined();
+  });
+
+  it("expands the full list of things worth a look, and folds it again", () => {
+    renderPage();
+    // Six repeated keys, each with values of its own: six issues, four shown.
+    paste(contents()[0], ["A", "B", "C", "D", "E", "F"].map((k) => `${k}=${k}1\n${k}=${k}2\n`).join(""));
+    expect(screen.queryByText(/F is already set/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 2 more" }));
+    expect(screen.getByText(/F is already set on line 11/)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(screen.queryByText(/F is already set/)).toBeNull();
+  });
+
+  it("jumps both editors to a variable's own line when its name is clicked", () => {
+    renderPage();
+    const [left, right] = contents();
+    paste(left, "A=1\nB=2\n");
+    paste(right, "# header\nX=0\nB=3\n");
+
+    fireEvent.click(within(table()).getByRole("button", { name: "B" }));
+    expect(goToLine).toHaveBeenCalledWith("Left contents", 2, { focus: true });
+    expect(goToLine).toHaveBeenCalledWith("Right contents", 3, { focus: false });
+
+    // Only on the right: that editor is the one focused.
+    goToLine.mockReset();
+    fireEvent.click(within(table()).getByRole("button", { name: "X" }));
+    expect(goToLine.mock.calls).toEqual([["Right contents", 2, { focus: true }]]);
+  });
+
   it("flags two variables holding the same value inside one file", () => {
     renderPage();
     paste(contents()[1], "API_KEY=abc123\nOTHER=1\nBACKUP_KEY=abc123\n");
@@ -249,7 +301,7 @@ describe("EnvDiffPage sessions", () => {
     });
   };
 
-  it("saves the loaded file paths and options, never the contents", async () => {
+  it("saves a file by path and pasted text apart from the session list", async () => {
     withStored([]);
     renderPage();
     fireEvent.change(screen.getAllByLabelText("File")[0], { target: { value: "/w/api/.env" } });
@@ -261,7 +313,7 @@ describe("EnvDiffPage sessions", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save session" }));
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("api/.env");
-    expect(screen.getByText("pasted text, not saved")).toBeDefined();
+    expect(screen.getByText("pasted text")).toBeDefined();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Save" }));
     });
@@ -270,10 +322,20 @@ describe("EnvDiffPage sessions", () => {
     const { key, value } = call?.[1] as { key: string; value: string };
     expect(key).toBe("env-diff.sessions");
     expect(JSON.parse(value)).toEqual([
-      { name: "api/.env", left: "/w/api/.env", right: null, keysOnly: false, syncScroll: true, filter: "diff" },
+      {
+        name: "api/.env",
+        left: "/w/api/.env",
+        right: null,
+        pasted: ["right"],
+        keysOnly: false,
+        syncScroll: true,
+        filter: "diff",
+      },
     ]);
+    // The settings table goes into backups: no contents there, file or pasted.
     expect(value).not.toContain("hunter2");
     expect(value).not.toContain("topsecret");
+    expect(localStorage.getItem("devspro.envDiff.pasted")).toContain("topsecret");
     expect(await screen.findByText('Saved session "api/.env".')).toBeDefined();
   });
 
@@ -308,10 +370,44 @@ describe("EnvDiffPage sessions", () => {
     renderPage();
     await openFromList("api");
 
-    expect(await screen.findByText(/a file couldn't be read: could not read \/w\/gone\/\.env/)).toBeDefined();
+    expect(await screen.findByText(/one side is empty: could not read \/w\/gone\/\.env/)).toBeDefined();
     expect(contents()[0].value).toBe(FILES["/w/api/.env"]);
     const pathBoxes = screen.getAllByLabelText("File") as HTMLInputElement[];
     expect(pathBoxes[pathBoxes.length - 1].value).toBe("/w/gone/.env");
+  });
+
+  it("saves pasted text and brings it back when the session is opened", async () => {
+    withStored([]);
+    renderPage();
+    paste(contents()[0], "A=1\n");
+    paste(contents()[1], "A=2\n");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save session" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "scratch" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+
+    paste(contents()[0], "OTHER=1\n");
+    await openFromList("scratch");
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Discard and open" }));
+    });
+    await waitFor(() => expect(contents()[0].value).toBe("A=1\n"));
+    expect(contents()[1].value).toBe("A=2\n");
+  });
+
+  it("says a pasted side is missing when its text isn't on this machine", async () => {
+    withStored([{ ...SAVED, right: null, pasted: ["right"] }]);
+    renderPage();
+    await openFromList("api");
+    expect(await screen.findByText(/pasted text isn't stored on this machine/)).toBeDefined();
+  });
+
+  it("explains there is nothing to save while both sides are empty", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Save session" }));
+    expect(screen.getByText("Nothing to save yet")).toBeDefined();
   });
 
   it("deletes a saved session", async () => {

@@ -412,6 +412,29 @@ export function applyChanges(text: string, changes: EnvChange[]): string {
   return bom + lines.join(eol) + (finalNewline && lines.length > 0 ? eol : "");
 }
 
+/**
+ * Returns `text` without any definition of `keys` — live, commented out, and
+ * every repeat — so the variable is gone from the file, not just switched off.
+ * Comment lines above it stay: they may head a whole section.
+ */
+export function removeKeys(text: string, keys: string[]): string {
+  const drop = new Set(keys);
+  const doomed = parseEnv(text).definitions.filter((d) => drop.has(d.key));
+  if (doomed.length === 0) return text;
+
+  const bom = text.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const lines = splitLines(text);
+  const endedWithNewline = lines[lines.length - 1] === "";
+  if (endedWithNewline) lines.pop();
+
+  const gone = new Set(
+    doomed.flatMap((d) => Array.from({ length: d.endLine - d.line + 1 }, (_, n) => d.line - 1 + n)),
+  );
+  const kept = lines.filter((_, i) => !gone.has(i));
+  return bom + kept.join(eol) + (endedWithNewline && kept.length > 0 ? eol : "");
+}
+
 /* ------------------------------------------------------------- arranging -- */
 
 export interface Arranged {

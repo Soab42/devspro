@@ -68,6 +68,9 @@ export default function EnvSource({
   // Folded once there is something to compare: the path is already in the
   // header, and the row just pushes the contents down.
   const [fileOpen, setFileOpen] = useState(!side.text);
+  // The first few are enough to see what kind of problems a file has; the rest
+  // are a click away rather than pushing the comparison off the screen.
+  const [allIssues, setAllIssues] = useState(false);
 
   const dirty = isDirty(side);
   const lower = label.toLowerCase();
@@ -256,7 +259,7 @@ export default function EnvSource({
 
         {issues.length > 0 && (
           <Callout tone="warning" title="Worth a look">
-            {issues.slice(0, MAX_ISSUES).map((issue) => (
+            {(allIssues ? issues : issues.slice(0, MAX_ISSUES)).map((issue) => (
               <div key={`${issue.line}:${issue.message}`}>
                 <Button variant="link" onClick={() => editor.current?.goToLine(issue.line)}>
                   Line {issue.line}
@@ -264,7 +267,17 @@ export default function EnvSource({
                 : {issue.message}
               </div>
             ))}
-            {issues.length > MAX_ISSUES && <div>…and {issues.length - MAX_ISSUES} more.</div>}
+            {issues.length > MAX_ISSUES && (
+              <div>
+                <Button
+                  variant="link"
+                  aria-expanded={allIssues}
+                  onClick={() => setAllIssues((open) => !open)}
+                >
+                  {allIssues ? "Show fewer" : `Show ${issues.length - MAX_ISSUES} more`}
+                </Button>
+              </div>
+            )}
           </Callout>
         )}
       </Stack>
