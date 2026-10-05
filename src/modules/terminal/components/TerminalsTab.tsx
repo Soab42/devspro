@@ -295,9 +295,10 @@ export default function TerminalsTab({
   const hooked = useRef(new Set<string>(attachedId ? [attachedId] : []));
   const installHook = useCallback(
     (id: string) => {
-      if (hooked.current.has(id)) return;
+      if (hooked.current.has(id)) return false;
       hooked.current.add(id);
       send(id, followHookCommand());
+      return true;
     },
     [send],
   );

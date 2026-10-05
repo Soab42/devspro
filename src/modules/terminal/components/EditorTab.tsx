@@ -1,4 +1,4 @@
-import { KeyboardEvent, useEffect, useState } from "react";
+import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { Button, Callout, Spinner } from "../../../ui";
 import { CodeEditor } from "../../../ui/CodeEditor";
 import { Icon } from "../../../ui/Icon";
@@ -52,7 +52,10 @@ export default function EditorTab({
   }, [file.path, file.sftp]);
 
   const dirty = original !== null && contents !== original;
-  useEffect(() => onDirty(dirty), [dirty, onDirty]);
+  // Through a ref: the group hands a fresh callback down on every render.
+  const onDirtyRef = useRef(onDirty);
+  onDirtyRef.current = onDirty;
+  useEffect(() => onDirtyRef.current(dirty), [dirty]);
 
   async function save() {
     if (!dirty || saving) return;

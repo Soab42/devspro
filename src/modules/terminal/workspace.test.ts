@@ -173,6 +173,14 @@ describe("editor tabs", () => {
     expect(state.activeWindow).toBe("w-a");
     expect(state.sessions.a).toBeDefined();
   });
+
+  it("returns the same state when an editor reports dirtiness that has not changed", () => {
+    let state = build(open("a"));
+    state = workspaceReducer(state, { type: "open-editor", windowId: "e1", file });
+    expect(workspaceReducer(state, { type: "editor-dirty", key: editorKey(file), dirty: false })).toBe(state);
+    state = workspaceReducer(state, { type: "editor-dirty", key: editorKey(file), dirty: true });
+    expect(workspaceReducer(state, { type: "editor-dirty", key: editorKey(file), dirty: true })).toBe(state);
+  });
 });
 
 describe("newSession startIn", () => {

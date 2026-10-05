@@ -309,15 +309,14 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
         editor.active === action.key ? editorKey(files[index] ?? files[index - 1]) : editor.active;
       return { ...state, windows: state.windows.map((w) => (w.id === editor.id ? { ...editor, files, active, dirty } : w)) };
     }
-    case "editor-dirty":
-      return {
-        ...state,
-        windows: state.windows.map((w) =>
-          w.kind === "editor" && (w.dirty[action.key] ?? false) !== action.dirty
-            ? { ...w, dirty: { ...w.dirty, [action.key]: action.dirty } }
-            : w,
-        ),
-      };
+    case "editor-dirty": {
+      // Unchanged state must come back as the same object: the editor reports
+      // on every render, and a fresh object would re-render it into a loop.
+      const editor = state.windows.find((w): w is EditorWindow => w.kind === "editor");
+      if (!editor || (editor.dirty[action.key] ?? false) === action.dirty) return state;
+      const dirty = { ...editor.dirty, [action.key]: action.dirty };
+      return { ...state, windows: state.windows.map((w) => (w.id === editor.id ? { ...editor, dirty } : w)) };
+    }
     case "rename-window":
       return {
         ...state,

@@ -50,8 +50,10 @@ export interface TerminalProps {
    * Fired once, the first time the screen settles on something that looks
    * like a shell prompt (and not a password prompt). What the follow-along
    * browser uses to know it is safe to type its hook into a remote shell.
+   * Return true if what was just typed is such a hook: its echo, up to the
+   * first OSC 7 it produces, is then wiped so the user never sees it.
    */
-  onPrompt?: () => void;
+  onPrompt?: () => boolean | void;
 }
 
 const PROMPT_END = /[$#%>\u276f]\s*$/;
@@ -209,6 +211,14 @@ function readTheme(): ITheme {
   };
 }
 
+/** Where `ESC ] 7 ;` starts in a chunk of output, or -1. */
+function indexOfOsc7(bytes: Uint8Array): number {
+  for (let i = 0; i + 3 < bytes.length; i++) {
+    if (bytes[i] === 0x1b && bytes[i + 1] === 0x5d && bytes[i + 2] === 0x37 && bytes[i + 3] === 0x3b) return i;
+  }
+  return -1;
+}
+
 function decodeBase64(data: string): Uint8Array {
   const binary = atob(data);
   const bytes = new Uint8Array(binary.length);
@@ -295,9 +305,45 @@ export default function Terminal({
         const line = buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "";
         if (!promptSeen && looksLikePrompt(line)) {
           promptSeen = true;
-          onPromptRef.current?.();
+          if (onPromptRef.current?.() === true) {
+            hookLine = buffer.baseY + buffer.cursorY;
+            // A shell that never answers (fish, say) must not leave this armed.
+            hookTimer = window.setTimeout(() => (hookLine = null), 5000);
+          }
         }
       }, 400);
+    };
+
+    // Hiding a typed hook: the prompt line it was typed at, until its first
+    // OSC 7 arrives. At that point everything from that line down (prompt,
+    // echo, wrapped rows) is erased, and the shell draws a fresh prompt there.
+    // Output that arrives while the erase is being positioned is held back.
+    let hookLine: number | null = null;
+    let hookTimer: number | null = null;
+    let held: Uint8Array[] | null = null;
+    const show = (bytes: Uint8Array) => {
+      if (held) {
+        held.push(bytes);
+        return;
+      }
+      const at = hookLine === null ? -1 : indexOfOsc7(bytes);
+      if (at < 0 || hookLine === null) {
+        term.write(bytes, watchForPrompt);
+        return;
+      }
+      const from = hookLine;
+      hookLine = null;
+      if (hookTimer !== null) window.clearTimeout(hookTimer);
+      held = [];
+      term.write(bytes.subarray(0, at), () => {
+        const buffer = term.buffer.active;
+        const up = buffer.baseY + buffer.cursorY - from;
+        term.write(`\r${up > 0 ? `\x1b[${up}A` : ""}\x1b[J`);
+        term.write(bytes.subarray(at));
+        const rest = held ?? [];
+        held = null;
+        for (const chunk of rest) show(chunk);
+      });
     };
 
     const goLive = () => {
@@ -319,7 +365,7 @@ export default function Terminal({
         const offOutput = await listen<string>(`pty:output:${id}`, (event) => {
           const bytes = decodeBase64(event.payload);
           if (pending) pending.push(bytes);
-          else term.write(bytes, watchForPrompt);
+          else show(bytes);
         });
         unlisteners.push(offOutput);
         const offExit = await listen<{ code: number | null }>(`pty:exit:${id}`, (event) => {
@@ -409,6 +455,7 @@ export default function Terminal({
       disposed = true;
       if (handoffTimer !== null) window.clearTimeout(handoffTimer);
       if (promptTimer !== null) window.clearTimeout(promptTimer);
+      if (hookTimer !== null) window.clearTimeout(hookTimer);
       observer.disconnect();
       themeObserver.disconnect();
       for (const off of unlisteners) off();
