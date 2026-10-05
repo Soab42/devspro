@@ -24,6 +24,42 @@
   height: 100%;
 }
 
+/* Drag the bottom edge to see more of the file; `rows` is only the starting
+   height. Double-click the edge to go back to it. */
+.code-editor-resizable {
+  position: relative;
+}
+
+.code-editor-grip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -5px;
+  height: 10px;
+  cursor: ns-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.code-editor-grip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2.5rem;
+  height: 4px;
+  transform: translate(-50%, -50%);
+  border-radius: var(--radius-full);
+  background-color: var(--color-border-strong);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.code-editor-resizable:hover .code-editor-grip::after,
+.code-editor-grip:active::after {
+  opacity: 1;
+}
+
 .code-editor .cm-editor {
   height: 100%;
 }

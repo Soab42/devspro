@@ -204,6 +204,10 @@ export {
   FileJson, // export as JSON
   FileSpreadsheet, // export as CSV
   LockOpen, // read & write mode (Lock, for read-only, is already exported above)
+
+  /* ---- code editor ---- */
+  ListOrdered, // go to line
+  Redo2, // redo (Undo2 is exported above)
 } from "lucide-react";
 
 /* ---- composed icons ------------------------------------------------------

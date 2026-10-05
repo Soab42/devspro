@@ -1,14 +1,41 @@
-import { useEffect, useImperativeHandle, useRef } from "react";
+import { PointerEvent as ReactPointerEvent, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { forwardRef } from "react";
 import { EditorState, Compartment } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view";
-import { indentUnit, syntaxHighlighting, HighlightStyle } from "@codemirror/language";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+  placeholder as placeholderText,
+} from "@codemirror/view";
+import {
+  indentUnit,
+  syntaxHighlighting,
+  HighlightStyle,
+  StreamLanguage,
+} from "@codemirror/language";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+  redo,
+  redoDepth,
+  undo,
+  undoDepth,
+} from "@codemirror/commands";
+import {
+  searchKeymap,
+  highlightSelectionMatches,
+  openSearchPanel,
+  gotoLine,
+  search,
+} from "@codemirror/search";
 import { autocompletion, closeBrackets, completionKeymap } from "@codemirror/autocomplete";
 import { tags } from "@lezer/highlight";
 import { yaml } from "@codemirror/lang-yaml";
 import { MySQL, PostgreSQL, sql } from "@codemirror/lang-sql";
+import { searchMatchCount } from "./searchMatchCount";
 import "./CodeEditor.css";
 
 /**
@@ -35,12 +62,14 @@ export type SqlSchema = Record<string, string[]>;
 export interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
-  language?: "yaml" | "sql";
+  language?: "yaml" | "sql" | "env";
   /** SQL only: the dialect to highlight and complete against. */
   dialect?: "mysql" | "postgres";
   /** SQL only: tables and columns offered as completions. */
   schema?: SqlSchema;
   readOnly?: boolean;
+  /** Shown while the document is empty. */
+  placeholder?: string;
   /** Visible height in rows; the editor scrolls internally beyond it. */
   rows?: number;
   /** Fill the parent's height instead of sizing by rows (a full-page editor). */
@@ -49,14 +78,36 @@ export interface CodeEditorProps {
   ariaLabel?: string;
   /** Cmd/Ctrl+Enter — "run this", wherever the editor is embedded. */
   onSubmit?: () => void;
+  /** Fires as the user scrolls the document, for keeping two editors in step. */
+  onScroll?: (pos: ScrollPos) => void;
+  /** Whether undo/redo would do anything — fires only when that changes. */
+  onHistoryChange?: (history: { canUndo: boolean; canRedo: boolean }) => void;
   /** Current selection, so a caller can run just the highlighted statement. */
   onSelectionChange?: (selected: string) => void;
+}
+
+/** Smallest height the drag handle allows — a few lines, never a sliver. */
+const MIN_HEIGHT_PX = 96;
+
+export interface ScrollPos {
+  top: number;
+  left: number;
 }
 
 export interface CodeEditorHandle {
   /** Selects the first line matching `text` exactly (trimmed) and scrolls to it. */
   revealLine: (text: string) => void;
   focus: () => void;
+  /** Opens the find/replace panel — the same one Ctrl/Cmd+F opens. */
+  openSearch: () => void;
+  undo: () => void;
+  redo: () => void;
+  /** Scrolls without firing `onScroll`, so two synced editors don't ping-pong. */
+  scrollTo: (pos: ScrollPos) => void;
+  /** Opens the "go to line" prompt — the same one Ctrl/Cmd+Alt+G opens. */
+  openGotoLine: () => void;
+  /** Moves the cursor to line `n` (1-based, clamped) and scrolls it into view. */
+  goToLine: (n: number) => void;
 }
 
 /* Only the tags YAML actually produces. Mapped to tokens so both themes and any
@@ -112,13 +163,109 @@ const editorTheme = EditorView.theme({
   },
   ".cm-cursor": { borderLeftColor: "var(--color-text)" },
   ".cm-selectionMatch": { backgroundColor: "var(--color-surface-3)" },
+  // The find/replace panel ships with its own light-only colours.
+  ".cm-panels": {
+    backgroundColor: "var(--color-surface-2)",
+    color: "var(--color-text)",
+  },
+  ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--color-border)" },
+  ".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--color-border)" },
+  ".cm-search": { fontSize: "var(--text-sm)", padding: "var(--space-2)" },
+  ".cm-search label": { color: "var(--color-text-secondary)" },
+  ".cm-search input[type=checkbox]": {
+    appearance: "auto",
+    accentColor: "var(--color-accent)",
+    verticalAlign: "middle",
+  },
+  ".cm-textfield": {
+    backgroundColor: "var(--color-surface)",
+    color: "var(--color-text)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "var(--radius-sm)",
+    padding: "0.15rem var(--space-2)",
+  },
+  ".cm-textfield:focus": { outline: "none", borderColor: "var(--color-accent)" },
+  ".cm-button": {
+    backgroundImage: "none",
+    backgroundColor: "var(--color-surface)",
+    color: "var(--color-text)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "var(--radius-sm)",
+  },
+  ".cm-button:hover": { backgroundColor: "var(--color-hover)" },
+  ".cm-panel.cm-search [name=close]": { color: "var(--color-text-muted)" },
+  ".cm-searchMatch": {
+    backgroundColor: "color-mix(in srgb, var(--color-warning) 30%, transparent)",
+  },
+  ".cm-searchMatch.cm-searchMatch-selected": {
+    backgroundColor: "color-mix(in srgb, var(--color-warning) 60%, transparent)",
+  },
+});
+
+/* A `.env` file: `[export ]KEY=value  # comment`. Hand-written because there is
+   no CodeMirror package for it, and a line-at-a-time stream parser is all the
+   format needs. Follows dotenv's rule that an inline `#` is a comment only when
+   the value is unquoted and whitespace precedes it. */
+type EnvPhase = "start" | "key" | "value" | "tail";
+const envLanguage = StreamLanguage.define<{ phase: EnvPhase }>({
+  name: "env",
+  startState: () => ({ phase: "start" }),
+  token(stream, state) {
+    if (stream.sol()) state.phase = "start";
+    if (stream.eatSpace()) return null;
+
+    switch (state.phase) {
+      case "start":
+        if (stream.peek() === "#") {
+          stream.skipToEnd();
+          return "comment";
+        }
+        if (stream.match(/^export(?=\s)/)) return "keyword";
+        if (stream.match(/^[^=\s#]+/)) {
+          state.phase = "key";
+          return "propertyName";
+        }
+        break;
+      case "key":
+        if (stream.eat("=")) {
+          state.phase = "value";
+          return "punctuation";
+        }
+        break;
+      case "value": {
+        state.phase = "tail";
+        const quote = stream.peek();
+        if (quote === '"' || quote === "'" || quote === "`") {
+          stream.next();
+          let ch;
+          while ((ch = stream.next()) !== undefined) {
+            if (ch === "\\" && quote === '"') stream.next();
+            else if (ch === quote) break;
+          }
+          return "string";
+        }
+        if (stream.match(/^.*?(?=\s+#|$)/) && stream.current()) return "string";
+        break;
+      }
+      case "tail":
+        if (stream.peek() === "#") {
+          stream.skipToEnd();
+          return "comment";
+        }
+        break;
+    }
+    stream.skipToEnd();
+    return state.phase === "start" ? "invalid" : null;
+  },
+  languageData: { commentTokens: { line: "#" } },
 });
 
 function languageExtension(
-  language: "yaml" | "sql",
+  language: "yaml" | "sql" | "env",
   dialect: "mysql" | "postgres",
   schema: SqlSchema | undefined,
 ) {
+  if (language === "env") return envLanguage;
   if (language !== "sql") return yaml();
   return sql({
     dialect: dialect === "postgres" ? PostgreSQL : MySQL,
@@ -135,16 +282,21 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     dialect = "mysql",
     schema,
     readOnly = false,
+    placeholder,
     rows = 20,
     fill = false,
     id,
     ariaLabel,
     onSubmit,
     onSelectionChange,
+    onHistoryChange,
+    onScroll,
   },
   ref,
 ) {
   const host = useRef<HTMLDivElement>(null);
+  // Pixel height once the user has dragged the bottom edge; until then `rows`.
+  const [dragHeight, setDragHeight] = useState<number | null>(null);
   const view = useRef<EditorView | null>(null);
   // Kept in a ref so the editor is created once: rebuilding it on every render
   // would drop selection, scroll position and undo history on each keystroke.
@@ -154,6 +306,14 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   onSubmitRef.current = onSubmit;
   const onSelectionRef = useRef(onSelectionChange);
   onSelectionRef.current = onSelectionChange;
+  const onHistoryRef = useRef(onHistoryChange);
+  onHistoryRef.current = onHistoryChange;
+  const lastHistory = useRef("");
+  const onScrollRef = useRef(onScroll);
+  onScrollRef.current = onScroll;
+  // Where `scrollTo` last put the scroller; the scroll event that answers it is
+  // ours, not the user's, and must not be reported back.
+  const programmatic = useRef<ScrollPos | null>(null);
   const readOnlyComp = useRef(new Compartment());
   // The schema arrives after the table list loads, and can change with the
   // database, so completion is reconfigured rather than baked in at creation.
@@ -169,7 +329,11 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         extensions: [
           lineNumbers(),
           highlightActiveLine(),
+          ...(placeholder ? [placeholderText(placeholder)] : []),
           highlightSelectionMatches(),
+          // Top, next to the toolbar that opens it, not under a tall document.
+          search({ top: true }),
+          searchMatchCount,
           history(),
           closeBrackets(),
           languageComp.current.of(languageExtension(language, dialect, schema)),
@@ -201,6 +365,15 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
           readOnlyComp.current.of(EditorState.readOnly.of(readOnly)),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
+            if (update.transactions.length > 0) {
+              const canUndo = undoDepth(update.state) > 0;
+              const canRedo = redoDepth(update.state) > 0;
+              const key = `${canUndo}${canRedo}`;
+              if (key !== lastHistory.current) {
+                lastHistory.current = key;
+                onHistoryRef.current?.({ canUndo, canRedo });
+              }
+            }
             if (update.docChanged || update.selectionSet) {
               const { from, to } = update.state.selection.main;
               onSelectionRef.current?.(from === to ? "" : update.state.sliceDoc(from, to));
@@ -214,7 +387,17 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       }),
     });
     view.current = editor;
+    const scroller = editor.scrollDOM;
+    const reportScroll = () => {
+      const pos = { top: scroller.scrollTop, left: scroller.scrollLeft };
+      const echo = programmatic.current;
+      programmatic.current = null;
+      if (echo && Math.abs(echo.top - pos.top) < 1 && Math.abs(echo.left - pos.left) < 1) return;
+      onScrollRef.current?.(pos);
+    };
+    scroller.addEventListener("scroll", reportScroll, { passive: true });
     return () => {
+      scroller.removeEventListener("scroll", reportScroll);
       editor.destroy();
       view.current = null;
     };
@@ -254,6 +437,46 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
 
   useImperativeHandle(ref, () => ({
     focus: () => view.current?.focus(),
+    openSearch: () => {
+      if (view.current) openSearchPanel(view.current);
+    },
+    undo: () => {
+      if (view.current) undo(view.current);
+    },
+    redo: () => {
+      if (view.current) redo(view.current);
+    },
+    scrollTo: ({ top, left }) => {
+      const scroller = view.current?.scrollDOM;
+      if (!scroller) return;
+      // Clamp first, so the echo check compares against where it will really land.
+      const target = {
+        top: Math.min(top, scroller.scrollHeight - scroller.clientHeight),
+        left: Math.min(left, scroller.scrollWidth - scroller.clientWidth),
+      };
+      if (
+        Math.abs(scroller.scrollTop - target.top) < 1 &&
+        Math.abs(scroller.scrollLeft - target.left) < 1
+      )
+        return;
+      programmatic.current = target;
+      scroller.scrollTop = target.top;
+      scroller.scrollLeft = target.left;
+    },
+    openGotoLine: () => {
+      if (view.current) gotoLine(view.current);
+    },
+    goToLine: (n: number) => {
+      const editor = view.current;
+      if (!editor) return;
+      const doc = editor.state.doc;
+      const line = doc.line(Math.min(Math.max(1, Math.round(n)), doc.lines));
+      editor.dispatch({
+        selection: { anchor: line.from, head: line.to },
+        effects: EditorView.scrollIntoView(line.from, { y: "center" }),
+      });
+      editor.focus();
+    },
     revealLine: (text: string) => {
       const editor = view.current;
       if (!editor) return;
@@ -274,13 +497,51 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     },
   }));
 
+  if (fill) return <div className="code-editor code-editor-fill" ref={host} />;
+
+  /* A hand-rolled handle rather than CSS `resize`: WebKitGTK doesn't offer it on
+     a div, and CodeMirror's scroller would cover the corner grip if it did. */
+  function startResize(e: ReactPointerEvent<HTMLDivElement>) {
+    const box = host.current;
+    if (!box || e.button !== 0) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startHeight = box.getBoundingClientRect().height;
+    const move = (ev: PointerEvent) =>
+      setDragHeight(Math.max(MIN_HEIGHT_PX, startHeight + ev.clientY - startY));
+    const stop = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+  }
+
   return (
-    <div
-      className={fill ? "code-editor code-editor-fill" : "code-editor"}
-      /* Sized in rows to match the `rows` prop on the TextArea this replaces,
-         computed from the same line-height the theme sets above. */
-      style={fill ? undefined : { height: `calc(${rows} * 1.6 * 0.8125rem + 2 * var(--space-2))` }}
-      ref={host}
-    />
+    <div className="code-editor-resizable">
+      <div
+        className="code-editor"
+        /* Sized in rows to match the `rows` prop on the TextArea this replaces,
+           computed from the same line-height the theme sets above. */
+        style={{
+          height:
+            dragHeight !== null
+              ? `${dragHeight}px`
+              : `calc(${rows} * 1.6 * 0.8125rem + 2 * var(--space-2))`,
+        }}
+        ref={host}
+      />
+      <div
+        className="code-editor-grip"
+        aria-hidden
+        title="Drag to resize"
+        onPointerDown={startResize}
+        onDoubleClick={() => setDragHeight(null)}
+      />
+    </div>
   );
 });

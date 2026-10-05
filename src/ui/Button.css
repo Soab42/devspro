@@ -110,6 +110,12 @@
   background-color: var(--color-active);
 }
 
+/* A ghost icon button that is "live" — e.g. undo while there is history to
+   undo — stands out from its idle neighbours. Disabled wins. */
+.btn-ghost.btn-live:not(:disabled) {
+  color: var(--color-accent);
+}
+
 /* Outlined danger — the default for destructive row actions, where a wall of
    solid red would drown the table. */
 .btn-danger {
