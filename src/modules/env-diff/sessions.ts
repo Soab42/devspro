@@ -4,6 +4,16 @@ import type { DiffFilter } from "./envFile";
 
 export type SideName = "left" | "right";
 
+/** What the user calls each side. "dev" and "live" say which file is which; left and right don't. */
+export type SideLabels = Partial<Record<SideName, string>>;
+
+/** A side's name as a heading: its label, or Left / Right. */
+export const sideTitle = (labels: SideLabels, side: SideName) =>
+  labels[side] ?? (side === "left" ? "Left" : "Right");
+
+/** A side's name mid-sentence: its label as typed, or left / right. */
+export const sideName = (labels: SideLabels, side: SideName) => labels[side] ?? side;
+
 /**
  * A saved comparison: which two files, and how they were being looked at.
  *
@@ -19,6 +29,8 @@ export interface EnvSession {
   right: string | null;
   /** Sides saved as pasted text rather than a path. */
   pasted: SideName[];
+  /** Only the sides that were renamed. */
+  labels: SideLabels;
   keysOnly: boolean;
   syncScroll: boolean;
   filter: DiffFilter;
@@ -42,6 +54,17 @@ const FILTERS: readonly DiffFilter[] = [
 
 const pathOrNull = (value: unknown) => (typeof value === "string" && value ? value : null);
 
+function labelsOf(value: unknown): SideLabels {
+  if (typeof value !== "object" || value === null) return {};
+  const v = value as Record<string, unknown>;
+  const labels: SideLabels = {};
+  for (const side of ["left", "right"] as const) {
+    const label = v[side];
+    if (typeof label === "string" && label.trim()) labels[side] = label.trim();
+  }
+  return labels;
+}
+
 export function parseSessions(raw: string | null | undefined): EnvSession[] {
   if (!raw) return [];
   try {
@@ -64,6 +87,7 @@ export function parseSessions(raw: string | null | undefined): EnvSession[] {
           left,
           right,
           pasted,
+          labels: labelsOf(s.labels),
           keysOnly: s.keysOnly === true,
           syncScroll: s.syncScroll !== false,
           filter: FILTERS.includes(s.filter as DiffFilter) ? (s.filter as DiffFilter) : "diff",

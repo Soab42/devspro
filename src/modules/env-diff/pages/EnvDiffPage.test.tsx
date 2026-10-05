@@ -42,8 +42,15 @@ function renderPage() {
 const contents = () => screen.getAllByLabelText("Contents") as HTMLTextAreaElement[];
 const paste = (box: HTMLTextAreaElement, text: string) =>
   fireEvent.change(box, { target: { value: text } });
+/** Renames a side the way a user does: its heading's pencil, type, Enter. */
+const rename = (from: string, to: string) => {
+  fireEvent.click(screen.getByRole("button", { name: `Rename ${from}` }));
+  const box = screen.getByLabelText(`Name for ${from}`);
+  fireEvent.change(box, { target: { value: to } });
+  fireEvent.keyDown(box, { key: "Enter" });
+};
 
-const table = () => screen.getByRole("table", { name: /variables in the left and right/i });
+const table = () => screen.getByRole("table", { name: /^variables in the .+ env files$/i });
 const rowFor = (key: string) => within(table()).getByText(key).closest("tr") as HTMLElement;
 
 beforeEach(() => {
@@ -71,6 +78,27 @@ describe("EnvDiffPage", () => {
     expect(within(rowFor("ONLY_RIGHT")).getByText("Only in right")).toBeDefined();
     expect(within(rowFor("CHANGED")).getByText("Different value")).toBeDefined();
     expect(within(table()).queryByText("SAME")).toBeNull();
+  });
+
+  it("calls each side what the user named it", () => {
+    renderPage();
+    const [left, right] = contents();
+    paste(left, "A=1\nONLY_LEFT=x\n");
+    paste(right, "A=2\n");
+    rename("Left", "dev");
+    rename("Right", "live");
+
+    expect(screen.getByRole("heading", { name: /^dev/ })).toBeDefined();
+    expect(within(rowFor("ONLY_LEFT")).getByText("Only in dev")).toBeDefined();
+    expect(within(rowFor("A")).getByRole("button", { name: "Use dev value on live" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Add 1 missing to live" })).toBeDefined();
+
+    // Escape keeps the name it had.
+    fireEvent.click(screen.getByRole("button", { name: "Rename live" }));
+    const box = screen.getByLabelText("Name for live");
+    fireEvent.change(box, { target: { value: "prod" } });
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "Rename live" })).toBeDefined();
   });
 
   it("reports identical files rather than an empty table", () => {
@@ -297,7 +325,7 @@ describe("EnvDiffPage sessions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
     const row = (await screen.findByText(name)).closest("tr") as HTMLElement;
     await act(async () => {
-      fireEvent.click(within(row).getByRole("button", { name: "Open" }));
+      fireEvent.click(row);
     });
   };
 
@@ -327,6 +355,7 @@ describe("EnvDiffPage sessions", () => {
         left: "/w/api/.env",
         right: null,
         pasted: ["right"],
+        labels: {},
         keysOnly: false,
         syncScroll: true,
         filter: "diff",
@@ -402,6 +431,49 @@ describe("EnvDiffPage sessions", () => {
     renderPage();
     await openFromList("api");
     expect(await screen.findByText(/pasted text isn't stored on this machine/)).toBeDefined();
+  });
+
+  it("opens a session from the keyboard, and not from its delete button", async () => {
+    withStored([SAVED]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const row = (await screen.findByText("/w/api/.env.example")).closest("tr") as HTMLElement;
+    fireEvent.keyDown(within(row).getByRole("button", { name: "Delete api" }), { key: "Enter" });
+    expect(invoke).not.toHaveBeenCalledWith("env_diff_read_file", expect.anything());
+    await act(async () => {
+      fireEvent.keyDown(row, { key: "Enter" });
+    });
+    await waitFor(() => expect(contents()[0].value).toBe(FILES["/w/api/.env"]));
+    expect(screen.getByText('Opened session "api".')).toBeDefined();
+  });
+
+  it("saves what each side is called and brings the names back", async () => {
+    withStored([]);
+    renderPage();
+    paste(contents()[0], "A=1\nONLY_DEV=x\n");
+    paste(contents()[1], "A=1\n");
+    rename("Left", "dev");
+    rename("Right", "live");
+    fireEvent.click(screen.getByRole("button", { name: "Save session" }));
+    expect(screen.getByText("dev:")).toBeDefined();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "envs" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    const call = invoke.mock.calls.find(([cmd]) => cmd === "settings_set");
+    expect(JSON.parse((call?.[1] as { value: string }).value)[0].labels).toEqual({
+      left: "dev",
+      right: "live",
+    });
+
+    // Back to the defaults, then the session brings the names back.
+    rename("dev", "");
+    expect(within(rowFor("ONLY_DEV")).getByText("Only in left")).toBeDefined();
+    await openFromList("envs");
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Discard and open" }));
+    });
+    expect(await within(rowFor("ONLY_DEV")).findByText("Only in dev")).toBeDefined();
   });
 
   it("explains there is nothing to save while both sides are empty", () => {

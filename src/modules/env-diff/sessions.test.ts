@@ -14,6 +14,7 @@ const session = (name: string, extra: Partial<EnvSession> = {}): EnvSession => (
   left: "/w/api/.env",
   right: "/w/api/.env.example",
   pasted: [],
+  labels: {},
   keysOnly: false,
   syncScroll: true,
   filter: "diff",
@@ -22,7 +23,14 @@ const session = (name: string, extra: Partial<EnvSession> = {}): EnvSession => (
 
 describe("parseSessions", () => {
   it("reads back what was stored", () => {
-    const list = [session("api", { keysOnly: true, filter: "only-left", syncScroll: false })];
+    const list = [
+      session("api", {
+        keysOnly: true,
+        filter: "only-left",
+        syncScroll: false,
+        labels: { left: "dev", right: "live" },
+      }),
+    ];
     expect(parseSessions(JSON.stringify(list))).toEqual(list);
   });
 
@@ -49,11 +57,21 @@ describe("parseSessions", () => {
         left: "/a/.env",
         right: null,
         pasted: [],
+        labels: {},
         keysOnly: false,
         syncScroll: true,
         filter: "diff",
       },
     ]);
+  });
+
+  it("keeps only the side names that say something", () => {
+    const labelsOf = (labels: unknown) =>
+      parseSessions(JSON.stringify([{ name: "x", left: "/a/.env", labels }]))[0].labels;
+    expect(labelsOf({ left: "  dev ", right: "" })).toEqual({ left: "dev" });
+    expect(labelsOf({ left: 3, right: "live", middle: "x" })).toEqual({ right: "live" });
+    expect(labelsOf("dev")).toEqual({});
+    expect(labelsOf(undefined)).toEqual({});
   });
 
   it("keeps a session of pasted text alone, and reads older ones without the field", () => {

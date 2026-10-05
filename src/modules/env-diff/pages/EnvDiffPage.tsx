@@ -54,18 +54,29 @@ import {
   EnvSession,
   PastedText,
   readPasted,
+  SideLabels,
   SideName,
+  sideName,
+  sideTitle,
   suggestName,
   useEnvSessions,
 } from "../sessions";
 
-const STATUS_LABEL: Record<DiffStatus, string> = {
-  same: "Same",
-  changed: "Different value",
-  commented: "Commented out",
-  "only-left": "Only in left",
-  "only-right": "Only in right",
-};
+/** A row's status as its badge says it, each side called what the user calls it. */
+function statusText(row: DiffRow, labels: SideLabels): string {
+  switch (row.status) {
+    case "same":
+      return "Same";
+    case "changed":
+      return "Different value";
+    case "commented":
+      return `Commented out in ${sideName(labels, row.left?.commented ? "left" : "right")}`;
+    case "only-left":
+      return `Only in ${sideName(labels, "left")}`;
+    case "only-right":
+      return `Only in ${sideName(labels, "right")}`;
+  }
+}
 
 const STATUS_TONE: Record<DiffStatus, BadgeTone> = {
   same: "neutral",
@@ -85,15 +96,16 @@ const STATUS_RANK: Record<DiffStatus, number> = {
 };
 
 /** What copying `row` over to the `to` side will do, as a button label. */
-function copyLabel(row: DiffRow, to: "left" | "right"): string {
-  const fromName = to === "right" ? "left" : "right";
-  const from = row[fromName];
-  if (!row[to]) return `Add to ${to}`;
+function copyLabel(row: DiffRow, to: SideName, labels: SideLabels): string {
+  const fromSide = to === "right" ? "left" : "right";
+  const from = row[fromSide];
+  const toName = sideName(labels, to);
+  if (!row[to]) return `Add to ${toName}`;
   if (row.status === "commented") {
-    if (from?.commented) return `Comment out on ${to}`;
-    if (from?.value === row[to]?.value) return `Uncomment on ${to}`;
+    if (from?.commented) return `Comment out on ${toName}`;
+    if (from?.value === row[to]?.value) return `Uncomment on ${toName}`;
   }
-  return `Use ${fromName} value on ${to}`;
+  return `Use ${sideName(labels, fromSide)} value on ${toName}`;
 }
 
 const MASK = "••••••••";
@@ -122,6 +134,17 @@ export default function EnvDiffPage() {
   // On by default: the usual job is reading two copies of the same file side by
   // side, where the line numbers line up.
   const [syncScroll, setSyncScroll] = useState(true);
+  // What the user calls each side, e.g. dev and live. Saved with a session.
+  const [labels, setLabels] = useState<SideLabels>({});
+  const title = (side: SideName) => sideTitle(labels, side);
+  const named = (side: SideName) => sideName(labels, side);
+  const rename = (side: SideName) => (label: string) =>
+    setLabels((current) => {
+      const next = { ...current };
+      if (label) next[side] = label;
+      else delete next[side];
+      return next;
+    });
   const leftEditor = useRef<CodeEditorHandle>(null);
   const rightEditor = useRef<CodeEditorHandle>(null);
   // Set while both editors jump to a variable's own line: sync scroll would
@@ -178,7 +201,7 @@ export default function EnvDiffPage() {
     }));
     setNotice({
       tone: "success",
-      text: `${changes.length === 1 ? changes[0].key : `${changes.length} variables`} copied to the ${to} file.`,
+      text: `${changes.length === 1 ? changes[0].key : `${changes.length} variables`} copied to the ${named(to)} file.`,
     });
   }
 
@@ -188,7 +211,7 @@ export default function EnvDiffPage() {
       ...current,
       text: removeKeys(current.text, [row.key]),
     }));
-    setNotice({ tone: "success", text: `${row.key} removed from the ${side} file.` });
+    setNotice({ tone: "success", text: `${row.key} removed from the ${named(side)} file.` });
   }
 
   const leftName = shortName(left.path, right.path);
@@ -199,8 +222,8 @@ export default function EnvDiffPage() {
   const filterOptions: { value: DiffFilter; label: string; count: number }[] = [
     { value: "all", label: "All", count: rows.length },
     { value: "diff", label: "Differences", count: differences },
-    { value: "only-left", label: "Only in left", count: counts["only-left"] },
-    { value: "only-right", label: "Only in right", count: counts["only-right"] },
+    { value: "only-left", label: `Only in ${named("left")}`, count: counts["only-left"] },
+    { value: "only-right", label: `Only in ${named("right")}`, count: counts["only-right"] },
     ...(keysOnly ? [] : [{ value: "changed" as const, label: "Different value", count: counts.changed }]),
     { value: "commented", label: "Commented", count: counts.commented },
     { value: "same", label: "Same", count: counts.same },
@@ -245,11 +268,7 @@ export default function EnvDiffPage() {
       sortValue: (r) => STATUS_RANK[r.status],
       render: (r) => (
         <Stack direction="row" gap={2} wrap align="center">
-          <Badge tone={STATUS_TONE[r.status]}>
-            {r.status === "commented"
-              ? `Commented out in ${r.left?.commented ? "left" : "right"}`
-              : STATUS_LABEL[r.status]}
-          </Badge>
+          <Badge tone={STATUS_TONE[r.status]}>{statusText(r, labels)}</Badge>
           {r.renamed && (
             <Badge tone="accent">
               {r.status === "only-left" ? "Renamed to" : "Renamed from"} {r.renamed}?
@@ -263,16 +282,16 @@ export default function EnvDiffPage() {
       : [
           {
             key: "left",
-            header: leftName ? `Left · ${leftName}` : "Left",
-            headerLabel: "Left value",
+            header: leftName ? `${title("left")} · ${leftName}` : title("left"),
+            headerLabel: `${title("left")} value`,
             priority: 2 as const,
             width: share(1.5),
             render: (r: DiffRow) => <ValueCell entry={r.left} reveal={reveal} />,
           },
           {
             key: "right",
-            header: rightName ? `Right · ${rightName}` : "Right",
-            headerLabel: "Right value",
+            header: rightName ? `${title("right")} · ${rightName}` : title("right"),
+            headerLabel: `${title("right")} value`,
             priority: 2 as const,
             width: share(1.5),
             render: (r: DiffRow) => <ValueCell entry={r.right} reveal={reveal} />,
@@ -289,21 +308,21 @@ export default function EnvDiffPage() {
           {r.status !== "same" && r.status !== "only-right" && (
             <IconButton
               icon={ArrowRight}
-              label={copyLabel(r, "right")}
+              label={copyLabel(r, "right", labels)}
               onClick={() => copyAcross([r], "right")}
             />
           )}
           {r.status !== "same" && r.status !== "only-left" && (
             <IconButton
               icon={ArrowLeft}
-              label={copyLabel(r, "left")}
+              label={copyLabel(r, "left", labels)}
               onClick={() => copyAcross([r], "left")}
             />
           )}
           {(r.status === "only-left" || r.status === "only-right") && (
             <IconButton
               icon={Trash2}
-              label={`Remove from ${r.status === "only-left" ? "left" : "right"}`}
+              label={`Remove from ${named(r.status === "only-left" ? "left" : "right")}`}
               onClick={() => removeFrom(r, r.status === "only-left" ? "left" : "right")}
             />
           )}
@@ -320,7 +339,7 @@ export default function EnvDiffPage() {
     setNotice({
       tone: "success",
       text: [
-        `The ${to} file now follows the ${from} file's layout.`,
+        `The ${named(to)} file now follows the ${named(from)} file's layout.`,
         gaps === 1 && "1 variable it doesn't have is left as a blank line.",
         gaps > 1 && `${gaps} variables it doesn't have are left as blank lines.`,
         extras === 1 && "Its 1 own variable is at the end.",
@@ -352,7 +371,10 @@ export default function EnvDiffPage() {
         const text = pastedText[name];
         // A session restored from a backup arrives without its pasted text.
         return text === undefined
-          ? { side: emptySide(), error: `the ${name} side's pasted text isn't stored on this machine` }
+          ? {
+              side: emptySide(),
+              error: `the ${sideName(session.labels, name)} side's pasted text isn't stored on this machine`,
+            }
           : { side: { text, path: null, disk: null } };
       }
       const path = session[name];
@@ -372,6 +394,7 @@ export default function EnvDiffPage() {
       right: r.error ? (session.right ?? undefined) : undefined,
     });
     setActiveName(session.name);
+    setLabels(session.labels);
     setKeysOnly(session.keysOnly);
     setSyncScroll(session.syncScroll);
     setFilter(session.filter);
@@ -389,10 +412,11 @@ export default function EnvDiffPage() {
 
   const sides: Record<SideName, EnvSide> = { left, right };
   const isPasted = (side: EnvSide) => side.path === null && side.text.trim() !== "";
-  const summary = (side: EnvSide): SideSummary => ({
-    path: side.path,
-    pasted: isPasted(side),
-    dirty: isDirty(side),
+  const summary = (name: SideName): SideSummary => ({
+    label: title(name),
+    path: sides[name].path,
+    pasted: isPasted(sides[name]),
+    dirty: isDirty(sides[name]),
   });
 
   function saveSession(name: string) {
@@ -400,7 +424,10 @@ export default function EnvDiffPage() {
     const pasted = (["left", "right"] as const).filter((n) => isPasted(sides[n]));
     const text: PastedText = Object.fromEntries(pasted.map((n) => [n, sides[n].text]));
     sessions
-      .save({ name, left: left.path, right: right.path, pasted, keysOnly, syncScroll, filter }, text)
+      .save(
+        { name, left: left.path, right: right.path, pasted, labels, keysOnly, syncScroll, filter },
+        text,
+      )
       .then(() => {
         setActiveName(name);
         setNotice({ tone: "success", text: `Saved session "${name}".` });
@@ -460,7 +487,7 @@ export default function EnvDiffPage() {
             disabled={!canArrange}
             onClick={() => arrange("right")}
           >
-            Arrange right like left
+            Arrange {named("right")} like {named("left")}
           </Button>
           <Button
             variant="ghost"
@@ -469,7 +496,7 @@ export default function EnvDiffPage() {
             disabled={!canArrange}
             onClick={() => arrange("left")}
           >
-            Arrange left like right
+            Arrange {named("left")} like {named("right")}
           </Button>
           <Switch checked={syncScroll} onChange={setSyncScroll} label="Sync scroll" />
         </Stack>
@@ -477,7 +504,9 @@ export default function EnvDiffPage() {
         <FormGrid columns={2}>
           <EnvSource
             key={`left-${generation}`}
-            label="Left"
+            label={title("left")}
+            name={named("left")}
+            onRename={rename("left")}
             side={left}
             issues={parsedLeft.issues}
             onChange={setLeft}
@@ -488,7 +517,9 @@ export default function EnvDiffPage() {
           />
           <EnvSource
             key={`right-${generation}`}
-            label="Right"
+            label={title("right")}
+            name={named("right")}
+            onRename={rename("right")}
             side={right}
             issues={parsedRight.issues}
             onChange={setRight}
@@ -516,7 +547,7 @@ export default function EnvDiffPage() {
                 disabled={missingFromRight.length === 0}
                 onClick={() => copyAcross(missingFromRight, "right")}
               >
-                Add {missingFromRight.length} missing to right
+                Add {missingFromRight.length} missing to {named("right")}
               </Button>
               <Button
                 variant="secondary"
@@ -524,7 +555,7 @@ export default function EnvDiffPage() {
                 disabled={missingFromLeft.length === 0}
                 onClick={() => copyAcross(missingFromLeft, "left")}
               >
-                Add {missingFromLeft.length} missing to left
+                Add {missingFromLeft.length} missing to {named("left")}
               </Button>
             </>
           }
@@ -561,7 +592,7 @@ export default function EnvDiffPage() {
             rows={visible}
             rowKey={(r) => r.key}
             defaultSort={{ key: "key", dir: "asc" }}
-            caption="Variables in the left and right env files"
+            caption={`Variables in the ${named("left")} and ${named("right")} env files`}
             empty={
               rows.length > 0 && differences === 0 && filter === "diff" && !q
                 ? {
@@ -583,8 +614,8 @@ export default function EnvDiffPage() {
 
       {dialog === "save" && (
         <SaveSessionModal
-          left={summary(left)}
-          right={summary(right)}
+          left={summary("left")}
+          right={summary("right")}
           initialName={currentSession?.name ?? suggestName(left.path, right.path)}
           existing={sessions.list}
           onSave={saveSession}

@@ -15,7 +15,7 @@ import {
   TextInput,
 } from "../../../ui";
 import { CodeEditor, CodeEditorHandle, ScrollPos } from "../../../ui/CodeEditor";
-import { FileUp, FolderOpen, ListOrdered, Redo2, Search, Undo2 } from "../../../ui/icons";
+import { FileUp, FolderOpen, ListOrdered, Pencil, Redo2, Search, Undo2 } from "../../../ui/icons";
 import { readEnvFile, writeEnvFile } from "../api";
 import { EnvIssue, EnvSide, emptySide, isDirty } from "../envFile";
 
@@ -28,6 +28,57 @@ const MAX_ISSUES = 4;
 
 export const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** The side's heading, renamable in place. Emptied, it goes back to Left or Right. */
+function SideTitle({ label, onRename }: { label: string; onRename: (label: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  // Enter and Escape both remove the input, which can blur it on the way out;
+  // without this, that blur would save an edit Escape just threw away.
+  const settled = useRef(false);
+
+  function finish(save: boolean) {
+    if (settled.current || draft === null) return;
+    settled.current = true;
+    if (save) onRename(draft.trim());
+    setDraft(null);
+  }
+
+  if (draft === null) {
+    return (
+      <>
+        {label}{" "}
+        <IconButton
+          icon={Pencil}
+          size="sm"
+          variant="ghost"
+          label={`Rename ${label}`}
+          onClick={() => {
+            settled.current = false;
+            setDraft(label);
+          }}
+        />
+      </>
+    );
+  }
+  return (
+    <TextInput
+      inputSize="sm"
+      autoFocus
+      maxLength={40}
+      aria-label={`Name for ${label}`}
+      placeholder="e.g. dev, staging, live"
+      value={draft}
+      // Selected, so typing replaces "Left" rather than adding to it.
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => finish(true)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") finish(true);
+        if (e.key === "Escape") finish(false);
+      }}
+    />
+  );
+}
+
 /**
  * One of the two files. Its text is the source of truth for the comparison —
  * loading a file just fills the box — so a pasted snippet, a loaded file and a
@@ -35,6 +86,8 @@ export const messageOf = (e: unknown) => (e instanceof Error ? e.message : Strin
  */
 export default function EnvSource({
   label,
+  name,
+  onRename,
   side,
   issues,
   onChange,
@@ -43,7 +96,12 @@ export default function EnvSource({
   onScroll,
   initialPath,
 }: {
+  /** The side's heading: "Left", or what the user named it. */
   label: string;
+  /** The same, mid-sentence: "left", or the name as typed. */
+  name: string;
+  /** An empty name means back to the default. */
+  onRename: (label: string) => void;
   side: EnvSide;
   issues: EnvIssue[];
   onChange: (next: EnvSide) => void;
@@ -73,7 +131,6 @@ export default function EnvSource({
   const [allIssues, setAllIssues] = useState(false);
 
   const dirty = isDirty(side);
-  const lower = label.toLowerCase();
 
   async function load(path: string) {
     const target = path.trim();
@@ -94,7 +151,7 @@ export default function EnvSource({
   async function browse() {
     try {
       // No extension filter: `.env` and `.env.local` have no extension to match.
-      const selected = await open({ multiple: false, title: `Select the ${lower} env file` });
+      const selected = await open({ multiple: false, title: `Select the ${name} env file` });
       if (!selected || Array.isArray(selected)) return;
       await load(selected);
     } catch (e) {
@@ -108,7 +165,7 @@ export default function EnvSource({
       <p>
         Overwrite <Mono variant="chip">{side.path}</Mono> with the contents shown here?
       </p>,
-      { title: `Save the ${lower} file?`, confirmLabel: "Save" },
+      { title: `Save the ${name} file?`, confirmLabel: "Save" },
     );
     if (!ok) return;
 
@@ -132,7 +189,7 @@ export default function EnvSource({
 
   return (
     <Section
-      title={label}
+      title={<SideTitle label={label} onRename={onRename} />}
       meta={
         <>
           {side.path && (
@@ -185,7 +242,7 @@ export default function EnvSource({
           {side.text && (
             <IconButton
               icon={Search}
-              label={`Search ${lower} contents (Ctrl+F)`}
+              label={`Search ${name} contents (Ctrl+F)`}
               onClick={() => editor.current?.openSearch()}
             />
           )}
@@ -196,7 +253,7 @@ export default function EnvSource({
               onClick={() => editor.current?.openGotoLine()}
             />
           )}
-          {side.text && <CopyButton value={side.text} label={`Copy ${lower} contents`} />}
+          {side.text && <CopyButton value={side.text} label={`Copy ${name} contents`} />}
           {(side.text || side.path) && (
             <Button variant="ghost" onClick={clear}>
               Clear

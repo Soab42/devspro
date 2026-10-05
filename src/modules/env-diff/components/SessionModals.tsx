@@ -15,21 +15,23 @@ import {
   TextInput,
 } from "../../../ui";
 import { Bookmark, Save, Trash2 } from "../../../ui/icons";
-import type { EnvSession } from "../sessions";
+import { EnvSession, SideName, sideTitle } from "../sessions";
 
 /** What one side would be saved as. */
 export interface SideSummary {
+  /** What the side is called — "Left", or a name the user gave it. */
+  label: string;
   path: string | null;
   pasted: boolean;
   /** A file with edits not yet saved to it — the session keeps the path, not the edits. */
   dirty?: boolean;
 }
 
-function SideLine({ side, summary }: { side: string; summary: SideSummary }) {
-  const { path, pasted, dirty } = summary;
+function SideLine({ summary }: { summary: SideSummary }) {
+  const { label, path, pasted, dirty } = summary;
   return (
     <div>
-      <span className="u-secondary">{side}: </span>
+      <span className="u-secondary">{label}: </span>
       {path ? (
         <>
           <Mono truncate>{path}</Mono>
@@ -42,7 +44,8 @@ function SideLine({ side, summary }: { side: string; summary: SideSummary }) {
   );
 }
 
-const sideOf = (s: EnvSession, side: "left" | "right"): SideSummary => ({
+const sideOf = (s: EnvSession, side: SideName): SideSummary => ({
+  label: sideTitle(s.labels, side),
   path: s[side],
   pasted: s.pasted.includes(side),
 });
@@ -104,8 +107,8 @@ export function SaveSessionModal({
               <TextInput id={nameId} autoFocus value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
             <Stack gap={1}>
-              <SideLine side="Left" summary={left} />
-              <SideLine side="Right" summary={right} />
+              <SideLine summary={left} />
+              <SideLine summary={right} />
             </Stack>
             <p className="u-muted">
               Files are saved by path and read from disk again when the session is opened.
@@ -138,9 +141,11 @@ export function SessionsModal({
       sortValue: (s) => s.name,
       render: (s) => (
         <Stack gap={1}>
+          {/* Text, not a button: a cell holding a control stops truncating,
+              and a long path would then widen the dialog. The row opens it. */}
           <strong>{s.name}</strong>
-          <SideLine side="Left" summary={sideOf(s, "left")} />
-          <SideLine side="Right" summary={sideOf(s, "right")} />
+          <SideLine summary={sideOf(s, "left")} />
+          <SideLine summary={sideOf(s, "right")} />
         </Stack>
       ),
     },
@@ -152,10 +157,15 @@ export function SessionsModal({
       width: "1px",
       render: (s) => (
         <ActionGroup>
-          <Button variant="secondary" size="sm" onClick={() => onOpen(s)}>
-            Open
-          </Button>
-          <IconButton icon={Trash2} label={`Delete ${s.name}`} onClick={() => onDelete(s)} />
+          <IconButton
+            icon={Trash2}
+            label={`Delete ${s.name}`}
+            onClick={(e) => {
+              // The row itself opens the session; deleting must not also do that.
+              e.stopPropagation();
+              onDelete(s);
+            }}
+          />
         </ActionGroup>
       ),
     },
@@ -164,7 +174,7 @@ export function SessionsModal({
   return (
     <Modal
       title="Sessions"
-      description="Saved pairs of env files. Opening one reads its files from disk again."
+      description="Saved pairs of env files. Click one to open it; its files are read from disk again."
       icon={Bookmark}
       onClose={onClose}
     >
@@ -172,8 +182,20 @@ export function SessionsModal({
         columns={columns}
         rows={sessions}
         rowKey={(s) => s.name}
+        onRowClick={onOpen}
+        rowProps={(s) => ({
+          // The row is the way in, so the keyboard needs to reach it too.
+          tabIndex: 0,
+          title: `Open ${s.name}`,
+          onKeyDown: (e) => {
+            // Not when Enter is meant for the delete button inside it.
+            if (e.key === "Enter" && e.target === e.currentTarget) onOpen(s);
+          },
+        })}
+        // Two narrow columns: the default 640px floor only made the dialog scroll sideways.
+        minWidth={0}
         defaultSort={{ key: "name", dir: "asc" }}
-        caption="Saved env diff sessions"
+        caption="Saved env diff sessions; click one to open it"
         empty={{
           icon: Bookmark,
           title: "No saved sessions",
