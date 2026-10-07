@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { cancelScan, onScanProgress, scanCaches, scanSystem } from "../../api";
 import type { Finding, ScanProgress } from "../../api";
 import { newScanId } from "../../cleaner";
+import { getSlot, setSlot, useTabRestore, useTabSlot } from "../../tabState";
 
+const TAB = "caches";
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export interface CachesScan {
@@ -12,6 +14,8 @@ export interface CachesScan {
   error: string | null;
   /** Why the system scan failed; the caches tab still works without it. */
   systemError: string | null;
+  /** When the shown results were scanned, epoch ms; null before any scan. */
+  scannedAt: number | null;
   scanned: boolean;
   scanning: boolean;
   progress: ScanProgress | null;
@@ -19,58 +23,55 @@ export interface CachesScan {
   cancel: () => void;
 }
 
-/** Runs the caches and system scans together and tracks the caches scan's progress. */
-export function useCachesScan(): CachesScan {
-  const [caches, setCaches] = useState<Finding[]>([]);
-  const [system, setSystem] = useState<Finding[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [systemError, setSystemError] = useState<string | null>(null);
-  const [scanned, setScanned] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState<ScanProgress | null>(null);
-  const running = useRef<string[]>([]);
-  const mounted = useRef(true);
+const set = <T>(key: string, value: T, fallback: T) => setSlot(TAB, key, value, fallback);
 
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      for (const id of running.current) void cancelScan(id).catch(() => {});
-    };
-  }, []);
+/**
+ * Runs the caches and system scans together and tracks the caches scan's progress.
+ * The state lives in the tab store, so a scan keeps going, and keeps its results,
+ * when the tab is left.
+ */
+export function useCachesScan(): CachesScan {
+  useTabRestore(TAB);
+  const [caches] = useTabSlot<Finding[]>(TAB, "caches", []);
+  const [system] = useTabSlot<Finding[]>(TAB, "system", []);
+  const [error] = useTabSlot<string | null>(TAB, "error", null);
+  const [systemError] = useTabSlot<string | null>(TAB, "systemError", null);
+  const [scannedAt] = useTabSlot<number | null>(TAB, "scannedAt", null);
+  const [scanning] = useTabSlot(TAB, "scanning", false);
+  const [progress] = useTabSlot<ScanProgress | null>(TAB, "progress", null);
 
   const scan = useCallback(async () => {
+    if (getSlot(TAB, "scanning", false)) return;
     const cachesId = newScanId();
     const systemId = newScanId();
-    running.current = [cachesId, systemId];
-    setScanning(true);
-    setProgress(null);
-    setError(null);
-    setSystemError(null);
+    set("scanIds", [cachesId, systemId], [] as string[]);
+    set("scanning", true, false);
+    set<ScanProgress | null>("progress", null, null);
+    set<string | null>("error", null, null);
+    set<string | null>("systemError", null, null);
     const unlisten = await onScanProgress((p) => {
-      if (p.scan_id === cachesId && mounted.current) setProgress(p);
+      if (p.scan_id === cachesId) set<ScanProgress | null>("progress", p, null);
     }).catch(() => () => {});
     const [c, s] = await Promise.allSettled([scanCaches(cachesId), scanSystem(systemId)]);
     unlisten();
-    running.current = [];
-    if (!mounted.current) return;
-    if (c.status === "fulfilled") setCaches(c.value);
+    set("scanIds", [], [] as string[]);
+    if (c.status === "fulfilled") set("caches", c.value, [] as Finding[]);
     else {
-      setCaches([]);
-      setError(message(c.reason));
+      set("caches", [], [] as Finding[]);
+      set<string | null>("error", message(c.reason), null);
     }
-    if (s.status === "fulfilled") setSystem(s.value);
+    if (s.status === "fulfilled") set("system", s.value, [] as Finding[]);
     else {
-      setSystem([]);
-      setSystemError(message(s.reason));
+      set("system", [], [] as Finding[]);
+      set<string | null>("systemError", message(s.reason), null);
     }
-    setScanned(true);
-    setScanning(false);
+    set<number | null>("scannedAt", Date.now(), null);
+    set("scanning", false, false);
   }, []);
 
   const cancel = useCallback(() => {
-    for (const id of running.current) void cancelScan(id).catch(() => {});
+    for (const id of getSlot<string[]>(TAB, "scanIds", [])) void cancelScan(id).catch(() => {});
   }, []);
 
-  return { caches, system, error, systemError, scanned, scanning, progress, scan, cancel };
+  return { caches, system, error, systemError, scannedAt, scanned: scannedAt !== null, scanning, progress, scan, cancel };
 }

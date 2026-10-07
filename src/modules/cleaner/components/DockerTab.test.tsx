@@ -6,6 +6,7 @@ const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 
 import DockerTab from "./DockerTab";
+import { resetTabState } from "../tabState";
 
 const f = (over: Partial<Finding>): Finding => ({
   id: "x",
@@ -46,6 +47,7 @@ function mockBackend(scan: DockerScan, detection?: unknown) {
 }
 
 beforeEach(() => {
+  resetTabState();
   invoke.mockReset();
 });
 afterEach(cleanup);

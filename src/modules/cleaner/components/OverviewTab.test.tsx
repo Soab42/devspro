@@ -4,6 +4,7 @@ import { ConfirmProvider } from "../../../app/ConfirmContext";
 import type { Finding } from "../api";
 import { LAST_SCAN_KEY } from "./overview/lastScan";
 import OverviewTab from "./OverviewTab";
+import { resetTabState } from "../tabState";
 
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
@@ -36,6 +37,7 @@ let scans: Record<string, () => unknown>;
 let history: unknown[];
 
 beforeEach(() => {
+  resetTabState();
   localStorage.removeItem(LAST_SCAN_KEY);
   history = [];
   scans = {};

@@ -6,12 +6,14 @@ import type { CleanOutcome } from "../api";
 import { formatBytes, suggestedIds } from "../cleaner";
 import FindingsTable from "./FindingsTable";
 import ReviewCleanModal from "./ReviewCleanModal";
+import ScanStamp from "./ScanStamp";
+import { useTabSlot } from "../tabState";
 import { useCachesScan } from "./caches/useCachesScan";
 
 /** User-level caches and package stores, plus the system section the backend adds. */
 export default function CachesTab() {
-  const { caches, system, error, systemError, scanned, scanning, progress, scan, cancel } = useCachesScan();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const { caches, system, error, systemError, scannedAt, scanned, scanning, progress, scan, cancel } = useCachesScan();
+  const [selected, setSelected] = useTabSlot<Set<string>>("caches", "selected", new Set());
   const [reviewing, setReviewing] = useState(false);
 
   const all = useMemo(() => [...caches, ...system], [caches, system]);
@@ -22,7 +24,7 @@ export default function CachesTab() {
   useEffect(() => {
     const ids = new Set(all.map((f) => f.id));
     setSelected((prev) => (prev.size === 0 || [...prev].every((id) => ids.has(id)) ? prev : new Set([...prev].filter((id) => ids.has(id)))));
-  }, [all]);
+  }, [all, setSelected]);
 
   /** Each finding goes to the clean command of the tab that found it. */
   async function clean(ids: string[]): Promise<CleanOutcome[]> {
@@ -63,6 +65,8 @@ export default function CachesTab() {
           </Button>
         )}
       </Toolbar>
+
+      {!scanning && <ScanStamp at={scannedAt} />}
 
       {scanning && (
         <Stack gap={1}>

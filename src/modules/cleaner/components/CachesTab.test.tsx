@@ -14,6 +14,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 import CachesTab from "./CachesTab";
+import { resetTabState } from "../tabState";
 
 const MIB = 1024 * 1024;
 
@@ -72,6 +73,7 @@ async function scan() {
 const box = (name: string) => screen.getByRole("checkbox", { name: `Select ${name}` }) as HTMLInputElement;
 
 beforeEach(() => {
+  resetTabState();
   invoke.mockReset();
   listeners.length = 0;
 });

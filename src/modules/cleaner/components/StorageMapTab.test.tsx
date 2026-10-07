@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { MemoryRouter } from "react-router-dom";
 import type { StorageTree, TreeNode } from "../api";
 import StorageMapTab from "./StorageMapTab";
+import { resetTabState } from "../tabState";
 
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
@@ -75,7 +76,10 @@ async function scanned(tree?: StorageTree) {
   await screen.findByRole("group", { name: "Treemap" });
 }
 
-beforeEach(() => invoke.mockReset());
+beforeEach(() => {
+  resetTabState();
+  invoke.mockReset();
+});
 afterEach(cleanup);
 
 describe("StorageMapTab", () => {

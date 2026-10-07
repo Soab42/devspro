@@ -6,6 +6,7 @@
 //! - `guard`        — `check_removable`, the one gate every removal passes, and
 //!   `remove_path` (trash by default).
 //! - `history`      — what was cleaned and when, and the settings table.
+//! - `snapshot`     — each tab's last results as JSON, so they survive a restart.
 //! - `caches`, `system_items`, `docker`, `large_files`, `projects` — the tabs.
 //!
 //! Elevated cleanup, where a tab needs it, goes through the helper.
@@ -17,6 +18,7 @@ pub mod history;
 pub mod large_files;
 pub mod measure;
 pub mod projects;
+pub mod snapshot;
 pub mod storage_map;
 pub mod system_items;
 

@@ -3,6 +3,7 @@ import { Button, Callout, Column, DataTable, IconButton, Mono, Select, Spinner, 
 import { ChevronRight, Folder, File, FolderOpen } from "../../../../ui/icons";
 import { FolderEntry, folderSizes } from "../../api";
 import { formatBytes, newScanId } from "../../cleaner";
+import { useTabSlot } from "../../tabState";
 import { crumbsFor } from "./model";
 
 interface Props {
@@ -12,8 +13,12 @@ interface Props {
 
 /** The biggest folders, one level at a time: open a folder to see what fills it. */
 export default function FolderView({ roots, onReveal }: Props) {
-  const [root, setRoot] = useState(roots[0] ?? "");
-  const [path, setPath] = useState(roots[0] ?? "");
+  // Where the user was is remembered with the tab; a root that is gone falls back to the first.
+  const [savedRoot, setRoot] = useTabSlot("large-files", "foldersRoot", "");
+  const [savedPath, setSavedPath] = useTabSlot("large-files", "foldersPath", "");
+  const root = roots.includes(savedRoot) ? savedRoot : (roots[0] ?? "");
+  const path = savedPath && (savedPath === root || savedPath.startsWith(root.replace(/\/$/, "") + "/")) ? savedPath : root;
+  const setPath = setSavedPath;
   const [rows, setRows] = useState<FolderEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +81,7 @@ export default function FolderView({ roots, onReveal }: Props) {
             options={roots.map((r) => ({ value: r, label: r }))}
             onChange={(r) => {
               setRoot(r);
-              setPath(r);
+              setSavedPath(r);
             }}
           />
         )}

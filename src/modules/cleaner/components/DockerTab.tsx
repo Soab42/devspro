@@ -6,32 +6,44 @@ import type { CleanOutcome, DockerScan } from "../api";
 import { formatBytes, newScanId, suggestedIds } from "../cleaner";
 import FindingsTable from "./FindingsTable";
 import ReviewCleanModal from "./ReviewCleanModal";
+import ScanStamp from "./ScanStamp";
+import { getSlot, setSlot, useTabRestore, useTabSlot } from "../tabState";
 import UnavailableCallout from "./docker/UnavailableCallout";
 
 /** Docker's leftovers, one row each, grouped by kind; removes what is ticked. */
 export default function DockerTab() {
-  const [result, setResult] = useState<DockerScan | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const ready = useTabRestore("docker");
+  const [result] = useTabSlot<DockerScan | null>("docker", "result", null);
+  const [loading] = useTabSlot("docker", "scanning", false);
+  const [error] = useTabSlot<string | null>("docker", "error", null);
+  const [scannedAt] = useTabSlot<number | null>("docker", "scannedAt", null);
+  const [selected, setSelected] = useTabSlot<Set<string>>("docker", "selected", new Set());
   const [reviewing, setReviewing] = useState(false);
   const cleaned = useRef(false);
+  const autoScanned = useRef(false);
 
+  // The scan writes to the tab store, so it finishes into it even if this tab is left.
   const scan = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    if (getSlot("docker", "scanning", false)) return;
+    setSlot("docker", "scanning", true, false);
+    setSlot<string | null>("docker", "error", null, null);
     try {
-      setResult(await scanDocker(newScanId()));
-      setSelected(new Set());
+      const found = await scanDocker(newScanId());
+      setSlot<DockerScan | null>("docker", "result", found, null);
+      setSlot<number | null>("docker", "scannedAt", Date.now(), null);
+      setSlot("docker", "selected", new Set<string>(), new Set<string>());
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setSlot<string | null>("docker", "error", e instanceof Error ? e.message : String(e), null);
     }
-    setLoading(false);
+    setSlot("docker", "scanning", false, false);
   }, []);
 
+  // Only a tab with nothing to show scans by itself; a restored one waits for Rescan.
   useEffect(() => {
+    if (!ready || autoScanned.current || result !== null) return;
+    autoScanned.current = true;
     void scan();
-  }, [scan]);
+  }, [ready, result, scan]);
 
   const findings = result?.findings ?? [];
   const chosen = findings.filter((f) => selected.has(f.id));
@@ -70,6 +82,7 @@ export default function DockerTab() {
       </Toolbar>
 
       {error && <Callout tone="danger">{error}</Callout>}
+      {!loading && <ScanStamp at={scannedAt} />}
 
       {result && !result.available ? (
         <UnavailableCallout message={result.message} onRecheck={scan} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button, Callout, Card, Checkbox, DataTable, Meter, Mono, Select, Stack, Toolbar } from "../../../ui";
@@ -8,6 +8,8 @@ import { cancelScan, getSettings, onScanProgress, removeFiles, scanTree } from "
 import type { CleanOutcome, ExtStat, Finding, ScanProgress, StorageTree, TreeNode } from "../api";
 import { formatBytes, newScanId } from "../cleaner";
 import ReviewCleanModal from "./ReviewCleanModal";
+import ScanStamp from "./ScanStamp";
+import { getSlot, setSlot, useTabRestore, useTabSlot } from "../tabState";
 import { colorOfKind, FOLDER_COLOR, KIND_LABELS, kindOfName, layoutTree, type Cell } from "./storage-map/treemap";
 
 interface TreeRow {
@@ -16,6 +18,7 @@ interface TreeRow {
   key: string;
 }
 
+const TAB = "storage-map";
 const CHOOSE = "__choose__";
 const WIDTH = 1000;
 const HEIGHT = 520;
@@ -76,21 +79,24 @@ const formatPercent = (p: number) => (p > 0 && p < 0.1 ? "<0.1%" : `${p.toFixed(
 
 export default function StorageMapTab() {
   const navigate = useNavigate();
+  const ready = useTabRestore(TAB);
   const [roots, setRoots] = useState<string[]>([]);
-  const [root, setRoot] = useState("");
-  const [tree, setTree] = useState<StorageTree | null>(null);
-  const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState<ScanProgress | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [zoomPath, setZoomPath] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [root, setRoot] = useTabSlot(TAB, "root", "");
+  const [tree, setTree] = useTabSlot<StorageTree | null>(TAB, "tree", null);
+  const [scanning] = useTabSlot(TAB, "scanning", false);
+  const [progress] = useTabSlot<ScanProgress | null>(TAB, "progress", null);
+  const [error, setError] = useTabSlot<string | null>(TAB, "error", null);
+  const [scannedAt] = useTabSlot<number | null>(TAB, "scannedAt", null);
+  const [zoomPath, setZoomPath] = useTabSlot(TAB, "zoomPath", "");
+  const [selected, setSelected] = useTabSlot<string | null>(TAB, "selected", null);
+  const [expandedList, setExpandedList] = useTabSlot<string[]>(TAB, "expanded", []);
+  const expanded = useMemo(() => new Set(expandedList), [expandedList]);
   const [hover, setHover] = useState<TreeNode | null>(null);
   const [reviewing, setReviewing] = useState<TreeNode | null>(null);
   const [permanent, setPermanent] = useState(false);
-  const scanId = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!ready) return;
     let live = true;
     getSettings()
       .then((s) => {
@@ -102,19 +108,7 @@ export default function StorageMapTab() {
     return () => {
       live = false;
     };
-  }, []);
-
-  useEffect(() => {
-    let off: (() => void) | undefined;
-    let gone = false;
-    onScanProgress((p) => {
-      if (p.scan_id === scanId.current) setProgress(p);
-    }).then((un) => (gone ? un() : (off = un)));
-    return () => {
-      gone = true;
-      off?.();
-    };
-  }, []);
+  }, [ready, setRoot, setError]);
 
   const options = useMemo(() => {
     const paths = root && !roots.includes(root) ? [...roots, root] : roots;
@@ -127,29 +121,36 @@ export default function StorageMapTab() {
     if (typeof picked === "string") setRoot(picked);
   }
 
+  // The scan writes to the tab store, so it finishes into it even if this tab is left.
   async function scan() {
     const id = newScanId();
-    scanId.current = id;
-    setScanning(true);
-    setError(null);
-    setProgress(null);
+    setSlot(TAB, "scanId", id, null as string | null);
+    setSlot(TAB, "scanning", true, false);
+    setSlot(TAB, "error", null as string | null, null);
+    setSlot(TAB, "progress", null as ScanProgress | null, null);
+    const off = await onScanProgress((p) => {
+      if (p.scan_id === id) setSlot(TAB, "progress", p as ScanProgress | null, null);
+    }).catch(() => () => {});
     try {
       const result = await scanTree(id, root);
-      if (scanId.current !== id) return;
-      setTree(result);
-      setZoomPath(result.root.path);
-      setSelected(null);
-      setExpanded(new Set());
+      setSlot(TAB, "tree", result as StorageTree | null, null);
+      setSlot(TAB, "zoomPath", result.root.path, "");
+      setSlot(TAB, "selected", null as string | null, null);
+      setSlot(TAB, "expanded", [] as string[], []);
+      setSlot(TAB, "scannedAt", Date.now() as number | null, null);
       setHover(null);
     } catch (e) {
-      if (scanId.current === id) setError(e instanceof Error ? e.message : String(e));
+      setSlot(TAB, "error", (e instanceof Error ? e.message : String(e)) as string | null, null);
     } finally {
-      if (scanId.current === id) setScanning(false);
+      off();
+      setSlot(TAB, "scanId", null as string | null, null);
+      setSlot(TAB, "scanning", false, false);
     }
   }
 
   function cancel() {
-    if (scanId.current) void cancelScan(scanId.current).catch(() => {});
+    const id = getSlot<string | null>(TAB, "scanId", null);
+    if (id) void cancelScan(id).catch(() => {});
   }
 
   const chain = useMemo(() => (tree ? (pathTo(tree.root, zoomPath) ?? [tree.root]) : []), [tree, zoomPath]);
@@ -167,16 +168,19 @@ export default function StorageMapTab() {
       setSelected(path);
       const above = tree ? pathTo(tree.root, path) : null;
       if (above && above.length > 1) {
-        setExpanded((prev) => new Set([...prev, ...above.slice(0, -1).map((n) => n.path)]));
+        setExpandedList((prev) => [...new Set([...prev, ...above.slice(0, -1).map((n) => n.path)])]);
       }
     },
-    [tree],
+    [tree, setSelected, setExpandedList],
   );
 
-  const zoomTo = useCallback((node: TreeNode) => {
-    setZoomPath(node.path);
-    setSelected(node.path);
-  }, []);
+  const zoomTo = useCallback(
+    (node: TreeNode) => {
+      setZoomPath(node.path);
+      setSelected(node.path);
+    },
+    [setZoomPath, setSelected],
+  );
 
   const click = (node: TreeNode) => {
     if (node.path === "") return;
@@ -185,10 +189,10 @@ export default function StorageMapTab() {
   };
 
   const toggle = (path: string) =>
-    setExpanded((prev) => {
+    setExpandedList((prev) => {
       const next = new Set(prev);
       if (!next.delete(path)) next.add(path);
-      return next;
+      return [...next];
     });
 
   /** The zoomed folder's contents as visible tree rows: expanded folders show theirs below them. */
@@ -333,6 +337,7 @@ export default function StorageMapTab() {
           {error}
         </Callout>
       )}
+      {tree && !scanning && <ScanStamp at={scannedAt} />}
       {tree?.truncated && (
         <Callout tone="warning" title="Partial map">
           The scan was cancelled or hit its limit before it finished, so sizes here are a lower bound.

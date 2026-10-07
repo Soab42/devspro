@@ -15,47 +15,56 @@ import {
 } from "../api";
 import { formatBytes, newScanId } from "../cleaner";
 import ReviewCleanModal from "./ReviewCleanModal";
+import ScanStamp from "./ScanStamp";
+import { getSlot, setSlot, useTabRestore, useTabSlot } from "../tabState";
 import { groupProjects, idleLabel, suggestedPaths, toFinding, type ProjectGroup } from "./projects/projectsModel";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export default function ProjectsTab() {
-  const [rows, setRows] = useState<ProjectJunk[] | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState<ScanProgress | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [reviewing, setReviewing] = useState(false);
-  const scanId = useRef<string | null>(null);
+const TAB = "projects";
 
+export default function ProjectsTab() {
+  const ready = useTabRestore(TAB);
+  const [rows] = useTabSlot<ProjectJunk[] | null>(TAB, "rows", null);
+  const [selected, setSelected] = useTabSlot<Set<string>>(TAB, "selected", new Set());
+  const [scanning] = useTabSlot(TAB, "scanning", false);
+  const [progress] = useTabSlot<ScanProgress | null>(TAB, "progress", null);
+  const [error, setError] = useTabSlot<string | null>(TAB, "error", null);
+  const [scannedAt] = useTabSlot<number | null>(TAB, "scannedAt", null);
+  const [reviewing, setReviewing] = useState(false);
+  const autoScanned = useRef(false);
+
+  // The scan writes to the tab store, so it finishes into it even if this tab is left.
   const scan = useCallback(async () => {
+    if (getSlot(TAB, "scanning", false)) return;
     const id = newScanId();
-    scanId.current = id;
-    setScanning(true);
-    setError(null);
-    setProgress(null);
+    setSlot(TAB, "scanId", id, null as string | null);
+    setSlot(TAB, "scanning", true, false);
+    setSlot(TAB, "error", null as string | null, null);
+    setSlot(TAB, "progress", null as ScanProgress | null, null);
+    const off = await onScanProgress((p) => {
+      if (p.scan_id === id) setSlot(TAB, "progress", p as ScanProgress | null, null);
+    }).catch(() => () => {});
     try {
       const found = await scanProjects(id);
-      if (scanId.current !== id) return;
-      setRows(found);
-      setSelected(new Set());
+      setSlot(TAB, "rows", found as ProjectJunk[] | null, null);
+      setSlot(TAB, "scannedAt", Date.now() as number | null, null);
+      setSlot(TAB, "selected", new Set<string>(), new Set<string>());
     } catch (e) {
-      if (scanId.current === id) setError(message(e));
+      setSlot(TAB, "error", message(e) as string | null, null);
     } finally {
-      if (scanId.current === id) setScanning(false);
+      off();
+      setSlot(TAB, "scanId", null as string | null, null);
+      setSlot(TAB, "scanning", false, false);
     }
   }, []);
 
+  // Only a tab with nothing to show scans by itself; a restored one waits for Rescan.
   useEffect(() => {
+    if (!ready || autoScanned.current || rows !== null) return;
+    autoScanned.current = true;
     void scan();
-    const unlisten = onScanProgress((p) => {
-      if (p.scan_id === scanId.current) setProgress(p);
-    });
-    return () => {
-      scanId.current = null;
-      void unlisten.then((fn) => fn());
-    };
-  }, [scan]);
+  }, [ready, rows, scan]);
 
   async function addFolder() {
     try {
@@ -72,7 +81,8 @@ export default function ProjectsTab() {
   }
 
   function cancel() {
-    if (scanId.current) void cancelScan(scanId.current);
+    const id = getSlot<string | null>(TAB, "scanId", null);
+    if (id) void cancelScan(id);
   }
 
   const groups = useMemo(() => groupProjects(rows ?? []), [rows]);
@@ -80,10 +90,12 @@ export default function ProjectsTab() {
   const chosenBytes = chosen.reduce((sum, r) => sum + r.bytes, 0);
 
   function toggle(path: string, on: boolean) {
-    const next = new Set(selected);
-    if (on) next.add(path);
-    else next.delete(path);
-    setSelected(next);
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (on) next.add(path);
+      else next.delete(path);
+      return next;
+    });
   }
 
   const columns: Column<ProjectGroup>[] = [
@@ -155,6 +167,7 @@ export default function ProjectsTab() {
               Rescan
             </Button>
           </Toolbar>
+          {!scanning && <ScanStamp at={scannedAt} />}
           <DataTable columns={columns} rows={groups} rowKey={(g) => g.path} caption="Project junk" />
         </>
       )}

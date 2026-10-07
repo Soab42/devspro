@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useConfirm } from "../../../app/ConfirmContext";
 import { Badge, Button, Callout, Checkbox, Column, DataTable, EmptyState, IconButton, Mono, SegmentedControl, Select, Spinner, Stack, Toolbar } from "../../../ui";
@@ -8,6 +8,10 @@ import { formatBytes, newScanId } from "../cleaner";
 import FolderView from "./large-files/FolderView";
 import { AGE_OPTIONS, KIND_LABEL, KIND_OPTIONS, SIZE_OPTIONS, filterFiles, formatDate, nearestSize, parentOf, toFinding } from "./large-files/model";
 import ReviewCleanModal from "./ReviewCleanModal";
+import ScanStamp from "./ScanStamp";
+import { hasSlot, setSlot, useTabRestore, useTabSlot } from "../tabState";
+
+const TAB = "large-files";
 
 type View = "files" | "folders";
 
@@ -19,61 +23,62 @@ const VIEWS: { value: View; label: string }[] = [
 export default function LargeFilesTab() {
   const navigate = useNavigate();
   const confirmAction = useConfirm();
+  const ready = useTabRestore(TAB);
   const [settings, setSettings] = useState<CleanerSettings | null>(null);
-  const [view, setView] = useState<View>("files");
-  const [minSize, setMinSize] = useState(SIZE_OPTIONS[1].value);
-  const [kind, setKind] = useState("all");
-  const [age, setAge] = useState("0");
-  const [files, setFiles] = useState<LargeFile[] | null>(null);
-  const [scanned, setScanned] = useState<{ min: number; age: number } | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [scanId, setScanId] = useState<string | null>(null);
-  const [progress, setProgress] = useState<ScanProgress | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useTabSlot<View>(TAB, "view", "files");
+  const [minSize, setMinSize] = useTabSlot(TAB, "minSize", SIZE_OPTIONS[1].value);
+  const [kind, setKind] = useTabSlot(TAB, "kind", "all");
+  const [age, setAge] = useTabSlot(TAB, "age", "0");
+  const [files, setFiles] = useTabSlot<LargeFile[] | null>(TAB, "files", null);
+  const [scanned] = useTabSlot<{ min: number; age: number } | null>(TAB, "scannedFilters", null);
+  const [scannedAt] = useTabSlot<number | null>(TAB, "scannedAt", null);
+  const [selected, setSelected] = useTabSlot<Set<string>>(TAB, "selected", new Set());
+  const [scanId] = useTabSlot<string | null>(TAB, "scanId", null);
+  const [progress] = useTabSlot<ScanProgress | null>(TAB, "progress", null);
+  const [error, setError] = useTabSlot<string | null>(TAB, "error", null);
   const [review, setReview] = useState<{ items: LargeFile[]; permanent: boolean } | null>(null);
   const [trashed, setTrashed] = useState(false);
-  const alive = useRef(true);
 
   useEffect(() => {
-    alive.current = true;
+    if (!ready) return;
+    let alive = true;
     getSettings()
       .then((s) => {
-        if (!alive.current) return;
+        if (!alive) return;
         setSettings(s);
-        setMinSize(nearestSize(s.large_file_min_bytes));
+        // The setting is only the first guess; a filter already chosen or restored wins.
+        if (!hasSlot(TAB, "minSize")) setMinSize(nearestSize(s.large_file_min_bytes));
       })
-      .catch((e) => alive.current && setError(String(e)));
+      .catch((e) => alive && setError(String(e)));
     return () => {
-      alive.current = false;
+      alive = false;
     };
-  }, []);
+  }, [ready, setMinSize, setError]);
 
-  useEffect(() => {
-    if (!scanId) return;
-    let off: (() => void) | undefined;
-    let gone = false;
-    onScanProgress((p) => p.scan_id === scanId && setProgress(p)).then((fn) => (gone ? fn() : (off = fn)));
-    return () => {
-      gone = true;
-      off?.();
-    };
-  }, [scanId]);
-
+  // The scan writes to the tab store, so it finishes into it even if this tab is left.
   const scan = useCallback(async () => {
     const id = newScanId();
-    setScanId(id);
-    setProgress(null);
-    setError(null);
+    const min = Number(minSize);
+    const days = Number(age);
+    setSlot(TAB, "scanId", id, null as string | null);
+    setSlot(TAB, "scanning", true, false);
+    setSlot(TAB, "progress", null as ScanProgress | null, null);
+    setSlot(TAB, "error", null as string | null, null);
+    const off = await onScanProgress((p) => {
+      if (p.scan_id === id) setSlot(TAB, "progress", p as ScanProgress | null, null);
+    }).catch(() => () => {});
     try {
-      const found = await scanLargeFiles(id, Number(minSize), Number(age) > 0 ? Number(age) : null);
-      if (!alive.current) return;
-      setFiles(found);
-      setScanned({ min: Number(minSize), age: Number(age) });
-      setSelected(new Set());
+      const found = await scanLargeFiles(id, min, days > 0 ? days : null);
+      setSlot(TAB, "files", found as LargeFile[] | null, null);
+      setSlot(TAB, "scannedFilters", { min, age: days } as { min: number; age: number } | null, null);
+      setSlot(TAB, "scannedAt", Date.now() as number | null, null);
+      setSlot(TAB, "selected", new Set<string>(), new Set<string>());
     } catch (e) {
-      if (alive.current) setError(e instanceof Error ? e.message : String(e));
+      setSlot(TAB, "error", (e instanceof Error ? e.message : String(e)) as string | null, null);
     } finally {
-      if (alive.current) setScanId(null);
+      off();
+      setSlot(TAB, "scanId", null as string | null, null);
+      setSlot(TAB, "scanning", false, false);
     }
   }, [minSize, age]);
 
@@ -180,6 +185,7 @@ export default function LargeFilesTab() {
         />
       ) : (
         <>
+          <ScanStamp at={scannedAt} />
           {stale && <Callout tone="info">The filters are looser than this scan. Rescan to include more files.</Callout>}
           <Stack direction="row" gap={2} align="center" wrap>
             <Button icon={Trash2} disabled={chosen.length === 0} onClick={() => setReview({ items: chosen, permanent: false })}>

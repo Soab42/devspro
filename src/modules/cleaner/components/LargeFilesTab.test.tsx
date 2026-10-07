@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { ConfirmProvider } from "../../../app/ConfirmContext";
 import type { CleanerSettings, FolderEntry, LargeFile } from "../api";
 import LargeFilesTab from "./LargeFilesTab";
+import { resetTabState } from "../tabState";
 import { filterFiles, nearestSize } from "./large-files/model";
 
 const invoke = vi.fn();
@@ -39,6 +40,7 @@ function renderTab() {
 }
 
 beforeEach(() => {
+  resetTabState();
   invoke.mockReset();
   invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
     switch (cmd) {

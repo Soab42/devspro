@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense } from "react";
+import { useTabSlot } from "../tabState";
 import { useModule } from "../../../app/ModuleRegistry";
 import { Page, Spinner, Tabs } from "../../../ui";
 
@@ -20,7 +21,8 @@ const TABS = [
 
 export default function CleanerPage() {
   const module = useModule("cleaner");
-  const [tab, setTab] = useState("overview");
+  // Kept in the tab store so coming back to the Cleaner lands on the same tab.
+  const [tab, setTab] = useTabSlot("page", "active", "overview");
 
   return (
     <Page

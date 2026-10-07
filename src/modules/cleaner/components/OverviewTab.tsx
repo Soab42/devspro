@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConfirm } from "../../../app/ConfirmContext";
 import { Badge, BadgeTone, Button, Callout, Card, Meter, Section, Spinner, Stack, useResource } from "../../../ui";
 import { Eraser, HardDrive, RefreshCw, Search, Square, Trash2 } from "../../../ui/icons";
@@ -9,6 +9,8 @@ import type { CleanOutcome, Finding, HistoryEntry, Risk, ScanProgress } from "..
 import { formatBytes, newScanId, RISK_LABEL, RISKS, suggestedIds, totalsByRisk } from "../cleaner";
 import CleanerSettings from "./CleanerSettings";
 import ReviewCleanModal from "./ReviewCleanModal";
+import ScanStamp from "./ScanStamp";
+import { getSlot, setSlot, useTabRestore, useTabSlot } from "../tabState";
 import { readLastScan, timeAgo, writeLastScan } from "./overview/lastScan";
 import type { LastScan } from "./overview/lastScan";
 import { cleanFindings, errorText, runScan, SOURCES } from "./overview/scans";
@@ -16,19 +18,22 @@ import type { Source, SourceResult } from "./overview/scans";
 
 const RISK_TONE: Record<Risk, BadgeTone> = { safe: "success", review: "warning", danger: "danger" };
 
+const TAB = "overview";
+
 type Results = Partial<Record<Source, SourceResult>>;
 
 export default function OverviewTab() {
   const confirmAction = useConfirm();
   const snapshot = useResource(fetchSystemSnapshot);
-  const [results, setResults] = useState<Results>({});
-  const [running, setRunning] = useState<Set<Source>>(new Set());
-  const [progress, setProgress] = useState<Partial<Record<Source, ScanProgress>>>({});
+  useTabRestore(TAB);
+  const [results, setResults] = useTabSlot<Results>(TAB, "results", {});
+  const [running, setRunning] = useTabSlot<Set<Source>>(TAB, "running", new Set());
+  const [progress, setProgress] = useTabSlot<Partial<Record<Source, ScanProgress>>>(TAB, "progress", {});
+  const [scannedAt] = useTabSlot<number | null>(TAB, "scannedAt", null);
   const [reviewing, setReviewing] = useState<Finding[] | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [lastScan, setLastScan] = useState<LastScan | null>(readLastScan);
-  const scanIds = useRef<Partial<Record<Source, string>>>({});
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -47,7 +52,8 @@ export default function OverviewTab() {
     let off: (() => void) | undefined;
     let gone = false;
     onScanProgress((p) => {
-      const source = SOURCES.find((s) => scanIds.current[s.id] === p.scan_id)?.id;
+      const ids = getSlot<Partial<Record<Source, string>>>(TAB, "scanIds", {});
+      const source = SOURCES.find((s) => ids[s.id] === p.scan_id)?.id;
       if (source) setProgress((prev) => ({ ...prev, [source]: p }));
     }).then(
       (un) => (gone ? un() : (off = un)),
@@ -57,7 +63,7 @@ export default function OverviewTab() {
       gone = true;
       off?.();
     };
-  }, []);
+  }, [setProgress]);
 
   const findings = useMemo(() => SOURCES.flatMap((s) => results[s.id]?.findings ?? []), [results]);
   const totals = useMemo(() => totalsByRisk(findings), [findings]);
@@ -75,16 +81,20 @@ export default function OverviewTab() {
     setLastScan(saved);
   }
 
+  // Runs through the tab store, so a scan still going when this tab is left finishes into it.
   async function scanAll() {
-    scanIds.current = {};
-    for (const s of SOURCES) scanIds.current[s.id] = newScanId();
+    if (getSlot(TAB, "scanning", false)) return;
+    const ids: Partial<Record<Source, string>> = {};
+    for (const s of SOURCES) ids[s.id] = newScanId();
+    setSlot(TAB, "scanIds", ids, {} as Partial<Record<Source, string>>);
+    setSlot(TAB, "scanning", true, false);
     setResults({});
     setProgress({});
     setRunning(new Set(SOURCES.map((s) => s.id)));
     const next: Results = {};
     await Promise.all(
       SOURCES.map(async (s) => {
-        const r = await runScan(s.id, scanIds.current[s.id] as string);
+        const r = await runScan(s.id, ids[s.id] as string);
         next[s.id] = r;
         setResults((prev) => ({ ...prev, [s.id]: r }));
         setRunning((prev) => {
@@ -94,12 +104,15 @@ export default function OverviewTab() {
         });
       }),
     );
+    setSlot(TAB, "scannedAt", Date.now() as number | null, null);
+    setSlot(TAB, "scanning", false, false);
     if (SOURCES.some((s) => !next[s.id]?.error)) remember(next);
   }
 
   function cancel() {
+    const ids = getSlot<Partial<Record<Source, string>>>(TAB, "scanIds", {});
     for (const id of running) {
-      const scanId = scanIds.current[id];
+      const scanId = ids[id];
       if (scanId) cancelScan(scanId).catch(() => {});
     }
   }
@@ -220,6 +233,7 @@ export default function OverviewTab() {
                   </Badge>
                 ))}
               </Stack>
+              {!scanning && <ScanStamp at={scannedAt} />}
               {suggested.length > 0 && !scanning && (
                 <p>
                   {suggested.length} suggested {suggested.length === 1 ? "item" : "items"}, {formatBytes(suggestedBytes)}.

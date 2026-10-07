@@ -10,6 +10,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) })
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: () => open() }));
 
 import ProjectsTab from "./ProjectsTab";
+import { resetTabState } from "../tabState";
 
 const MB = 1024 * 1024;
 const row = (over: Partial<ProjectJunk>): ProjectJunk => ({
@@ -59,6 +60,7 @@ function respond(rows: ProjectJunk[]) {
 }
 
 beforeEach(() => {
+  resetTabState();
   invoke.mockReset();
   open.mockReset();
 });

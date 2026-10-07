@@ -169,3 +169,12 @@ export const scanTree = (scanId: string, root: string) =>
 
 export const onScanProgress = (handler: (progress: ScanProgress) => void) =>
   listen<ScanProgress>("cleaner://progress", (e) => handler(e.payload));
+
+/** The tab's saved results as the JSON text the frontend stored, or null. */
+export const getSnapshot = (tab: string) => invoke<string | null>("cleaner_snapshot_get", { tab });
+
+/** False when the snapshot was over the size cap and nothing was stored. */
+export const setSnapshot = (tab: string, json: string) => invoke<boolean>("cleaner_snapshot_set", { tab, json });
+
+/** One tab's snapshot, or all of them without a tab. */
+export const clearSnapshot = (tab?: string) => invoke<void>("cleaner_snapshot_clear", { tab: tab ?? null });
