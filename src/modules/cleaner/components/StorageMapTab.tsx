@@ -87,6 +87,7 @@ export default function StorageMapTab() {
   const [progress] = useTabSlot<ScanProgress | null>(TAB, "progress", null);
   const [error, setError] = useTabSlot<string | null>(TAB, "error", null);
   const [scannedAt] = useTabSlot<number | null>(TAB, "scannedAt", null);
+  const [trimmed] = useTabSlot(TAB, "trimmed", false);
   const [zoomPath, setZoomPath] = useTabSlot(TAB, "zoomPath", "");
   const [selected, setSelected] = useTabSlot<string | null>(TAB, "selected", null);
   const [expandedList, setExpandedList] = useTabSlot<string[]>(TAB, "expanded", []);
@@ -126,6 +127,7 @@ export default function StorageMapTab() {
     const id = newScanId();
     setSlot(TAB, "scanId", id, null as string | null);
     setSlot(TAB, "scanning", true, false);
+    setSlot(TAB, "trimmed", false, false);
     setSlot(TAB, "error", null as string | null, null);
     setSlot(TAB, "progress", null as ScanProgress | null, null);
     const off = await onScanProgress((p) => {
@@ -239,6 +241,7 @@ export default function StorageMapTab() {
       return { ...t, root: next, total_bytes: t.total_bytes - removed };
     });
     if (paths.length > 0) {
+      setSlot(TAB, "trimmed", true, false);
       setSelected(null);
       setHover(null);
       setZoomPath((z) => (paths.some((p) => z === p || z.startsWith(p + "/")) ? (tree?.root.path ?? z) : z));
@@ -337,7 +340,7 @@ export default function StorageMapTab() {
           {error}
         </Callout>
       )}
-      {tree && !scanning && <ScanStamp at={scannedAt} />}
+      {tree && !scanning && <ScanStamp at={scannedAt} trimmed={trimmed} />}
       {tree?.truncated && (
         <Callout tone="warning" title="Partial map">
           The scan was cancelled or hit its limit before it finished, so sizes here are a lower bound.

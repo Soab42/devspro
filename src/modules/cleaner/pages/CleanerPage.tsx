@@ -1,5 +1,5 @@
-import { lazy, Suspense } from "react";
-import { useTabSlot } from "../tabState";
+import { lazy, Suspense, useEffect } from "react";
+import { flushOnClose, flushSnapshots, useTabSlot } from "../tabState";
 import { useModule } from "../../../app/ModuleRegistry";
 import { Page, Spinner, Tabs } from "../../../ui";
 
@@ -23,6 +23,15 @@ export default function CleanerPage() {
   const module = useModule("cleaner");
   // Kept in the tab store so coming back to the Cleaner lands on the same tab.
   const [tab, setTab] = useTabSlot("page", "active", "overview");
+
+  // Saved results are written after a short delay; leaving or closing must not lose them.
+  useEffect(() => {
+    const off = flushOnClose();
+    return () => {
+      off();
+      void flushSnapshots();
+    };
+  }, []);
 
   return (
     <Page

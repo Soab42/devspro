@@ -30,6 +30,7 @@ export default function OverviewTab() {
   const [running, setRunning] = useTabSlot<Set<Source>>(TAB, "running", new Set());
   const [progress, setProgress] = useTabSlot<Partial<Record<Source, ScanProgress>>>(TAB, "progress", {});
   const [scannedAt] = useTabSlot<number | null>(TAB, "scannedAt", null);
+  const [trimmed] = useTabSlot(TAB, "trimmed", false);
   const [reviewing, setReviewing] = useState<Finding[] | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -88,6 +89,7 @@ export default function OverviewTab() {
     for (const s of SOURCES) ids[s.id] = newScanId();
     setSlot(TAB, "scanIds", ids, {} as Partial<Record<Source, string>>);
     setSlot(TAB, "scanning", true, false);
+    setSlot(TAB, "trimmed", false, false);
     setResults({});
     setProgress({});
     setRunning(new Set(SOURCES.map((s) => s.id)));
@@ -124,6 +126,7 @@ export default function OverviewTab() {
       confirmed,
     );
     const freed = new Set(outcomes.filter((o) => o.ok).map((o) => o.id));
+    if (freed.size > 0) setSlot(TAB, "trimmed", true, false);
     setResults((prev) => {
       const next: Results = {};
       for (const s of SOURCES) {
@@ -233,7 +236,7 @@ export default function OverviewTab() {
                   </Badge>
                 ))}
               </Stack>
-              {!scanning && <ScanStamp at={scannedAt} />}
+              {!scanning && <ScanStamp at={scannedAt} trimmed={trimmed} />}
               {suggested.length > 0 && !scanning && (
                 <p>
                   {suggested.length} suggested {suggested.length === 1 ? "item" : "items"}, {formatBytes(suggestedBytes)}.

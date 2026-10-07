@@ -32,6 +32,7 @@ export default function LargeFilesTab() {
   const [files, setFiles] = useTabSlot<LargeFile[] | null>(TAB, "files", null);
   const [scanned] = useTabSlot<{ min: number; age: number } | null>(TAB, "scannedFilters", null);
   const [scannedAt] = useTabSlot<number | null>(TAB, "scannedAt", null);
+  const [trimmed] = useTabSlot(TAB, "trimmed", false);
   const [selected, setSelected] = useTabSlot<Set<string>>(TAB, "selected", new Set());
   const [scanId] = useTabSlot<string | null>(TAB, "scanId", null);
   const [progress] = useTabSlot<ScanProgress | null>(TAB, "progress", null);
@@ -62,6 +63,7 @@ export default function LargeFilesTab() {
     const days = Number(age);
     setSlot(TAB, "scanId", id, null as string | null);
     setSlot(TAB, "scanning", true, false);
+    setSlot(TAB, "trimmed", false, false);
     setSlot(TAB, "progress", null as ScanProgress | null, null);
     setSlot(TAB, "error", null as string | null, null);
     const off = await onScanProgress((p) => {
@@ -185,7 +187,7 @@ export default function LargeFilesTab() {
         />
       ) : (
         <>
-          <ScanStamp at={scannedAt} />
+          <ScanStamp at={scannedAt} trimmed={trimmed} />
           {stale && <Callout tone="info">The filters are looser than this scan. Rescan to include more files.</Callout>}
           <Stack direction="row" gap={2} align="center" wrap>
             <Button icon={Trash2} disabled={chosen.length === 0} onClick={() => setReview({ items: chosen, permanent: false })}>
@@ -217,6 +219,7 @@ export default function LargeFilesTab() {
             const outcomes = await removeFiles(ids, review.permanent);
             if (!review.permanent && outcomes.some((o) => o.ok)) setTrashed(true);
             const gone = new Set(outcomes.filter((o) => o.ok).map((o) => o.id));
+            if (gone.size > 0) setSlot(TAB, "trimmed", true, false);
             setFiles((cur) => cur && cur.filter((f) => !gone.has(f.path)));
             setSelected((cur) => new Set([...cur].filter((p) => !gone.has(p))));
             return outcomes;

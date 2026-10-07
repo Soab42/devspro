@@ -16,6 +16,7 @@ import StorageMapTab from "./StorageMapTab";
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
+vi.mock("../../../app/ModuleRegistry", () => ({ useModule: () => ({ label: "Cleaner", icon: () => null }) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 
 const MB = 1024 * 1024;
@@ -77,8 +78,10 @@ interface Case {
   slots: Record<string, unknown>;
   /** The slot that holds the results themselves. */
   resultKey: string;
-  /** Everything a saved selection could name. */
-  selection: string[];
+  /** Ticks or picks something through the tab's own selection mechanism. Overview has none. */
+  select?: () => Promise<void>;
+  /** Whether anything is ticked or picked. */
+  anySelected?: () => boolean;
   marker: string | RegExp;
   /** Starts the first scan; tabs that scan on their own have none. */
   start?: () => Promise<void>;
@@ -89,6 +92,15 @@ const click = async (name: string | RegExp) => {
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(button);
 };
+
+const tick = async (name: string | RegExp) => {
+  fireEvent.click(await screen.findByRole("checkbox", { name }));
+};
+const pick = async (name: string) => {
+  fireEvent.click(await screen.findByRole("button", { name }));
+};
+const anyTicked = () => screen.queryAllByRole("checkbox").some((box) => (box as HTMLInputElement).checked);
+const anyPicked = () => screen.queryAllByRole("button").some((b) => b.getAttribute("aria-pressed") === "true");
 
 const CASES: Record<string, Case> = {
   overview: {
@@ -102,7 +114,6 @@ const CASES: Record<string, Case> = {
       cleaner_scan_projects: [],
     },
     slots: { results: OVERVIEW_RESULTS },
-    selection: [],
     marker: "Safe: 2.0 KB",
     start: () => click("Scan everything"),
   },
@@ -112,7 +123,8 @@ const CASES: Record<string, Case> = {
     resultKey: "caches",
     scans: { cleaner_scan_caches: [FINDING], cleaner_scan_system: [] },
     slots: { caches: [FINDING], system: [], error: null, systemError: null },
-    selection: ["npm"],
+    select: () => tick("Select npm cache"),
+    anySelected: anyTicked,
     marker: "npm cache",
     start: () => click("Scan"),
   },
@@ -122,7 +134,8 @@ const CASES: Record<string, Case> = {
     resultKey: "result",
     scans: { cleaner_scan_docker: { available: true, message: null, findings: [DOCKER_FINDING] } },
     slots: { result: { available: true, message: null, findings: [DOCKER_FINDING] }, error: null },
-    selection: ["image:1"],
+    select: () => tick("Select Untagged image 1"),
+    anySelected: anyTicked,
     marker: "Untagged image 1",
   },
   "large-files": {
@@ -140,7 +153,8 @@ const CASES: Record<string, Case> = {
       foldersRoot: "",
       foldersPath: "",
     },
-    selection: [FILE.path],
+    select: () => tick("Select /home/u/movie.mkv"),
+    anySelected: anyTicked,
     marker: FILE.path,
     start: () => click("Scan"),
   },
@@ -150,7 +164,8 @@ const CASES: Record<string, Case> = {
     resultKey: "tree",
     scans: { cleaner_scan_tree: TREE },
     slots: { root: "/r", tree: TREE, zoomPath: "/r", expanded: [] },
-    selection: ["/r/a.log"],
+    select: () => pick("Treemap a.log"),
+    anySelected: anyPicked,
     marker: "File types",
     start: () => click("Scan"),
   },
@@ -160,7 +175,8 @@ const CASES: Record<string, Case> = {
     resultKey: "rows",
     scans: { cleaner_scan_projects: [PROJECT] },
     slots: { rows: [PROJECT], error: null },
-    selection: [PROJECT.artifact_path],
+    select: () => tick(/node_modules/),
+    anySelected: anyTicked,
     marker: "old-project",
   },
 };
@@ -224,16 +240,15 @@ describe.each(Object.entries(CASES))("%s tab history", (_name, c) => {
     expect(scanCalls().length).toBe(scansSoFar);
   });
 
-  it("restores the saved results after a restart, without scanning, and ticks nothing", async () => {
+  it("restores the saved results after a restart, without scanning", async () => {
     scans = c.scans;
-    snapshots[c.tab] = snapshotOf(c, Date.now() - 5 * 60_000, { selected: c.selection });
+    snapshots[c.tab] = snapshotOf(c, Date.now() - 5 * 60_000);
     mount(c.Tab);
     expect(await screen.findByText(c.marker)).toBeTruthy();
     expect(screen.getByText(/Scanned 5 minutes ago/)).toBeTruthy();
     expect(screen.queryByText(/may be out of date/)).toBeNull();
     await new Promise((r) => setTimeout(r, 20));
     expect(scanCalls()).toEqual([]);
-    expect(screen.queryAllByRole("checkbox").filter((box) => (box as HTMLInputElement).checked)).toEqual([]);
   });
 
   it("says results older than a day may be out of date", async () => {
@@ -324,5 +339,157 @@ describe("snapshot handling", () => {
     finish([PROJECT]);
     expect(await screen.findByText("old-project")).toBeTruthy();
     expect(scanCalls().length).toBe(1);
+  });
+});
+
+// The Overview has no selection, so it is left out.
+describe.each(Object.entries(CASES).filter(([, c]) => c.select))("%s tab selection", (_name, c) => {
+  it("is kept across tab switches but not restored after a restart", async () => {
+    scans = c.scans;
+    const first = mount(c.Tab);
+    await c.start?.();
+    await screen.findByText(c.marker);
+    await c.select?.();
+    expect(c.anySelected?.()).toBe(true);
+    first.unmount();
+    mount(c.Tab);
+    await screen.findByText(c.marker);
+    expect(c.anySelected?.()).toBe(true);
+    cleanup();
+
+    await flushSnapshots();
+    const saved = invoke.mock.calls.filter(([cmd, args]) => cmd === "cleaner_snapshot_set" && args.tab === c.tab).pop();
+    expect(saved).toBeTruthy();
+    // A restart: memory is gone, only what was saved comes back.
+    resetTabState();
+    snapshots[c.tab] = saved?.[1].json;
+    invoke.mockClear();
+    mount(c.Tab);
+    await screen.findByText(c.marker);
+    expect(c.anySelected?.()).toBe(false);
+    expect(scanCalls()).toEqual([]);
+  });
+});
+
+describe("position survives leaving the tab", () => {
+  it("keeps the Storage map zoom and expanded rows", async () => {
+    const dir = (path: string, children: StorageTree["root"]["children"]) => ({
+      name: path.split("/").pop()!,
+      path,
+      bytes: 700,
+      files: 2,
+      is_dir: true,
+      children,
+    });
+    const leaf = (path: string) => ({ name: path.split("/").pop()!, path, bytes: 300, files: 1, is_dir: false, children: [] });
+    const tree: StorageTree = {
+      ...TREE,
+      root: { ...TREE.root, children: [dir("/r/big", [dir("/r/big/sub", [leaf("/r/big/sub/x.bin")]), leaf("/r/big/a.mp4")]), leaf("/r/b.log")] },
+    };
+    scans = { cleaner_scan_tree: tree };
+    const first = mount(StorageMapTab);
+    await click("Scan");
+    fireEvent.click(await screen.findByRole("button", { name: "Treemap big" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Expand sub" }));
+    await screen.findByRole("button", { name: "Collapse sub" });
+    first.unmount();
+
+    mount(StorageMapTab);
+    expect(await screen.findByRole("button", { name: "Collapse sub" })).toBeTruthy();
+    expect(screen.getByText("big").tagName).toBe("STRONG");
+  });
+
+  it("keeps the Biggest folders path", async () => {
+    const entry = (path: string, is_dir: boolean) => ({ path, name: path.split("/").pop(), bytes: 5 * MB, is_dir, entries: 1 });
+    invoke.mockImplementation(async (cmd: string, args?: { path?: string }) => {
+      if (cmd === "cleaner_settings_get") return { scan_roots: ["/r"], project_roots: [], exclusions: [], large_file_min_bytes: 500 * MB, project_idle_days: 30 };
+      if (cmd === "cleaner_folder_sizes") return args?.path === "/r" ? [entry("/r/Videos", true)] : [entry("/r/Videos/a.mp4", false)];
+      return undefined;
+    });
+    const first = mount(LargeFilesTab);
+    fireEvent.click(await screen.findByRole("radio", { name: "Biggest folders" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Videos" }));
+    await screen.findByText("a.mp4");
+    first.unmount();
+
+    mount(LargeFilesTab);
+    expect(await screen.findByText("a.mp4")).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Folder path" }).textContent).toContain("Videos");
+  });
+});
+
+describe("after a clean", () => {
+  const lastSaved = (tab: string) => {
+    const call = invoke.mock.calls.filter(([cmd, args]) => cmd === "cleaner_snapshot_set" && args.tab === tab).pop();
+    return call ? JSON.parse(call[1].json).slots : null;
+  };
+
+  it("a trimming tab saves its results without the removed files, with the same scan time", async () => {
+    const other: LargeFile = { ...FILE, path: "/home/u/other.iso" };
+    const large = CASES["large-files"];
+    const scannedAt = Date.now() - 60_000;
+    snapshots["large-files"] = JSON.stringify({ v: 1, slots: { ...large.slots, files: [FILE, other], scannedAt } });
+    invoke.mockImplementation(async (cmd: string, args?: { tab?: string; paths?: string[] }) => {
+      if (cmd === "cleaner_snapshot_get") return snapshots[args?.tab ?? ""] ?? null;
+      if (cmd === "cleaner_settings_get") return { scan_roots: ["/r"], project_roots: [], exclusions: [], large_file_min_bytes: 500 * MB, project_idle_days: 30 };
+      if (cmd === "cleaner_remove_files") return (args?.paths ?? []).map((id) => ({ id, ok: true, message: "ok", bytes_freed: 1 }));
+      return undefined;
+    });
+    mount(LargeFilesTab);
+    await tick("Select /home/u/movie.mkv");
+    await click("Move to Trash");
+    await click(/^Clean/);
+    await waitFor(() => expect(screen.queryByText("/home/u/movie.mkv")).toBeNull());
+    await flushSnapshots();
+    const saved = lastSaved("large-files");
+    expect(saved.files.map((f: LargeFile) => f.path)).toEqual(["/home/u/other.iso"]);
+    expect(saved.scannedAt).toBe(scannedAt);
+    expect(saved.trimmed).toBe(true);
+    expect(scanCalls()).toEqual([]);
+    expect(screen.getByText(/Updated after clean/)).toBeTruthy();
+  });
+
+  it("a rescanning tab saves the new scan", async () => {
+    const other: ProjectJunk = { ...PROJECT, project_path: "/w/b", project_name: "b-project", artifact_path: "/w/b/target", artifact_kind: "target" };
+    let rows = [PROJECT, other];
+    invoke.mockImplementation(async (cmd: string, args?: { tab?: string; artifactPaths?: string[] }) => {
+      if (cmd === "cleaner_snapshot_get") return null;
+      if (cmd === "cleaner_scan_projects") return rows;
+      if (cmd === "cleaner_clean_projects") {
+        rows = [other];
+        return (args?.artifactPaths ?? []).map((id) => ({ id, ok: true, message: "Deleted", bytes_freed: 1 }));
+      }
+      return undefined;
+    });
+    mount(ProjectsTab);
+    await tick(/node_modules/);
+    await click(/^Clean 200 MB/);
+    const buttons = await screen.findAllByRole("button", { name: /^Clean 200 MB/ });
+    fireEvent.click(buttons[buttons.length - 1]);
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("cleaner_clean_projects", expect.anything()));
+    fireEvent.click((await screen.findAllByRole("button", { name: "Close" })).pop() as HTMLElement);
+    await waitFor(() => expect(scanCalls().length).toBe(2));
+    await waitFor(() => expect(screen.queryByText("old-project")).toBeNull());
+    await flushSnapshots();
+    expect(lastSaved("projects").rows.map((r: ProjectJunk) => r.project_name)).toEqual(["b-project"]);
+  });
+});
+
+describe("closing", () => {
+  it("saves pending results when the Cleaner page is left", async () => {
+    const { default: CleanerPage } = await import("../pages/CleanerPage");
+    const { setSlot } = await import("../tabState");
+    const page = render(
+      <MemoryRouter>
+        <ConfirmProvider>
+          <CleanerPage />
+        </ConfirmProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByText(/Scan everything to see/);
+    setSlot("caches", "scannedAt", Date.now(), null as number | null);
+    expect(invoke.mock.calls.some(([cmd]) => cmd === "cleaner_snapshot_set")).toBe(false);
+    page.unmount();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("cleaner_snapshot_set", expect.objectContaining({ tab: "caches" })));
   });
 });

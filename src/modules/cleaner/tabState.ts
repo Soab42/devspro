@@ -20,6 +20,7 @@ type Check = (v: unknown) => boolean;
 const isArr: Check = Array.isArray;
 const isObj: Check = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const isStr: Check = (v) => typeof v === "string";
+const isBool: Check = (v) => typeof v === "boolean";
 const isNum: Check = (v) => typeof v === "number" && Number.isFinite(v);
 const orNull =
   (c: Check): Check =>
@@ -34,6 +35,7 @@ const PERSISTED: Record<StoreKey, Record<string, Check>> = {
   overview: {
     results: (v) => isObj(v) && Object.values(v as object).every(hasFindings),
     scannedAt: orNull(isNum),
+    trimmed: isBool,
   },
   caches: {
     caches: isArr,
@@ -53,6 +55,7 @@ const PERSISTED: Record<StoreKey, Record<string, Check>> = {
     scannedAt: orNull(isNum),
     foldersRoot: isStr,
     foldersPath: isStr,
+    trimmed: isBool,
   },
   "storage-map": {
     root: isStr,
@@ -60,6 +63,7 @@ const PERSISTED: Record<StoreKey, Record<string, Check>> = {
     zoomPath: isStr,
     expanded: isStrArr,
     scannedAt: orNull(isNum),
+    trimmed: isBool,
   },
   projects: { rows: orNull(isArr), error: orNull(isStr), scannedAt: orNull(isNum) },
 };
@@ -205,7 +209,7 @@ async function persist(tab: StoreKey): Promise<void> {
   }
 }
 
-/** Saves whatever is waiting for its delay. Used when the window is closing, and by tests. */
+/** Saves whatever is waiting for its delay. Run when the Cleaner is left and the window closes. */
 export async function flushSnapshots(): Promise<void> {
   const pending = [...timers.keys()];
   for (const t of timers.values()) clearTimeout(t);
@@ -222,4 +226,26 @@ export function resetTabState(): void {
   loads.clear();
   loaded.clear();
   notify();
+}
+
+/**
+ * Flushes pending snapshots when the window closes. Returns the undo.
+ * Both the Tauri close request and beforeunload are covered; the first waits for the save.
+ */
+export function flushOnClose(): () => void {
+  const onUnload = () => void flushSnapshots();
+  window.addEventListener("beforeunload", onUnload);
+  let off: (() => void) | undefined;
+  let gone = false;
+  if ("__TAURI_INTERNALS__" in window) {
+    void import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) => getCurrentWindow().onCloseRequested(() => flushSnapshots()))
+      .then((un) => (gone ? un() : (off = un)))
+      .catch(() => {});
+  }
+  return () => {
+    gone = true;
+    window.removeEventListener("beforeunload", onUnload);
+    off?.();
+  };
 }
