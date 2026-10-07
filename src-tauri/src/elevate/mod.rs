@@ -90,6 +90,15 @@ pub enum Operation {
     /// killer; succeeds without doing anything when swap is empty. Put it last
     /// in a manifest: the helper skips everything after a failed operation.
     ReclaimSwap,
+    /// Cleaner, System tab: `apt-get clean`.
+    AptClean,
+    /// Cleaner, System tab: `journalctl --vacuum-size=<max_bytes>`. The helper
+    /// refuses anything under 50 MiB.
+    VacuumJournal { max_bytes: u64 },
+    /// Cleaner, System tab: `snap remove <name> --revision=<revision>`. `name`
+    /// must match `[a-z0-9-]+`, `revision` is digits only, and the helper
+    /// re-checks with `snap list --all` that the revision is disabled.
+    RemoveSnapRevision { name: String, revision: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]

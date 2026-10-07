@@ -37,6 +37,9 @@ enum Operation {
     ServiceControl { action: String, unit: String },
     DropCaches,
     ReclaimSwap,
+    AptClean,
+    VacuumJournal { max_bytes: u64 },
+    RemoveSnapRevision { name: String, revision: String },
 }
 
 #[derive(Debug, Deserialize)]
@@ -638,6 +641,98 @@ fn reclaim_swap() -> OpResult {
     }
 }
 
+/// Smallest size `journalctl --vacuum-size` may be asked for: a typo or a bad
+/// caller can't wipe the journal down to nothing.
+const MIN_JOURNAL_BYTES: u64 = 50 * 1024 * 1024;
+
+/// `^[a-z0-9-]+$`, at most 40 characters, no leading `-` so it can never be
+/// read as a `snap` option.
+fn is_valid_snap_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 40
+        && !name.starts_with('-')
+        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// Digits only, no leading zero, at most 9 of them.
+fn is_valid_snap_revision(rev: &str) -> bool {
+    !rev.is_empty()
+        && rev.len() <= 9
+        && !rev.starts_with('0')
+        && rev.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Whether `snap list --all` output marks `name` at `revision` as disabled
+/// (the Notes column, the last one, holds a comma-separated list).
+fn snap_revision_is_disabled(listing: &str, name: &str, revision: &str) -> bool {
+    listing.lines().skip(1).any(|line| {
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        cols.len() >= 6
+            && cols[0] == name
+            && cols[2] == revision
+            && cols.last().is_some_and(|notes| notes.split(',').any(|n| n == "disabled"))
+    })
+}
+
+fn failed(message: String) -> OpResult {
+    OpResult { success: false, message }
+}
+
+fn run_fixed(program: &str, args: &[&str], done: String) -> OpResult {
+    match Command::new(program).args(args).output() {
+        Ok(out) if out.status.success() => OpResult { success: true, message: done },
+        Ok(out) => failed(format!(
+            "{program} {} failed: {}{}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stdout).trim(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )),
+        Err(e) => failed(format!("failed to run {program}: {e}")),
+    }
+}
+
+fn apt_clean() -> OpResult {
+    run_fixed("apt-get", &["clean"], "cleaned the apt package cache".to_string())
+}
+
+fn vacuum_journal(max_bytes: u64) -> OpResult {
+    if max_bytes < MIN_JOURNAL_BYTES {
+        return failed(format!(
+            "{max_bytes} bytes is below the {} MiB minimum for a journal vacuum — refusing",
+            MIN_JOURNAL_BYTES / (1024 * 1024)
+        ));
+    }
+    let arg = format!("--vacuum-size={max_bytes}");
+    run_fixed(
+        "journalctl",
+        &[&arg],
+        format!("vacuumed the journal down to {} MiB", max_bytes / (1024 * 1024)),
+    )
+}
+
+fn remove_snap_revision(name: &str, revision: &str) -> OpResult {
+    if !is_valid_snap_name(name) {
+        return failed(format!("{name:?} is not a valid snap name — refusing"));
+    }
+    if !is_valid_snap_revision(revision) {
+        return failed(format!("{revision:?} is not a valid snap revision — refusing"));
+    }
+    let listing = match Command::new("snap").args(["list", "--all"]).output() {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).into_owned(),
+        Ok(out) => return failed(format!("snap list failed: {}", String::from_utf8_lossy(&out.stderr).trim())),
+        Err(e) => return failed(format!("failed to run snap: {e}")),
+    };
+    if !snap_revision_is_disabled(&listing, name, revision) {
+        return failed(format!("{name} revision {revision} is not a disabled revision — refusing"));
+    }
+    let rev_arg = format!("--revision={revision}");
+    run_fixed(
+        "snap",
+        &["remove", name, &rev_arg],
+        format!("removed {name} revision {revision}"),
+    )
+}
+
 fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
     match op {
         Operation::Ping => OpResult {
@@ -671,6 +766,9 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
         Operation::ServiceControl { action, unit } => service_control(&action, &unit),
         Operation::DropCaches => drop_caches(),
         Operation::ReclaimSwap => reclaim_swap(),
+        Operation::AptClean => apt_clean(),
+        Operation::VacuumJournal { max_bytes } => vacuum_journal(max_bytes),
+        Operation::RemoveSnapRevision { name, revision } => remove_snap_revision(&name, &revision),
     }
 }
 
@@ -795,5 +893,64 @@ mod tests {
         assert!(matches!(&manifest.operations[0], Operation::ServiceControl { action, unit } if action == "stop" && unit == "nginx"));
         assert!(matches!(manifest.operations[1], Operation::DropCaches));
         assert!(matches!(manifest.operations[2], Operation::ReclaimSwap));
+    }
+
+    #[test]
+    fn snap_names_and_revisions_are_checked() {
+        for ok in ["core20", "gnome-42-2204", "firefox", "a"] {
+            assert!(is_valid_snap_name(ok), "{ok}");
+        }
+        for bad in ["", "-x", "--revision=1", "Core", "a b", "a/b", "a_b", "x;id", "../x", &"a".repeat(41)] {
+            assert!(!is_valid_snap_name(bad), "{bad}");
+        }
+        for ok in ["1", "2182", "123456789"] {
+            assert!(is_valid_snap_revision(ok), "{ok}");
+        }
+        for bad in ["", "x1", "12a", "-1", "1 2", "0", "012", "1234567890", "x123", "1.5"] {
+            assert!(!is_valid_snap_revision(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn snap_removal_is_refused_before_anything_runs() {
+        let r = remove_snap_revision("Bad Name", "12");
+        assert!(!r.success && r.message.contains("not a valid snap name"), "{}", r.message);
+        let r = remove_snap_revision("core20", "12x");
+        assert!(!r.success && r.message.contains("not a valid snap revision"), "{}", r.message);
+    }
+
+    #[test]
+    fn journal_vacuum_has_a_floor() {
+        for n in [0, 1, MIN_JOURNAL_BYTES - 1] {
+            let r = vacuum_journal(n);
+            assert!(!r.success && r.message.contains("minimum"), "{n}: {}", r.message);
+        }
+    }
+
+    #[test]
+    fn only_disabled_snap_revisions_pass_the_recheck() {
+        let listing = "Name    Version  Rev   Tracking       Publisher   Notes\n\
+core20  20240111 2182  latest/stable  canonical** base,disabled\n\
+core20  20240227 2264  latest/stable  canonical** base\n\
+firefox 123.0    3836  latest/stable  mozilla**   -\n";
+        assert!(snap_revision_is_disabled(listing, "core20", "2182"));
+        assert!(!snap_revision_is_disabled(listing, "core20", "2264"));
+        assert!(!snap_revision_is_disabled(listing, "firefox", "3836"));
+        assert!(!snap_revision_is_disabled(listing, "firefox", "2182"));
+        assert!(!snap_revision_is_disabled("", "core20", "2182"));
+    }
+
+    #[test]
+    fn system_cleanup_operations_deserialize_from_the_apps_manifest_shape() {
+        let raw = r#"{"allowed_write_prefix":"","operations":[
+            {"type":"AptClean"},
+            {"type":"VacuumJournal","max_bytes":209715200},
+            {"type":"RemoveSnapRevision","name":"core20","revision":"2182"}
+        ]}"#;
+        let manifest: Manifest = serde_json::from_str(raw).unwrap();
+        assert_eq!(manifest.operations.len(), 3);
+        assert!(matches!(manifest.operations[0], Operation::AptClean));
+        assert!(matches!(manifest.operations[1], Operation::VacuumJournal { max_bytes: 209_715_200 }));
+        assert!(matches!(&manifest.operations[2], Operation::RemoveSnapRevision { name, revision } if name == "core20" && revision == "2182"));
     }
 }
