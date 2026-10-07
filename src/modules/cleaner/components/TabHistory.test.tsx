@@ -17,6 +17,8 @@ const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => () => {}) }));
 vi.mock("../../../app/ModuleRegistry", () => ({ useModule: () => ({ label: "Cleaner", icon: () => null }) }));
+const onCloseRequested = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ onCloseRequested }) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(async () => null) }));
 
 const MB = 1024 * 1024;
@@ -475,8 +477,40 @@ describe("after a clean", () => {
   });
 });
 
-describe("closing", () => {
-  it("saves pending results when the Cleaner page is left", async () => {
+describe("saving", () => {
+  const setCalls = (tab: string) => invoke.mock.calls.filter(([cmd, args]) => cmd === "cleaner_snapshot_set" && args.tab === tab);
+
+  it("saves results as soon as a scan finishes, without waiting for a timer", async () => {
+    scans = CASES.caches.scans;
+    mount(CachesTab);
+    await click("Scan");
+    await screen.findByText("npm cache");
+    // The filter debounce is 400 ms; this must not need it.
+    await waitFor(() => expect(setCalls("caches").length).toBeGreaterThan(0), { timeout: 250 });
+    expect(JSON.parse(setCalls("caches")[0][1].json).slots.caches).toHaveLength(1);
+  });
+
+  it("flushes pending filter changes when the page is hidden", async () => {
+    const { flushOnHide, setSlot } = await import("../tabState");
+    const off = flushOnHide();
+    setSlot("large-files", "kind", "video", "all");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(setCalls("large-files")).toEqual([]);
+    const state = vi.spyOn(document, "visibilityState", "get");
+    state.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(setCalls("large-files")).toEqual([]);
+    state.mockReturnValue("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(setCalls("large-files").length).toBe(1), { timeout: 250 });
+    expect(JSON.parse(setCalls("large-files")[0][1].json).slots.kind).toBe("video");
+    state.mockRestore();
+    off();
+  });
+
+  it("saves pending filters when the Cleaner page is left, and never hooks the window close", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
     const { default: CleanerPage } = await import("../pages/CleanerPage");
     const { setSlot } = await import("../tabState");
     const page = render(
@@ -487,9 +521,12 @@ describe("closing", () => {
       </MemoryRouter>,
     );
     await screen.findByText(/Scan everything to see/);
-    setSlot("caches", "scannedAt", Date.now(), null as number | null);
-    expect(invoke.mock.calls.some(([cmd]) => cmd === "cleaner_snapshot_set")).toBe(false);
+    setSlot("large-files", "age", "30", "0");
+    expect(setCalls("large-files")).toEqual([]);
     page.unmount();
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("cleaner_snapshot_set", expect.objectContaining({ tab: "caches" })));
+    await waitFor(() => expect(setCalls("large-files").length).toBe(1), { timeout: 250 });
+    // A close-requested handler would block the native close and override close-to-tray.
+    expect(onCloseRequested).not.toHaveBeenCalled();
+    delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
   });
 });

@@ -68,6 +68,20 @@ const PERSISTED: Record<StoreKey, Record<string, Check>> = {
   projects: { rows: orNull(isArr), error: orNull(isStr), scannedAt: orNull(isNum) },
 };
 
+/**
+ * Slots that hold results. A change to one is saved at once (coalesced into one
+ * save per tick), not after the debounce, so closing the app cannot lose it.
+ */
+const IMMEDIATE: Partial<Record<StoreKey, Set<string>>> = {
+  overview: new Set(["results", "scannedAt", "trimmed"]),
+  caches: new Set(["caches", "system", "error", "systemError", "scannedAt"]),
+  docker: new Set(["result", "error", "scannedAt"]),
+  "large-files": new Set(["files", "scannedFilters", "scannedAt", "trimmed"]),
+  "storage-map": new Set(["tree", "scannedAt", "trimmed"]),
+  projects: new Set(["rows", "error", "scannedAt"]),
+};
+const soon = new Set<StoreKey>();
+
 /** Largest snapshot the backend accepts; bigger ones stay in memory only. */
 export const MAX_SNAPSHOT_CHARS = 8 * 1024 * 1024;
 const SAVE_DELAY_MS = 400;
@@ -110,7 +124,8 @@ export function setSlot<T>(tab: StoreKey, key: string, update: Update<T>, fallba
   const s = slots.get(tab) ?? {};
   if (key in s && Object.is(s[key], next)) return;
   slots.set(tab, { ...s, [key]: next });
-  if (key in PERSISTED[tab] || key === "scanning") schedulePersist(tab);
+  if (IMMEDIATE[tab]?.has(key) || key === "scanning") persistSoon(tab);
+  else if (key in PERSISTED[tab]) schedulePersist(tab);
   notify();
 }
 
@@ -177,6 +192,16 @@ function hydrate(tab: StoreKey, json: string) {
   slots.set(tab, next);
 }
 
+function persistSoon(tab: StoreKey) {
+  if (Object.keys(PERSISTED[tab]).length === 0 || soon.has(tab)) return;
+  soon.add(tab);
+  const mine = epoch;
+  void Promise.resolve().then(() => {
+    soon.delete(tab);
+    if (mine === epoch) return persist(tab);
+  });
+}
+
 function schedulePersist(tab: StoreKey) {
   if (Object.keys(PERSISTED[tab]).length === 0) return;
   const old = timers.get(tab);
@@ -209,7 +234,7 @@ async function persist(tab: StoreKey): Promise<void> {
   }
 }
 
-/** Saves whatever is waiting for its delay. Run when the Cleaner is left and the window closes. */
+/** Saves whatever is waiting for its delay. Run when the page is hidden or the Cleaner is left. */
 export async function flushSnapshots(): Promise<void> {
   const pending = [...timers.keys()];
   for (const t of timers.values()) clearTimeout(t);
@@ -222,6 +247,7 @@ export function resetTabState(): void {
   epoch += 1;
   for (const t of timers.values()) clearTimeout(t);
   timers.clear();
+  soon.clear();
   slots.clear();
   loads.clear();
   loaded.clear();
@@ -229,23 +255,20 @@ export function resetTabState(): void {
 }
 
 /**
- * Flushes pending snapshots when the window closes. Returns the undo.
- * Both the Tauri close request and beforeunload are covered; the first waits for the save.
+ * Flushes the debounced filter and position saves when the page is hidden or
+ * unloaded. Fire and forget: nothing here is awaited or can hold a close up, and
+ * no window close handler is registered, so close-to-tray is untouched. Results
+ * are saved the moment they change, so they never wait on this. Returns the undo.
  */
-export function flushOnClose(): () => void {
+export function flushOnHide(): () => void {
+  const onHide = () => {
+    if (document.visibilityState === "hidden") void flushSnapshots();
+  };
   const onUnload = () => void flushSnapshots();
+  document.addEventListener("visibilitychange", onHide);
   window.addEventListener("beforeunload", onUnload);
-  let off: (() => void) | undefined;
-  let gone = false;
-  if ("__TAURI_INTERNALS__" in window) {
-    void import("@tauri-apps/api/window")
-      .then(({ getCurrentWindow }) => getCurrentWindow().onCloseRequested(() => flushSnapshots()))
-      .then((un) => (gone ? un() : (off = un)))
-      .catch(() => {});
-  }
   return () => {
-    gone = true;
+    document.removeEventListener("visibilitychange", onHide);
     window.removeEventListener("beforeunload", onUnload);
-    off?.();
   };
 }
