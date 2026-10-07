@@ -32,6 +32,7 @@ import {
   TriangleAlert,
 } from "../../../ui/icons";
 import { fetchPortClaims, fetchSystemSnapshot, SystemSnapshot, TemperatureReading } from "../api";
+import { CleanerCard } from "./CleanerCard";
 import { Claimant, findPortConflicts, PortConflict } from "../portConflicts";
 import {
   CPU_TEMP_LIMITS,
@@ -156,6 +157,7 @@ export default function DashboardPage() {
             {shows("memory") && <MemoryCard snapshot={data} />}
             {shows("gpu") && <GpuCard snapshot={data} />}
             {shows("storage") && <StorageCard snapshot={data} />}
+            {shows("storage") && <CleanerCard />}
           </div>
         </Stack>
       )}
