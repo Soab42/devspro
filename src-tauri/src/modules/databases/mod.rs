@@ -25,7 +25,7 @@ pub mod export;
 pub mod history;
 pub mod schema;
 
-const PROJECT_NAME: &str = "devspro";
+pub(crate) const PROJECT_NAME: &str = "devspro";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

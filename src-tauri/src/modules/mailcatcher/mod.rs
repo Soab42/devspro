@@ -13,7 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
-const PROJECT_NAME: &str = "devspro_mailcatcher";
+pub(crate) const PROJECT_NAME: &str = "devspro_mailcatcher";
 const SERVICE_NAME: &str = "mailcatcher";
 const CONTAINER_NAME: &str = "devspro_mailcatcher";
 const IMAGE: &str = "axllent/mailpit:latest";
