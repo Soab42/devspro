@@ -92,3 +92,9 @@ strip = true
 # rather than abort partway through applying a manifest.
 panic = "unwind"
 
+# Dependencies' debug info was most of target/debug's size: about 22 GB of the
+# 33 GB it had grown to. The workspace's own crates keep full debug info, so
+# panics and backtraces in DevsPro code are unaffected.
+[profile.dev.package."*"]
+debug = false
+
