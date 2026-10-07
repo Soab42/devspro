@@ -310,7 +310,7 @@ mod tests {
         let mut params = CertificateParams::default();
         params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
         let mut dn = DistinguishedName::new();
-        dn.push(DnType::CommonName, "DevsPro Local Development CA");
+        dn.push(DnType::CommonName, "DevSuite Local Development CA");
         params.distinguished_name = dn;
         let cert = params.self_signed(&key_pair).unwrap();
         fs::write(root_cert_path(certs_dir), cert.pem()).unwrap();
@@ -322,7 +322,7 @@ mod tests {
         // ...and leaves must be signed under *its* name, not CA_COMMON_NAME.
         assert_eq!(
             dn_common_name(&issuer.params().distinguished_name),
-            "DevsPro Local Development CA"
+            "DevSuite Local Development CA"
         );
         assert_ne!(
             dn_common_name(&issuer.params().distinguished_name),
