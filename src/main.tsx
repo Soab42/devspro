@@ -11,6 +11,12 @@ import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
 import { ThemeProvider } from "./app/ThemeContext";
 import { ConfirmProvider } from "./app/ConfirmContext";
+import { ZoomIndicator } from "./app/ZoomIndicator";
+import { installZoom } from "./app/zoom";
+
+// Every window (main, pop-outs, new ones) runs this bundle, so each applies
+// the stored zoom and handles the shortcuts itself.
+installZoom();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -18,6 +24,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <ConfirmProvider>
         <AuthProvider>
           <App />
+          <ZoomIndicator />
         </AuthProvider>
       </ConfirmProvider>
     </ThemeProvider>

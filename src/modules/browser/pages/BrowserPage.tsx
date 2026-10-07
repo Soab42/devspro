@@ -110,8 +110,9 @@ import {
   viewportOf,
   Skin,
   deviceById,
+  scaleBounds,
   errorMessage,
-  nextZoom,
+  pageZoomFor,
   originOf,
   parseSession,
   serializeSession,
@@ -128,6 +129,7 @@ import {
 import { LibraryModal, LibraryTab } from "../components/LibraryModal";
 import { DeviceBar, ViewportFrame } from "../components/DeviceBar";
 import { TabAction, TabStrip } from "../components/TabStrip";
+import { getZoomFactor, zoomKeyAction } from "../../../app/zoom";
 import "./BrowserPage.css";
 
 const SESSION_KEY = "devspro.browser.session";
@@ -137,7 +139,10 @@ function measure(el: HTMLElement | null): Bounds | null {
   if (!el) return null;
   const r = el.getBoundingClientRect();
   if (r.width < 1 || r.height < 1) return null;
-  return { x: r.left, y: r.top, width: r.width, height: r.height };
+  return scaleBounds(
+    { x: r.left, y: r.top, width: r.width, height: r.height },
+    getZoomFactor(),
+  );
 }
 
 /**
@@ -712,9 +717,9 @@ export default function BrowserPage() {
     setPending(null);
   }
 
-  async function zoom(direction: -1 | 1) {
+  async function zoom(direction: -1 | 1 | 0) {
     if (!active) return;
-    const factor = nextZoom(active.zoom, direction);
+    const factor = pageZoomFor(active.zoom, direction);
     await browserSetZoom(active.id, factor).catch((err) =>
       setError(errorMessage(err)),
     );
@@ -758,6 +763,12 @@ export default function BrowserPage() {
       return;
     }
     if (!(e.ctrlKey || e.metaKey)) return;
+    const zoomAction = zoomKeyAction(e);
+    if (zoomAction) {
+      e.preventDefault();
+      void zoom(zoomAction === "in" ? 1 : zoomAction === "out" ? -1 : 0);
+      return;
+    }
     const key = e.key.toLowerCase();
     if (key === "l") {
       e.preventDefault();
@@ -787,12 +798,6 @@ export default function BrowserPage() {
     } else if (key === "r" && active) {
       e.preventDefault();
       void browserReload(active.id);
-    } else if (key === "=" || key === "+") {
-      e.preventDefault();
-      void zoom(1);
-    } else if (key === "-") {
-      e.preventDefault();
-      void zoom(-1);
     }
   }
 
@@ -1071,6 +1076,8 @@ export default function BrowserPage() {
       <div
         className={`browser browser-skin-${skin}${popped ? " browser-popped" : ""}${solo ? " browser-solo" : ""}`}
         onKeyDown={handleKeyDown}
+        // Ctrl+= / Ctrl+- / Ctrl+0 here zoom the page, not the app UI.
+        data-own-zoom-keys=""
         tabIndex={-1}
       >
         {!solo && (

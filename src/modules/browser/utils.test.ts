@@ -5,6 +5,8 @@ import {
   allDevices,
   buildSuggestions,
   clampViewport,
+  scaleBounds,
+  pageZoomFor,
   customToDevice,
   deviceOptionLabel,
   parseCustomDevices,
@@ -176,5 +178,25 @@ describe("session persistence", () => {
     expect(parseSession("garbage")).toBeNull();
     expect(parseSession(JSON.stringify({ urls: [] }))).toBeNull();
     expect(parseSession(JSON.stringify({ urls: "x" }))).toBeNull();
+  });
+});
+
+describe("scaleBounds", () => {
+  const b = { x: 10, y: 20, width: 300, height: 200 };
+  it("leaves bounds alone at 100%", () => {
+    expect(scaleBounds(b, 1)).toEqual(b);
+  });
+  it("converts zoomed CSS pixels to device pixels", () => {
+    expect(scaleBounds(b, 1.5)).toEqual({ x: 15, y: 30, width: 450, height: 300 });
+    expect(scaleBounds(b, 0.5)).toEqual({ x: 5, y: 10, width: 150, height: 100 });
+  });
+});
+
+describe("pageZoomFor", () => {
+  it("steps, and Ctrl+0 (direction 0) resets to 100%", () => {
+    expect(pageZoomFor(1, 1)).toBeGreaterThan(1);
+    expect(pageZoomFor(1, -1)).toBeLessThan(1);
+    expect(pageZoomFor(1.5, 0)).toBe(1);
+    expect(pageZoomFor(0.5, 0)).toBe(1);
   });
 });

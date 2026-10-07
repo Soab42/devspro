@@ -515,3 +515,26 @@ export function parseSession(raw: string | null): SavedSession | null {
     return null;
   }
 }
+
+/**
+ * The app webview is zoomed natively, so DOM measurements are in zoomed CSS
+ * pixels while the native child views are placed in device pixels.
+ */
+export function scaleBounds<B extends { x: number; y: number; width: number; height: number }>(
+  b: B,
+  factor: number,
+): B {
+  if (factor === 1) return b;
+  return {
+    ...b,
+    x: b.x * factor,
+    y: b.y * factor,
+    width: b.width * factor,
+    height: b.height * factor,
+  };
+}
+
+/** A page's next zoom: a step up or down, or 0 to reset to 100%. */
+export function pageZoomFor(current: number, direction: -1 | 0 | 1): number {
+  return direction === 0 ? 1 : nextZoom(current, direction);
+}

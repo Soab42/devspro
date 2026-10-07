@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { useModule } from "../../app/ModuleRegistry";
 import { ThemeControl } from "../../app/ThemeControl";
+import { ZoomControl } from "../../app/ZoomControl";
 import {
   Button,
   Callout,
@@ -109,6 +110,13 @@ export default function SettingsPage() {
             {/* Exactly the control in the topbar — they used to be two separate
                 hand-rolled toggles over the same state. */}
             <ThemeControl iconOnly={false} size="md" />
+          </Field>
+          <Field
+            label="Interface size"
+            inline
+            hint="Scales text, forms and tables. Also Ctrl+Plus, Ctrl+Minus, Ctrl+0 and Ctrl+mouse wheel."
+          >
+            <ZoomControl />
           </Field>
         </Section>
 
