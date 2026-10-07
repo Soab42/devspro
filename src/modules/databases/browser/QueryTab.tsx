@@ -41,6 +41,8 @@ import { dumpFileName, NULL_MARKER } from "../utils";
 export interface QueryTabProps {
   connection: string;
   database: string;
+  /** PostgreSQL schema the console's queries resolve bare names in. */
+  searchSchema?: string;
   dialect: "mysql" | "postgres";
   /** Tables and their columns, for completion. */
   schema: SqlSchema;
@@ -116,6 +118,7 @@ function resultColumns(rs: ResultSet): Column<{ i: number; cells: string[] }>[] 
 export default function QueryTab({
   connection,
   database,
+  searchSchema,
   dialect,
   schema,
   writable,
@@ -155,6 +158,7 @@ export default function QueryTab({
         database,
         sql,
         sheet.allowWrite,
+        searchSchema,
       );
       patch(sheet.id, { result, error: null });
     } catch (e) {

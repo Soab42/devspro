@@ -7,6 +7,8 @@ export interface ObjectSidebarProps {
   objects: TableInfo[];
   loading: boolean;
   selected: string | null;
+  /** Drops this schema's prefix from displayed names; keys stay qualified. */
+  stripSchema?: string;
   onSelect: (name: string) => void;
 }
 
@@ -21,6 +23,7 @@ export default function ObjectSidebar({
   objects,
   loading,
   selected,
+  stripSchema,
   onSelect,
 }: ObjectSidebarProps) {
   const [query, setQuery] = useState("");
@@ -39,7 +42,10 @@ export default function ObjectSidebar({
   function group(items: TableInfo[]) {
     return items.map((o) => ({
       key: o.name,
-      label: o.name,
+      label:
+        stripSchema && o.name.startsWith(`${stripSchema}.`)
+          ? o.name.slice(stripSchema.length + 1)
+          : o.name,
       active: o.name === selected,
       onSelect: () => onSelect(o.name),
       // Rows and size are what you scan a table list for — which is the big

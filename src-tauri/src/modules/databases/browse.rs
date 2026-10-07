@@ -666,7 +666,36 @@ fn client_for(kind: DbKind, role: &str) -> &'static str {
 /// Runs one SQL statement and returns the parsed result set (empty when the
 /// statement produced no rows, e.g. a write with `allow_write`).
 fn run_sql(conn: &Conn, database: &str, sql: &str) -> Result<ResultSet, String> {
+    run_sql_in(conn, database, sql, None)
+}
+
+/// The `PGOPTIONS` that make one psql process resolve bare names in `schema`
+/// first. Built only from a validated identifier, so nothing in it can break
+/// out of the quotes. `None` for MySQL, where the database is the schema.
+fn search_path_options(kind: DbKind, schema: Option<&str>) -> Result<Option<String>, String> {
+    match (kind, schema) {
+        (DbKind::Mysql, _) | (_, None) => Ok(None),
+        (_, Some(schema)) => {
+            check_identifier(schema, "schema name")?;
+            Ok(Some(format!("-c search_path=\"{schema}\",public")))
+        }
+    }
+}
+
+/// Adds an environment variable to an already-built invocation: on the host it
+/// goes in `env`, through docker it is an `-e` before the container/image.
+fn with_env(mut inv: Invocation, key: &str, value: &str) -> Invocation {
+    if inv.program == "docker" {
+        inv.args.splice(1..1, ["-e".to_string(), format!("{key}={value}")]);
+    } else {
+        inv.env.push((key.to_string(), value.to_string()));
+    }
+    inv
+}
+
+fn run_sql_in(conn: &Conn, database: &str, sql: &str, schema: Option<&str>) -> Result<ResultSet, String> {
     check_identifier(database, "database name")?;
+    let options = search_path_options(conn.kind, schema)?;
     let tail: Vec<String> = match conn.kind {
         // `--database=` rather than a trailing positional: unambiguous, and it
         // keeps a database whose name starts oddly from being read as a flag.
@@ -682,7 +711,12 @@ fn run_sql(conn: &Conn, database: &str, sql: &str) -> Result<ResultSet, String> 
             sql.to_string(),
         ],
     };
-    let out = run_client(conn, client_for(conn.kind, "sql"), &tail)?;
+    let client = client_for(conn.kind, "sql");
+    let mut inv = invocation(conn, &runner_for(conn, client), client, &tail, false);
+    if let Some(options) = options {
+        inv = with_env(inv, "PGOPTIONS", &options);
+    }
+    let out = command_for(&inv).output().map_err(|e| spawn_failed(&inv, e))?;
     if let Some(err) = command_failed(&out) {
         return Err(tidy_client_error(&err));
     }
@@ -784,10 +818,19 @@ pub fn databases_list_tables(
     db: State<crate::db::Db>,
     connection: String,
     database: String,
+    schema: Option<String>,
 ) -> Result<Vec<TableInfo>, String> {
     let conn = connect(&app, &db, &connection)?;
     check_identifier(&database, "database name")?;
-    let rs = run_sql(&conn, &database, &schema::objects_sql(conn.kind, &database))?;
+    // MySQL's database is its schema; only PostgreSQL narrows further.
+    let only = match (conn.kind, schema.as_deref()) {
+        (DbKind::Mysql, _) | (_, None) => None,
+        (_, Some(s)) => {
+            check_identifier(s, "schema name")?;
+            Some(s)
+        }
+    };
+    let rs = run_sql(&conn, &database, &schema::objects_sql(conn.kind, &database, only))?;
     Ok(rs
         .rows
         .into_iter()
@@ -798,6 +841,35 @@ pub fn databases_list_tables(
             rows_estimate: parse_i64(&r[2]),
             size_bytes: parse_i64(&r[3]),
         })
+        .collect())
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct SchemaInfo {
+    pub name: String,
+    pub tables: i64,
+    pub size_bytes: i64,
+}
+
+/// The schema picker's contents. Empty for MySQL, whose databases are schemas.
+#[tauri::command(async)]
+pub fn databases_list_schemas(
+    app: tauri::AppHandle,
+    db: State<crate::db::Db>,
+    connection: String,
+    database: String,
+) -> Result<Vec<SchemaInfo>, String> {
+    let conn = connect(&app, &db, &connection)?;
+    check_identifier(&database, "database name")?;
+    let Some(sql) = schema::schemas_sql(conn.kind) else {
+        return Ok(Vec::new());
+    };
+    let rs = run_sql(&conn, &database, sql)?;
+    Ok(rs
+        .rows
+        .into_iter()
+        .filter(|r| r.len() >= 3)
+        .map(|r| SchemaInfo { name: r[0].clone(), tables: parse_i64(&r[1]), size_bytes: parse_i64(&r[2]) })
         .collect())
 }
 
@@ -1040,6 +1112,7 @@ pub fn databases_query(
     database: String,
     sql: String,
     allow_write: Option<bool>,
+    schema: Option<String>,
 ) -> Result<ResultSet, String> {
     if allow_write.unwrap_or(false) {
         if sql.trim().is_empty() {
@@ -1052,7 +1125,7 @@ pub fn databases_query(
     let conn = connect(&app, &db, &connection)?;
 
     let started = std::time::Instant::now();
-    let result = run_sql(&conn, &database, sql.trim());
+    let result = run_sql_in(&conn, &database, sql.trim(), schema.as_deref());
     let elapsed = started.elapsed().as_millis() as i64;
 
     // Recorded whether it worked or not — "what did I run just before it
@@ -1414,5 +1487,25 @@ mod tests {
     fn client_error_drops_the_mysql_password_warning() {
         let err = "mysql: [Warning] Using a password on the command line interface can be insecure.\nERROR 1146 (42S02) at line 1: Table 'x' doesn't exist";
         assert_eq!(tidy_client_error(err), "ERROR 1146 (42S02) at line 1: Table 'x' doesn't exist");
+    }
+
+    #[test]
+    fn the_search_path_option_is_only_built_from_a_valid_identifier() {
+        assert_eq!(
+            search_path_options(DbKind::Postgres, Some("audit")).unwrap().as_deref(),
+            Some("-c search_path=\"audit\",public")
+        );
+        assert!(search_path_options(DbKind::Postgres, Some("a\",public;--")).is_err());
+        assert!(search_path_options(DbKind::Postgres, Some("")).is_err());
+        assert_eq!(search_path_options(DbKind::Postgres, None).unwrap(), None);
+        assert_eq!(search_path_options(DbKind::Mysql, Some("bad name")).unwrap(), None);
+    }
+
+    #[test]
+    fn an_extra_environment_variable_reaches_the_client_on_every_transport() {
+        let host = Invocation { program: "psql".into(), args: vec!["-U".into()], env: Vec::new() };
+        assert_eq!(with_env(host, "K", "v").env, vec![("K".to_string(), "v".to_string())]);
+        let docker = Invocation { program: "docker".into(), args: vec!["exec".into(), "c".into()], env: Vec::new() };
+        assert_eq!(with_env(docker, "K", "v").args, vec!["exec", "-e", "K=v", "c"]);
     }
 }

@@ -5,13 +5,15 @@ import type { HistoryEntry, ResultSet } from "../api";
 
 const listHistory = vi.fn<() => Promise<HistoryEntry[]>>();
 const runQuery =
-  vi.fn<(c: string, d: string, sql: string, w: boolean) => Promise<ResultSet>>();
+  vi.fn<
+    (c: string, d: string, sql: string, w: boolean, s?: string) => Promise<ResultSet>
+  >();
 
 vi.mock("../api", () => ({
   listHistory: () => listHistory(),
   clearHistory: vi.fn(async () => undefined),
-  runQuery: (c: string, d: string, sql: string, w: boolean) =>
-    runQuery(c, d, sql, w),
+  runQuery: (c: string, d: string, sql: string, w: boolean, s?: string) =>
+    runQuery(c, d, sql, w, s),
   exportResult: vi.fn(async () => "exported"),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn(async () => null) }));
@@ -31,11 +33,12 @@ const entry = (sql: string, ok = true): HistoryEntry => ({
   ran_at: "2026-09-23T00:00:00Z",
 });
 
-function renderTab(writable = true) {
+function renderTab(writable = true, searchSchema?: string) {
   render(
     <QueryTab
       connection="shop"
       database="shop"
+      searchSchema={searchSchema}
       dialect="mysql"
       schema={{ users: ["id", "name"] }}
       writable={writable}
@@ -117,6 +120,18 @@ describe("QueryTab", () => {
       fireEvent.click(screen.getByRole("button", { name: "Run" }));
       await waitFor(() => expect(runQuery).toHaveBeenCalled());
       expect(runQuery.mock.calls[0][2]).toBe("SELECT 1");
+    });
+  });
+
+  describe("schema", () => {
+    it("sends the chosen schema with each query", async () => {
+      listHistory.mockResolvedValue([entry("SELECT 1")]);
+      renderTab(true, "audit");
+      fireEvent.click(await screen.findByRole("button", { name: "History" }));
+      fireEvent.click(await screen.findByText("SELECT 1"));
+      fireEvent.click(await screen.findByRole("button", { name: "Run" }));
+      await waitFor(() => expect(runQuery).toHaveBeenCalled());
+      expect(runQuery.mock.calls[0][4]).toBe("audit");
     });
   });
 

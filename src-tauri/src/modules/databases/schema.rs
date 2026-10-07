@@ -264,7 +264,7 @@ pub fn reverse_relation_from_row(row: &[String]) -> Option<ReverseRelation> {
 
 /// Lists a database's tables *and* views, with the row/size estimates the
 /// sidebar shows. Views have neither, and report zero.
-pub fn objects_sql(kind: DbKind, database: &str) -> String {
+pub fn objects_sql(kind: DbKind, database: &str, schema: Option<&str>) -> String {
     match kind {
         DbKind::Mysql => format!(
             "SELECT TABLE_NAME, IF(TABLE_TYPE='VIEW','view','table'), IFNULL(TABLE_ROWS,0), \
@@ -275,13 +275,35 @@ pub fn objects_sql(kind: DbKind, database: &str) -> String {
         ),
         // relkind: r/p are tables and partitioned tables, v/m views and
         // materialized views. reltuples is -1 before the first ANALYZE.
-        _ => "SELECT CASE WHEN n.nspname='public' THEN c.relname ELSE n.nspname||'.'||c.relname END, \
-              CASE WHEN c.relkind IN ('v','m') THEN 'view' ELSE 'table' END, \
-              c.reltuples::bigint, pg_total_relation_size(c.oid) \
-              FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \
-              WHERE c.relkind IN ('r','p','v','m') AND n.nspname NOT IN ('pg_catalog','information_schema') \
-              AND n.nspname NOT LIKE 'pg_toast%' ORDER BY 1"
-            .to_string(),
+        _ => {
+            let only = schema.map(|s| format!(" AND n.nspname={}", quote_literal(kind, s))).unwrap_or_default();
+            format!(
+                "SELECT CASE WHEN n.nspname='public' THEN c.relname ELSE n.nspname||'.'||c.relname END, \
+                 CASE WHEN c.relkind IN ('v','m') THEN 'view' ELSE 'table' END, \
+                 c.reltuples::bigint, pg_total_relation_size(c.oid) \
+                 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \
+                 WHERE c.relkind IN ('r','p','v','m') AND n.nspname NOT IN ('pg_catalog','information_schema') \
+                 AND n.nspname NOT LIKE 'pg_toast%'{only} ORDER BY 1"
+            )
+        }
+    }
+}
+
+/// PostgreSQL's schemas with their relation count and total size, for the
+/// schema picker. System schemas are left out. MySQL has no separate schema
+/// level (a database is a schema), so it has no query.
+pub fn schemas_sql(kind: DbKind) -> Option<&'static str> {
+    match kind {
+        DbKind::Mysql => None,
+        _ => Some(
+            "SELECT n.nspname, \
+             count(c.oid) FILTER (WHERE c.relkind IN ('r','p','v','m')), \
+             COALESCE(sum(pg_total_relation_size(c.oid)) FILTER (WHERE c.relkind IN ('r','p','v','m')),0)::bigint \
+             FROM pg_namespace n LEFT JOIN pg_class c ON c.relnamespace=n.oid \
+             WHERE n.nspname NOT IN ('pg_catalog','information_schema') \
+             AND n.nspname NOT LIKE 'pg_toast%' AND n.nspname NOT LIKE 'pg_temp_%' \
+             GROUP BY n.nspname ORDER BY n.nspname",
+        ),
     }
 }
 
@@ -394,10 +416,26 @@ mod tests {
 
     #[test]
     fn the_object_list_includes_views_and_says_which_is_which() {
-        let mysql = objects_sql(DbKind::Mysql, "shop");
+        let mysql = objects_sql(DbKind::Mysql, "shop", None);
         assert!(mysql.contains("'BASE TABLE','VIEW'"), "{mysql}");
         assert!(mysql.contains("'view'"), "{mysql}");
-        let pg = objects_sql(DbKind::Postgres, "shop");
+        let pg = objects_sql(DbKind::Postgres, "shop", None);
         assert!(pg.contains("'r','p','v','m'"), "{pg}");
+    }
+
+    #[test]
+    fn the_schema_list_leaves_out_system_schemas() {
+        assert!(schemas_sql(DbKind::Mysql).is_none());
+        let sql = schemas_sql(DbKind::Postgres).unwrap();
+        for left_out in ["'pg_catalog'", "'information_schema'", "'pg_toast%'", "'pg_temp_%'"] {
+            assert!(sql.contains(left_out), "{sql}");
+        }
+    }
+
+    #[test]
+    fn a_chosen_schema_is_quoted_as_a_literal() {
+        let sql = objects_sql(DbKind::Postgres, "shop", Some("au'dit"));
+        assert!(sql.contains("AND n.nspname='au''dit'"), "{sql}");
+        assert!(!objects_sql(DbKind::Postgres, "shop", None).contains("AND n.nspname="));
     }
 }

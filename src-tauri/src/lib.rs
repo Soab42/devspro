@@ -288,6 +288,7 @@ pub fn run() {
             databases::databases_create_database,
             databases::browse::databases_list_databases,
             databases::browse::databases_list_tables,
+            databases::browse::databases_list_schemas,
             databases::browse::databases_table_rows,
             databases::browse::databases_query,
             databases::browse::databases_dump,

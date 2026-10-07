@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import type { SavedConnection, TableInfo } from "../api";
+import type { SavedConnection, SchemaInfo, TableInfo } from "../api";
 
-const listTables = vi.fn<(c: string, d: string) => Promise<TableInfo[]>>();
+const listTables =
+  vi.fn<(c: string, d: string, s?: string) => Promise<TableInfo[]>>();
+const listSchemas = vi.fn<() => Promise<SchemaInfo[]>>();
 const listDatabaseNames = vi.fn<() => Promise<string[]>>();
 
 const table = (name: string): TableInfo => ({
@@ -16,7 +18,8 @@ const table = (name: string): TableInfo => ({
 vi.mock("../api", () => ({
   listConnections: vi.fn(async (): Promise<SavedConnection[]> => []),
   listDatabaseNames: () => listDatabaseNames(),
-  listTables: (c: string, d: string) => listTables(c, d),
+  listSchemas: () => listSchemas(),
+  listTables: (c: string, d: string, s?: string) => listTables(c, d, s),
   fetchTableStructure: vi.fn(async () => ({
     columns: [],
     indexes: [],
@@ -48,6 +51,8 @@ import BrowserPanel from "./BrowserPanel";
 describe("BrowserPanel", () => {
   beforeEach(() => {
     listDatabaseNames.mockReset().mockResolvedValue(["shop", "billing"]);
+    listSchemas.mockReset().mockResolvedValue([]);
+    localStorage.clear();
     listTables.mockReset().mockImplementation(async (_c, database) =>
       database === "shop"
         ? [table("orders"), table("customers")]
@@ -77,7 +82,7 @@ describe("BrowserPanel", () => {
     fireEvent.click(await screen.findByRole("option", { name: "billing" }));
 
     await waitFor(() => expect(screen.getByText("invoices")).toBeTruthy());
-    expect(listTables).toHaveBeenCalledWith("shop", "billing");
+    expect(listTables).toHaveBeenCalledWith("shop", "billing", undefined);
   });
 
   /** The old ones must not linger beside the new database's name. */
@@ -109,5 +114,77 @@ describe("BrowserPanel", () => {
     expect(
       await screen.findByText(/permission denied for schema/),
     ).toBeTruthy();
+  });
+
+  describe("PostgreSQL schemas", () => {
+    const schemas: SchemaInfo[] = [
+      { name: "audit", tables: 1, size_bytes: 2048 },
+      { name: "public", tables: 2, size_bytes: 4096 },
+    ];
+    const bySchema = async (_c: string, _d: string, s?: string) => {
+      if (s === "audit") return [table("audit.events")];
+      if (s === "public") return [table("orders")];
+      return [table("orders"), table("audit.events")];
+    };
+
+    beforeEach(() => {
+      listSchemas.mockResolvedValue(schemas);
+      listTables.mockImplementation(bySchema);
+    });
+
+    it("hides the schema picker when the server has no schemas, as MySQL", async () => {
+      listSchemas.mockResolvedValue([]);
+      renderPanel();
+      await screen.findByText("orders");
+      expect(screen.queryByLabelText("Schema")).toBeNull();
+    });
+
+    it("opens on public, with the prefix-free names", async () => {
+      renderPanel();
+      expect(await screen.findByText("orders")).toBeTruthy();
+      expect(listTables).toHaveBeenLastCalledWith("shop", "shop", "public");
+      expect(screen.getByLabelText("Schema")).toBeTruthy();
+    });
+
+    it("reloads when the schema changes and drops the old tables", async () => {
+      renderPanel();
+      await screen.findByText("orders");
+
+      fireEvent.click(screen.getByLabelText("Schema"));
+      fireEvent.click(await screen.findByRole("option", { name: /^audit/ }));
+
+      await waitFor(() => expect(screen.getByText("events")).toBeTruthy());
+      expect(screen.queryByText("orders")).toBeNull();
+      expect(listTables).toHaveBeenLastCalledWith("shop", "shop", "audit");
+    });
+
+    it("deselects a table that is not in the new schema", async () => {
+      renderPanel();
+      fireEvent.click(await screen.findByText("orders"));
+      await screen.findByText("grid:orders");
+
+      fireEvent.click(screen.getByLabelText("Schema"));
+      fireEvent.click(await screen.findByRole("option", { name: /^audit/ }));
+
+      await waitFor(() => expect(screen.queryByText("grid:orders")).toBeNull());
+    });
+
+    it("shows qualified names under All schemas", async () => {
+      renderPanel();
+      await screen.findByText("orders");
+
+      fireEvent.click(screen.getByLabelText("Schema"));
+      fireEvent.click(await screen.findByRole("option", { name: "All schemas" }));
+
+      expect(await screen.findByText("audit.events")).toBeTruthy();
+    });
+
+    it("uses the schema remembered for the connection and database", async () => {
+      localStorage.setItem("devspro.databases.schema.shop/shop", "audit");
+      renderPanel();
+      expect(await screen.findByText("events")).toBeTruthy();
+      expect(listTables).toHaveBeenLastCalledWith("shop", "shop", "audit");
+      expect(screen.queryByText("orders")).toBeNull();
+    });
   });
 });

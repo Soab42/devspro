@@ -43,12 +43,15 @@ import {
   getMode,
   listConnections,
   listDatabaseNames,
+  listSchemas,
   listTables,
+  SchemaInfo,
   restoreDump,
   setMode,
   TableInfo,
   TableStructure,
 } from "../api";
+import { formatBytes } from "../../dashboard/utils";
 import { connectionTarget, customRef, dumpFileName } from "../utils";
 import ConnectionsModal from "../components/ConnectionsModal";
 /* Lazy: the SQL console pulls in CodeMirror, which is larger than the rest of
@@ -87,6 +90,43 @@ export interface BrowserPanelProps {
 }
 
 type MainTab = "data" | "structure" | "query";
+
+/** The schema Select's value for "no schema filter" — a Select option can't be empty. */
+const ALL_SCHEMAS = "*";
+
+const schemaMemoryKey = (connection: string, database: string) =>
+  `devspro.databases.schema.${connection}/${database}`;
+
+function rememberedSchema(connection: string, database: string): string | null {
+  try {
+    return localStorage.getItem(schemaMemoryKey(connection, database));
+  } catch {
+    return null;
+  }
+}
+
+function rememberSchema(connection: string, database: string, value: string) {
+  try {
+    localStorage.setItem(schemaMemoryKey(connection, database), value);
+  } catch {
+    /* a remembered pick is a nicety; private mode just forgets it */
+  }
+}
+
+/** Remembered pick, else `public`, else the first schema holding tables. */
+function defaultSchema(
+  schemas: SchemaInfo[],
+  remembered: string | null,
+): string {
+  if (
+    remembered !== null &&
+    (remembered === ALL_SCHEMAS || schemas.some((s) => s.name === remembered))
+  ) {
+    return remembered;
+  }
+  if (schemas.some((s) => s.name === "public")) return "public";
+  return schemas.find((s) => s.tables > 0)?.name ?? ALL_SCHEMAS;
+}
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -164,16 +204,49 @@ function DatabaseBrowser({
   const [objectsLoading, setObjectsLoading] = useState(false);
   const [objectsError, setObjectsError] = useState<string | null>(null);
 
+  /* PostgreSQL schemas. `schema` is ALL_SCHEMAS or a name, and `schemaReady`
+     holds the table load back until the default has been worked out — else
+     the first load would fetch every schema and then fetch again. MySQL
+     answers with no schemas, which is what keeps the picker hidden for it. */
+  const [schemas, setSchemas] = useState<SchemaInfo[]>([]);
+  const [schema, setSchema] = useState(ALL_SCHEMAS);
+  const [schemaReady, setSchemaReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSchemas([]);
+    setSchema(ALL_SCHEMAS);
+    setSchemaReady(false);
+    if (!database) return;
+    void listSchemas(connection, database)
+      .catch(() => [] as SchemaInfo[])
+      .then((found) => {
+        if (cancelled) return;
+        setSchemas(found);
+        setSchema(
+          found.length === 0
+            ? ALL_SCHEMAS
+            : defaultSchema(found, rememberedSchema(connection, database)),
+        );
+        setSchemaReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connection, database]);
+
+  const activeSchema = schema === ALL_SCHEMAS ? undefined : schema;
+
   const loadObjects = useCallback(
     async (signal: { cancelled: boolean }) => {
-      if (!database) {
+      if (!database || !schemaReady) {
         setObjectList([]);
         return;
       }
       setObjectsLoading(true);
       setObjectsError(null);
       try {
-        const found = await listTables(connection, database);
+        const found = await listTables(connection, database, activeSchema);
         if (!signal.cancelled) setObjectList(found);
       } catch (e) {
         if (!signal.cancelled) {
@@ -184,7 +257,7 @@ function DatabaseBrowser({
         if (!signal.cancelled) setObjectsLoading(false);
       }
     },
-    [connection, database],
+    [connection, database, schemaReady, activeSchema],
   );
 
   useEffect(() => {
@@ -224,12 +297,31 @@ function DatabaseBrowser({
   /** Table → column names, for the console's completion. */
   const sqlSchema: SqlSchema = useMemo(() => {
     const entry: SqlSchema = {};
-    for (const object of objectList) entry[object.name] = [];
+    // With one schema chosen, its tables complete unqualified — the console
+    // runs with that schema first on the search path.
+    const bare = (name: string) =>
+      activeSchema && name.startsWith(`${activeSchema}.`)
+        ? name.slice(activeSchema.length + 1)
+        : name;
+    for (const object of objectList) entry[bare(object.name)] = [];
     if (table && structure) {
-      entry[table] = structure.columns.map((c) => c.name);
+      entry[bare(table)] = structure.columns.map((c) => c.name);
     }
     return entry;
-  }, [objectList, table, structure]);
+  }, [objectList, table, structure, activeSchema]);
+
+  function changeSchema(next: string) {
+    setSchema(next);
+    rememberSchema(connection, database, next);
+    // The list is cleared by the reload; the open table only survives when
+    // the new schema still contains it.
+    setObjectList([]);
+    const chosen = next === ALL_SCHEMAS ? undefined : next;
+    if (table && chosen) {
+      const owner = table.includes(".") ? table.split(".")[0] : "public";
+      if (owner !== chosen) setTable(null);
+    }
+  }
 
   const changeMode = useCallback(
     async (next: ConnectionMode) => {
@@ -381,6 +473,22 @@ function DatabaseBrowser({
           setTable(null);
         }}
       />
+      {schemas.length > 0 && (
+        <Select
+          aria-label="Schema"
+          value={schema}
+          options={[
+            { value: ALL_SCHEMAS, label: "All schemas" },
+            ...schemas.map((s) => ({
+              value: s.name,
+              label: `${s.name} · ${s.tables} ${s.tables === 1 ? "table" : "tables"} · ${formatBytes(s.size_bytes)}`,
+            })),
+          ]}
+          searchable
+          searchPlaceholder="Search schemas…"
+          onChange={changeSchema}
+        />
+      )}
     </Toolbar>
   );
 
@@ -412,6 +520,7 @@ function DatabaseBrowser({
               objects={objectList}
               loading={objectsLoading}
               selected={table}
+              stripSchema={activeSchema}
               onSelect={(name) => {
                 setTable(name);
                 setArrivedWith(undefined);
@@ -441,6 +550,7 @@ function DatabaseBrowser({
                   key={`${connection}/${database}`}
                   connection={connection}
                   database={database}
+                  searchSchema={activeSchema}
                   dialect={target.engine}
                   schema={sqlSchema}
                   writable={writable}

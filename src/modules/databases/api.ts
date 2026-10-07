@@ -294,8 +294,28 @@ export interface ResultSet {
 export const listDatabaseNames = (connection: string) =>
   invoke<string[]>("databases_list_databases", { connection });
 
-export const listTables = (connection: string, database: string) =>
-  invoke<TableInfo[]>("databases_list_tables", { connection, database });
+/** A PostgreSQL schema, with what the picker shows beside its name. */
+export interface SchemaInfo {
+  name: string;
+  tables: number;
+  size_bytes: number;
+}
+
+/** Empty for MySQL, whose databases are the schemas. */
+export const listSchemas = (connection: string, database: string) =>
+  invoke<SchemaInfo[]>("databases_list_schemas", { connection, database });
+
+/** `schema` narrows a PostgreSQL listing to one schema; names stay qualified. */
+export const listTables = (
+  connection: string,
+  database: string,
+  schema?: string,
+) =>
+  invoke<TableInfo[]>("databases_list_tables", {
+    connection,
+    database,
+    schema: schema ?? null,
+  });
 
 export const fetchTableRows = (
   connection: string,
@@ -411,12 +431,14 @@ export const runQuery = (
   database: string,
   sql: string,
   allowWrite: boolean,
+  schema?: string,
 ) =>
   invoke<ResultSet>("databases_query", {
     connection,
     database,
     sql,
     allowWrite,
+    schema: schema ?? null,
   });
 
 export const dumpDatabase = (
