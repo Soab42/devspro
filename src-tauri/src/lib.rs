@@ -9,7 +9,6 @@ use modules::apps;
 use modules::backup;
 use modules::browser;
 use modules::cleaner;
-use modules::cleaner as clean;
 use modules::databases;
 use modules::docker;
 use modules::env_diff;
@@ -87,7 +86,7 @@ pub fn run() {
             app.manage(ssh::SshState::default());
             app.manage(remote_desktop::RemoteDesktopState::default());
             app.manage(memory::MemoryState::default());
-            app.manage(clean::CleanerState::default());
+            app.manage(cleaner::CleanerState::default());
             // After the Db and MemoryState it reads are managed. Runs for the
             // life of the process, window open or not.
             memory::watchdog::start(app.handle().clone());
