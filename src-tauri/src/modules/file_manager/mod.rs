@@ -747,7 +747,7 @@ fn copy_tree(source: &Path, target: &Path) -> Result<(), String> {
 /// freedesktop trash spec, the minimum a desktop file manager needs to list
 /// and restore the item: the file under `files/`, and a `.trashinfo` beside it
 /// with the original path and deletion time.
-fn trash_manually(path: &Path, home: &Path) -> Result<(), String> {
+pub(crate) fn trash_manually(path: &Path, home: &Path) -> Result<(), String> {
     let trash = home.join(".local/share/Trash");
     let files = trash.join("files");
     let info = trash.join("info");
@@ -780,6 +780,25 @@ fn trash_manually(path: &Path, home: &Path) -> Result<(), String> {
     })
 }
 
+/// Moves one path to the trash: `gio trash`, else the freedesktop layout by
+/// hand. Shared with the Cleaner, which must never delete for real by default.
+pub fn move_to_trash(path: &Path) -> Result<(), String> {
+    let gio = Command::new("gio").arg("trash").arg(path).output();
+    match gio {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
+            // gio exists but refused (e.g. a path outside the trash's mount).
+            // Its message is the most useful thing we have, so keep it.
+            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            if !msg.is_empty() {
+                return Err(msg);
+            }
+            trash_manually(path, &home_dir()?)
+        }
+        Err(_) => trash_manually(path, &home_dir()?),
+    }
+}
+
 #[tauri::command(async)]
 pub fn fm_trash(path: String) -> Result<String, String> {
     let target = Path::new(&path);
@@ -789,20 +808,7 @@ pub fn fm_trash(path: String) -> Result<String, String> {
     if target.parent().is_none() {
         return Err("cannot trash the root".into());
     }
-    let gio = Command::new("gio").arg("trash").arg(target).output();
-    match gio {
-        Ok(out) if out.status.success() => {}
-        Ok(out) => {
-            // gio exists but refused (e.g. a path outside the trash's mount).
-            // Its message is the most useful thing we have, so keep it.
-            let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            if !msg.is_empty() {
-                return Err(msg);
-            }
-            trash_manually(target, &home_dir()?)?;
-        }
-        Err(_) => trash_manually(target, &home_dir()?)?,
-    }
+    move_to_trash(target)?;
     Ok(format!("Moved {} to the trash", target.display()))
 }
 

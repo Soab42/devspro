@@ -5,6 +5,7 @@ import {
   Bot,
   Container,
   Database,
+  Eraser,
   FileDiff,
   Files,
   Globe,
@@ -201,6 +202,17 @@ export const modules: ModuleDefinition[] = [
     description:
       "See which apps use your RAM, stop them, and let a watchdog close idle ones when memory runs out.",
     keywords: ["killer", "ram", "apps", "kill", "watchdog", "swap", "cache", "task manager"],
+  },
+  {
+    id: "cleaner",
+    label: "Cleaner",
+    icon: Eraser,
+    group: "system",
+    path: "/cleaner",
+    Component: lazy(() => import("../modules/cleaner/pages/CleanerPage")),
+    description:
+      "Find what is eating disk space (caches, Docker, large files, project junk) and clear it after a review.",
+    keywords: ["cache", "npm", "pnpm", "docker", "prune", "disk", "space", "large files", "node_modules"],
   },
   {
     id: "logs",

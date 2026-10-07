@@ -2,6 +2,7 @@ pub mod ai;
 pub mod apps;
 pub mod backup;
 pub mod browser;
+pub mod cleaner;
 pub mod compose;
 pub mod databases;
 pub mod docker;

@@ -32,6 +32,7 @@ fn later_migrations() -> Vec<&'static str> {
         crate::modules::browser::MIGRATION_BROWSER,
         crate::modules::databases::history::MIGRATION_DB_QUERY_HISTORY,
         crate::modules::remote_desktop::connections::MIGRATION_REMOTE_DESKTOPS,
+        crate::modules::cleaner::history::MIGRATION_CLEANER,
     ]
 }
 

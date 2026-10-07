@@ -48,7 +48,7 @@ describe("CommandPalette", () => {
     setup();
     const input = screen.getByRole("combobox");
     fireEvent.change(input, { target: { value: "docker" } });
-    expect(screen.getByRole("option", { name: /Docker/ })).toBeDefined();
+    expect(screen.getByRole("option", { name: /^Docker/ })).toBeDefined();
     expect(screen.queryByRole("option", { name: /^Mail Catcher/ })).toBeNull();
   });
 

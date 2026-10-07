@@ -8,6 +8,8 @@ use modules::ai;
 use modules::apps;
 use modules::backup;
 use modules::browser;
+use modules::cleaner;
+use modules::cleaner as clean;
 use modules::databases;
 use modules::docker;
 use modules::env_diff;
@@ -85,6 +87,7 @@ pub fn run() {
             app.manage(ssh::SshState::default());
             app.manage(remote_desktop::RemoteDesktopState::default());
             app.manage(memory::MemoryState::default());
+            app.manage(clean::CleanerState::default());
             // After the Db and MemoryState it reads are managed. Runs for the
             // life of the process, window open or not.
             memory::watchdog::start(app.handle().clone());
@@ -227,6 +230,23 @@ pub fn run() {
             mailcatcher::mailcatcher_start,
             mailcatcher::mailcatcher_stop,
             mailcatcher::mailcatcher_remove,
+            cleaner::cleaner_settings_get,
+            cleaner::cleaner_settings_set,
+            cleaner::cleaner_history_list,
+            cleaner::cleaner_history_clear,
+            cleaner::cleaner_cancel_scan,
+            cleaner::caches::cleaner_scan_caches,
+            cleaner::caches::cleaner_clean_caches,
+            cleaner::system_items::cleaner_scan_system,
+            cleaner::system_items::cleaner_clean_system,
+            cleaner::docker::cleaner_scan_docker,
+            cleaner::docker::cleaner_clean_docker,
+            cleaner::large_files::cleaner_scan_large_files,
+            cleaner::large_files::cleaner_folder_sizes,
+            cleaner::large_files::cleaner_remove_files,
+            cleaner::projects::cleaner_scan_projects,
+            cleaner::projects::cleaner_clean_projects,
+            cleaner::storage_map::cleaner_scan_tree,
             memory::memory_snapshot,
             memory::memory_stop,
             memory::memory_start,
