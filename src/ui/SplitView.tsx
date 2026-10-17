@@ -1,4 +1,6 @@
 import { HTMLAttributes, PointerEvent as ReactPointerEvent, ReactNode, useState } from "react";
+import { Icon } from "./Icon";
+import type { LucideIcon } from "./icons";
 import "./SplitView.css";
 
 export interface SplitViewProps {
@@ -89,6 +91,10 @@ export interface SideListItem {
   icon?: ReactNode;
   /** Right-aligned secondary text — a count, a size. Truncated before the label. */
   meta?: string;
+  /** Drawn quieter: there, but not ready yet (a drive that is not mounted). */
+  muted?: boolean;
+  /** A second verb on the row, as an icon at its end: eject a drive. */
+  action?: { icon: LucideIcon; label: string; onClick: () => void; disabled?: boolean };
   active?: boolean;
   onSelect: () => void;
   /** Extra attributes on the row's button — drag-and-drop handlers, data-* hooks. */
@@ -108,10 +114,10 @@ export function SideList({ title, items }: SideListProps) {
       {title && <div className="side-list-title">{title}</div>}
       <ul className="side-list-items">
         {items.map((item) => (
-          <li key={item.key}>
+          <li key={item.key} className={item.action ? "side-list-row side-list-row-action" : "side-list-row"}>
             <button
               type="button"
-              className={item.active ? "side-list-item side-list-item-active" : "side-list-item"}
+              className={["side-list-item", item.active && "side-list-item-active", item.muted && "side-list-item-muted"].filter(Boolean).join(" ")}
               aria-current={item.active ? "true" : undefined}
               onClick={item.onSelect}
               {...item.attrs}
@@ -120,6 +126,18 @@ export function SideList({ title, items }: SideListProps) {
               <span className="side-list-item-label">{item.label}</span>
               {item.meta && <span className="side-list-item-meta">{item.meta}</span>}
             </button>
+            {item.action && (
+              <button
+                type="button"
+                className="side-list-item-action"
+                aria-label={item.action.label}
+                title={item.action.label}
+                disabled={item.action.disabled}
+                onClick={item.action.onClick}
+              >
+                <Icon icon={item.action.icon} size="xs" />
+              </button>
+            )}
           </li>
         ))}
       </ul>

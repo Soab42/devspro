@@ -149,10 +149,41 @@ export function fileKind(entry: Pick<FileEntry, "name" | "is_dir" | "is_symlink"
 
 const BINARY_KINDS = new Set(["PNG image", "JPEG image", "GIF image", "WebP image", "Audio", "Video", "PDF", "Archive"]);
 
+/** What a file tab shows: the editor, a picture, a player, or just the facts. */
+export type ViewerKind = "text" | "image" | "video" | "audio" | "pdf" | "other";
+
+/* What the webview itself can draw or play. TIFF and AVI are left out:
+   WebKit shows neither, so they are "other" and open in the desktop's app. */
+const IMAGE_VIEW = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico", "avif"]);
+const VIDEO_VIEW = new Set(["mp4", "m4v", "webm", "mkv", "mov", "ogv"]);
+const AUDIO_VIEW = new Set(["mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac"]);
+/** Formats that are not text, so the editor has nothing to show for them. */
+const BINARY_EXTS = new Set([
+  "zip", "tar", "gz", "tgz", "xz", "bz2", "zst", "7z", "rar", "iso", "img", "dmg", "deb", "rpm", "apk", "appimage",
+  "exe", "dll", "so", "o", "a", "bin", "class", "jar", "war", "pyc", "wasm", "node",
+  "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub",
+  "ttf", "otf", "woff", "woff2", "eot", "sqlite", "sqlite3", "db", "psd", "xcf", "tif", "tiff", "heic",
+  "avi", "wmv", "flv", "mpg", "mpeg", "3gp", "wma", "mid", "midi",
+]);
+
+/**
+ * How a file opens in a tab, or null when it does not: folders, and Google
+ * Docs on a Drive mount, which only exist as a web page.
+ */
+export function viewerKind(entry: Pick<FileEntry, "name" | "is_dir" | "is_symlink"> & { link?: string }): ViewerKind | null {
+  if (entry.is_dir || entry.link) return null;
+  const ext = extensionOf(entry.name);
+  if (IMAGE_VIEW.has(ext)) return "image";
+  if (VIDEO_VIEW.has(ext)) return "video";
+  if (AUDIO_VIEW.has(ext)) return "audio";
+  if (ext === "pdf") return "pdf";
+  if (BINARY_EXTS.has(ext) || BINARY_KINDS.has(fileKind(entry).replace(" (link)", ""))) return "other";
+  return "text";
+}
+
 /** Whether the in-app editor is a sensible way to open this entry. */
-export function isEditable(entry: Pick<FileEntry, "name" | "is_dir" | "is_symlink">): boolean {
-  if (entry.is_dir) return false;
-  return !BINARY_KINDS.has(fileKind(entry).replace(" (link)", ""));
+export function isEditable(entry: Pick<FileEntry, "name" | "is_dir" | "is_symlink"> & { link?: string }): boolean {
+  return viewerKind(entry) === "text";
 }
 
 export function errorMessage(e: unknown): string {
@@ -275,4 +306,31 @@ export function planMove(paths: string[], dir: string): { moves: string[]; skipp
     else moves.push(p);
   }
   return { moves, skipped };
+}
+
+/** Icon view sizes, Windows-style; the slider covers everything in between. */
+export const THUMB_PRESETS = [
+  { label: "Small icons", size: 48 },
+  { label: "Medium icons", size: 96 },
+  { label: "Large icons", size: 160 },
+  { label: "Extra large icons", size: 256 },
+] as const;
+export const THUMB_MIN = 32;
+export const THUMB_MAX = 256;
+export const THUMB_DEFAULT = 96;
+
+/** A requested icon size, kept in range and on an 8px step. */
+export function clampThumb(size: number): number {
+  if (!Number.isFinite(size)) return THUMB_DEFAULT;
+  return Math.round(Math.min(THUMB_MAX, Math.max(THUMB_MIN, size)) / 8) * 8;
+}
+
+/**
+ * The pixel size to render a thumbnail at for an icon shown `display` wide:
+ * the next of a few fixed sizes, so dragging the slider re-renders only when
+ * it crosses one, and a HiDPI screen gets sharp pictures.
+ */
+export function thumbRenderSize(display: number, pixelRatio = 1): number {
+  const want = display * Math.max(1, pixelRatio);
+  return [128, 256, 512].find((b) => b >= want) ?? 512;
 }

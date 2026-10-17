@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 export interface FileEntry {
   name: string;
@@ -11,6 +11,8 @@ export interface FileEntry {
   modified: number;
   /** Octal mode, e.g. "755". */
   permissions: string;
+  /** A Google Docs, Sheets or Slides file on a Drive mount: the web page it opens as. */
+  link?: string;
 }
 
 export type PlaceKind =
@@ -98,3 +100,44 @@ export const fmOpenTerminal = (dir: string) =>
 
 export const fmThumbnail = (path: string, size: number) =>
   invoke<{ data_url: string } | null>("fm_thumbnail", { path, size });
+
+/** How a device is drawn and which sidebar group it sits in. */
+export type DeviceKind = "usb" | "drive" | "phone" | "camera" | "disc" | "cloud" | "network";
+
+/** A USB drive, phone, camera, Drive account or share, mounted or not. */
+export interface Device {
+  /** Stable across mounting and unmounting. */
+  id: string;
+  label: string;
+  kind: DeviceKind;
+  /** Where its files are; null until mounted. */
+  path: string | null;
+  /** Pass to `fmDeviceAction("mount", …)`; null once mounted. */
+  mount: string | null;
+  unmount: string | null;
+  /** Eject the medium or power the drive down for unplugging. */
+  eject: string | null;
+}
+
+export const fmDevices = () => invoke<Device[]>("fm_devices");
+export const fmDeviceAction = (action: "mount" | "unmount" | "eject", target: string) =>
+  invoke<string>("fm_device_action", { action, target });
+
+/** Folder titles for the path bar; on a Drive mount the path itself is IDs. */
+export const fmDisplayNames = (paths: string[]) => invoke<string[]>("fm_display_names", { paths });
+
+let mediaToken: Promise<string> | null = null;
+
+/**
+ * A URL the webview can load a file from directly — for `<img>`, `<video>`
+ * and the PDF frame — instead of carrying its bytes over IPC. `version`
+ * (the modified time) makes a saved-over file load fresh.
+ */
+export async function fmMediaUrl(path: string, version = 0): Promise<string> {
+  mediaToken ??= invoke<string>("fm_media_token").catch((e) => {
+    mediaToken = null;
+    throw e;
+  });
+  const url = convertFileSrc(`${await mediaToken}${path}`, "fmfile");
+  return version ? `${url}?v=${version}` : url;
+}

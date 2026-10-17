@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Button, CopyButton, Mono, Spinner } from "../../../ui";
-import { Eye, HardDrive, Pencil } from "../../../ui/icons";
+import { ExternalLink, Eye, HardDrive } from "../../../ui/icons";
 import Thumbnail from "./Thumbnail";
 import { FileDetail, FileEntry, fmStatDetail } from "../api";
-import { errorMessage, fileKind, formatModified, formatSize, isEditable, tildePath } from "../utils";
+import { errorMessage, fileKind, formatModified, formatSize } from "../utils";
 
 /**
  * The rightmost column once a file is selected: a big icon, the facts a
@@ -12,15 +12,15 @@ import { errorMessage, fileKind, formatModified, formatSize, isEditable, tildePa
  */
 export default function FilePreview({
   entry,
-  home,
-  onQuickLook,
-  onEdit,
+  shownPath,
+  onOpen,
   onReveal,
 }: {
   entry: FileEntry;
-  home: string;
-  onQuickLook: (entry: FileEntry) => void;
-  onEdit: (entry: FileEntry) => void;
+  /** The path as people read it: `~/…`, or from a device's name. */
+  shownPath: string;
+  /** In a tab, or in the browser for a Google Doc. */
+  onOpen: (entry: FileEntry) => void;
   onReveal: (entry: FileEntry) => void;
 }) {
   const [detail, setDetail] = useState<FileDetail | null>(null);
@@ -42,8 +42,6 @@ export default function FilePreview({
     };
   }, [entry.path]);
 
-  const editable = isEditable(entry);
-
   return (
     <div className="fm-preview" aria-label={`Preview of ${entry.name}`}>
       <div className="fm-preview-hero">
@@ -57,14 +55,9 @@ export default function FilePreview({
       </div>
 
       <div className="fm-preview-actions">
-        <Button variant="primary" size="sm" icon={Eye} onClick={() => onQuickLook(entry)}>
-          {editable ? "Quick Look" : "Open"}
+        <Button variant="primary" size="sm" icon={entry.link ? ExternalLink : Eye} onClick={() => onOpen(entry)}>
+          {entry.link ? "Open in browser" : "Open"}
         </Button>
-        {editable && (
-          <Button variant="secondary" size="sm" icon={Pencil} onClick={() => onEdit(entry)}>
-            Edit
-          </Button>
-        )}
         <Button variant="secondary" size="sm" icon={HardDrive} onClick={() => onReveal(entry)}>
           Reveal
         </Button>
@@ -75,7 +68,7 @@ export default function FilePreview({
         <dt>Path</dt>
         <dd>
           <Mono truncate title={entry.path}>
-            {tildePath(entry.path, home)}
+            {shownPath}
           </Mono>
         </dd>
         <dt>Type</dt>

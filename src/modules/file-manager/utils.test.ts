@@ -15,7 +15,12 @@ import {
   parentPath,
   sortEntries,
   splitBreadcrumb,
+  THUMB_MAX,
+  THUMB_MIN,
+  clampThumb,
+  thumbRenderSize,
   tildePath,
+  viewerKind,
 } from "./utils";
 
 function entry(over: Partial<FileEntry>): FileEntry {
@@ -59,6 +64,20 @@ describe("kinds", () => {
     expect(fileKind(entry({ name: "README" }))).toBe("Document");
     expect(fileKind(entry({ name: "x.weird" }))).toBe("WEIRD file");
     expect(fileKind(entry({ name: "lib", is_dir: true, is_symlink: true }))).toBe("Folder (link)");
+  });
+
+  it("picks the viewer a file opens in", () => {
+    expect(viewerKind(entry({ name: "main.rs" }))).toBe("text");
+    expect(viewerKind(entry({ name: "Dockerfile" }))).toBe("text");
+    expect(viewerKind(entry({ name: "photo.JPG" }))).toBe("image");
+    expect(viewerKind(entry({ name: "clip.mkv" }))).toBe("video");
+    expect(viewerKind(entry({ name: "song.flac" }))).toBe("audio");
+    expect(viewerKind(entry({ name: "spec.pdf" }))).toBe("pdf");
+    expect(viewerKind(entry({ name: "report.xlsx" }))).toBe("other");
+    expect(viewerKind(entry({ name: "scan.tiff" }))).toBe("other");
+    expect(viewerKind(entry({ name: "src", is_dir: true }))).toBeNull();
+    // A Google Doc on a Drive mount has no bytes, only a web page.
+    expect(viewerKind(entry({ name: "Plan.md", is_symlink: true, link: "https://docs.google.com/document/d/1" }))).toBeNull();
   });
 
   it("keeps binaries out of the text editor", () => {
@@ -193,5 +212,22 @@ describe("planMove", () => {
     expect(planMove(["/a/x", "/b/y", "/c", "/d"], "/c/deep")).toEqual({ moves: ["/a/x", "/b/y", "/d"], skipped: ["/c"] });
     expect(planMove(["/a/x"], "/a")).toEqual({ moves: [], skipped: ["/a/x"] });
     expect(planMove(["/c"], "/c")).toEqual({ moves: [], skipped: ["/c"] });
+  });
+});
+
+describe("icon sizes", () => {
+  it("keeps a chosen size in range and on the slider's step", () => {
+    expect(clampThumb(99)).toBe(96);
+    expect(clampThumb(101)).toBe(104);
+    expect(clampThumb(5)).toBe(THUMB_MIN);
+    expect(clampThumb(9999)).toBe(THUMB_MAX);
+    expect(clampThumb(Number.NaN)).toBe(96);
+  });
+
+  it("renders thumbnails at a few fixed sizes, sharper on HiDPI", () => {
+    expect(thumbRenderSize(48)).toBe(128);
+    expect(thumbRenderSize(160)).toBe(256);
+    expect(thumbRenderSize(160, 2)).toBe(512);
+    expect(thumbRenderSize(256, 3)).toBe(512);
   });
 });

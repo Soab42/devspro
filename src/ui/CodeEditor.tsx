@@ -1,6 +1,6 @@
 import { PointerEvent as ReactPointerEvent, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { forwardRef } from "react";
-import { EditorState, Compartment } from "@codemirror/state";
+import { EditorState, Compartment, type Extension } from "@codemirror/state";
 import {
   EditorView,
   keymap,
@@ -12,6 +12,7 @@ import {
   indentUnit,
   syntaxHighlighting,
   HighlightStyle,
+  LanguageDescription,
   StreamLanguage,
 } from "@codemirror/language";
 import {
@@ -63,6 +64,12 @@ export interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   language?: "yaml" | "sql" | "env";
+  /**
+   * Highlight by the file's name — `main.rs`, `Dockerfile`, `.env.local` —
+   * when no `language` is given. The grammar loads on demand, so a page that
+   * never opens a Rust file never downloads the Rust parser.
+   */
+  fileName?: string;
   /** SQL only: the dialect to highlight and complete against. */
   dialect?: "mysql" | "postgres";
   /** SQL only: tables and columns offered as completions. */
@@ -132,6 +139,13 @@ const highlightStyle = HighlightStyle.define([
   { tag: [tags.typeName, tags.standard(tags.name)], color: "var(--color-syntax-atom)" },
   { tag: tags.operator, color: "var(--color-syntax-punct)" },
   { tag: tags.variableName, color: "var(--color-text)" },
+  // What source files in general add: markup, functions, classes, prose.
+  { tag: [tags.tagName, tags.heading], color: "var(--color-syntax-key)", fontWeight: "500" },
+  { tag: [tags.attributeName, tags.className, tags.self], color: "var(--color-syntax-atom)" },
+  { tag: [tags.regexp, tags.escape, tags.link, tags.url], color: "var(--color-syntax-string)" },
+  { tag: [tags.meta, tags.processingInstruction], color: "var(--color-syntax-comment)" },
+  { tag: tags.strong, fontWeight: "600" },
+  { tag: tags.emphasis, fontStyle: "italic" },
 ]);
 
 /* Layout and chrome only — every colour comes from a token, so light/dark is
@@ -264,6 +278,14 @@ const envLanguage = StreamLanguage.define<{ phase: EnvPhase }>({
   languageData: { commentTokens: { line: "#" } },
 });
 
+/** The grammar for a file name, from CodeMirror's language catalogue. */
+async function languageForFile(name: string): Promise<Extension> {
+  if (name === ".env" || name.startsWith(".env.")) return envLanguage;
+  const { languages } = await import("@codemirror/language-data");
+  const found = LanguageDescription.matchFilename(languages, name);
+  return found ? found.load() : [];
+}
+
 function languageExtension(
   language: "yaml" | "sql" | "env",
   dialect: "mysql" | "postgres",
@@ -282,7 +304,8 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   {
     value,
     onChange,
-    language = "yaml",
+    language: languageProp,
+    fileName,
     dialect = "mysql",
     schema,
     readOnly = false,
@@ -298,6 +321,9 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   },
   ref,
 ) {
+  // A file name picks its own grammar; without one the editor stays the YAML
+  // editor it was built as.
+  const language = languageProp ?? (fileName ? null : "yaml");
   const host = useRef<HTMLDivElement>(null);
   // Pixel height once the user has dragged the bottom edge; until then `rows`.
   const [dragHeight, setDragHeight] = useState<number | null>(null);
@@ -340,7 +366,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
           searchMatchCount,
           history(),
           closeBrackets(),
-          languageComp.current.of(languageExtension(language, dialect, schema)),
+          languageComp.current.of(language ? languageExtension(language, dialect, schema) : []),
           syntaxHighlighting(highlightStyle),
           ...(language === "sql" ? [autocompletion()] : []),
           // YAML's own convention, and what compose files are written in.
@@ -432,12 +458,27 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   // `schema` is a fresh object on every render of the caller.
   const schemaKey = JSON.stringify(schema ?? null);
   useEffect(() => {
+    if (!language) return;
     view.current?.dispatch({
       effects: languageComp.current.reconfigure(
         languageExtension(language, dialect, schemaKey === "null" ? undefined : JSON.parse(schemaKey)),
       ),
     });
   }, [language, dialect, schemaKey]);
+
+  useEffect(() => {
+    if (language || !fileName) return;
+    let cancelled = false;
+    languageForFile(fileName)
+      .then((ext) => {
+        if (!cancelled) view.current?.dispatch({ effects: languageComp.current.reconfigure(ext) });
+      })
+      // No grammar is a plain-text editor, which is still an editor.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [language, fileName]);
 
   useImperativeHandle(ref, () => ({
     focus: () => view.current?.focus(),

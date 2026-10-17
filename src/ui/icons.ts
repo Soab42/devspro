@@ -211,6 +211,13 @@ export {
 
   /* ---- memory ---- */
   Eraser, // drop the disk cache
+
+  /* ---- file manager: devices ---- */
+  Usb, // USB drive or memory card
+  Camera, // camera over gPhoto2
+  Disc, // optical disc
+  Cloud, // Google Drive and other online accounts
+  Eject, // unmount, eject, safely remove
 } from "lucide-react";
 
 /* ---- composed icons ------------------------------------------------------

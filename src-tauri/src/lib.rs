@@ -73,6 +73,10 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        // The File Manager's image, audio, video and PDF tabs load from here.
+        .register_asynchronous_uri_scheme_protocol(file_manager::media::SCHEME, |_ctx, request, responder| {
+            file_manager::media::respond(request, responder)
+        })
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -179,6 +183,10 @@ pub fn run() {
             file_manager::fm_write_file,
             file_manager::fm_open,
             file_manager::fm_open_in_editor,
+            file_manager::fm_display_names,
+            file_manager::devices::fm_devices,
+            file_manager::devices::fm_device_action,
+            file_manager::media::fm_media_token,
             browser::browser_open,
             browser::browser_navigate,
             browser::browser_back,

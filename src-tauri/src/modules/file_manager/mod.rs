@@ -13,6 +13,14 @@
 //! "Open" and "Reveal" shell out to `xdg-open` rather than widening the opener
 //! plugin's capability: `opener:allow-open-path` needs a path scope, and a file
 //! manager's whole point is that the path is anything the user browsed to.
+//!
+//! Phones, USB drives and Google Drive accounts are listed by `devices` and
+//! browsed through the same commands once mounted; `gvfs` gives Drive's
+//! files their titles. `media` streams files to the image and video tabs.
+
+pub mod devices;
+pub mod gvfs;
+pub mod media;
 
 use serde::Serialize;
 use std::fs;
@@ -37,6 +45,10 @@ pub struct FileEntry {
     pub modified: u64,
     /// Octal mode, e.g. "755".
     pub permissions: String,
+    /// A Google Docs, Sheets or Slides file on a Drive mount: no bytes to
+    /// read, only this web page to open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -157,7 +169,41 @@ fn entry_from(path: &Path) -> Option<FileEntry> {
         size: if meta.is_dir() { 0 } else { meta.len() },
         modified,
         permissions: format!("{:o}", meta.permissions().mode() & 0o777),
+        link: None,
     })
+}
+
+/// Gives an entry on a Drive mount its title in place of the ID it is named
+/// by on the bridge. The path keeps the ID: that is what the filesystem knows.
+fn apply_title(entry: &mut FileEntry, title: &gvfs::GioName) {
+    entry.name = title.display.clone();
+    entry.is_hidden = entry.name.starts_with('.');
+    entry.link = title.link.clone();
+}
+
+/// `entry_from` plus the title, for a single path rather than a listing.
+fn titled_entry(path: &Path) -> Option<FileEntry> {
+    let mut entry = entry_from(path)?;
+    if gvfs::names_by_id(path) {
+        if let Some(title) = gvfs::display_name(path) {
+            apply_title(&mut entry, &title);
+        }
+    }
+    Some(entry)
+}
+
+/// The name a file should keep when it is copied or moved somewhere else:
+/// its title when it comes from a Drive mount.
+fn portable_name(path: &Path) -> Option<std::ffi::OsString> {
+    let name = path.file_name()?.to_os_string();
+    if gvfs::names_by_id(path) {
+        if let Some(title) = gvfs::display_name(path) {
+            if checked_name(&title.display).is_ok() {
+                return Some(title.display.into());
+            }
+        }
+    }
+    Some(name)
 }
 
 /// Directories first, then case-insensitive by name — the frontend re-sorts
@@ -180,6 +226,14 @@ fn list_dir(path: &Path) -> Result<Vec<FileEntry>, String> {
         .filter_map(|r| r.ok())
         .filter_map(|d| entry_from(&d.path()))
         .collect();
+    if gvfs::names_by_id(path) {
+        let titles = gvfs::display_names(path);
+        for entry in &mut entries {
+            if let Some(title) = titles.get(&entry.name) {
+                apply_title(entry, title);
+            }
+        }
+    }
     sort_entries(&mut entries);
     Ok(entries)
 }
@@ -193,7 +247,25 @@ pub fn fm_list(path: String) -> Result<Vec<FileEntry>, String> {
 /// (and refresh a single row) without re-listing the directory.
 #[tauri::command(async)]
 pub fn fm_stat(path: String) -> Result<FileEntry, String> {
-    entry_from(Path::new(&path)).ok_or_else(|| format!("{path} does not exist"))
+    titled_entry(Path::new(&path)).ok_or_else(|| format!("{path} does not exist"))
+}
+
+/// What the path bar shows for each of `paths`: the folder's name, or its
+/// title on a Drive mount, where the path itself is a chain of IDs.
+#[tauri::command(async)]
+pub fn fm_display_names(paths: Vec<String>) -> Vec<String> {
+    paths
+        .iter()
+        .map(|p| {
+            let path = Path::new(p);
+            let base = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.clone());
+            if gvfs::names_by_id(path) {
+                gvfs::display_name(path).map(|t| t.display).unwrap_or(base)
+            } else {
+                base
+            }
+        })
+        .collect()
 }
 
 /// Everything the column view's preview card shows for one path: the plain
@@ -244,7 +316,7 @@ fn name_for_id(table: &str, id: u32) -> String {
 /// A MIME type from the extension alone — no sniffing, since it is only shown
 /// as a label. Anything unknown is `application/octet-stream`, the honest
 /// answer for a file we have not looked inside.
-fn mime_for(name: &str, is_dir: bool) -> String {
+pub(crate) fn mime_for(name: &str, is_dir: bool) -> String {
     if is_dir {
         return "inode/directory".to_string();
     }
@@ -274,12 +346,21 @@ fn mime_for(name: &str, is_dir: bool) -> String {
         "gif" => "image/gif",
         "webp" => "image/webp",
         "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
+        "tif" | "tiff" => "image/tiff",
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
         "flac" => "audio/flac",
-        "mp4" => "video/mp4",
+        "ogg" | "oga" | "opus" => "audio/ogg",
+        "m4a" => "audio/mp4",
+        "aac" => "audio/aac",
+        "mp4" | "m4v" => "video/mp4",
         "mkv" => "video/x-matroska",
         "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "ogv" => "video/ogg",
+        "avi" => "video/x-msvideo",
         "pdf" => "application/pdf",
         "zip" => "application/zip",
         "gz" | "tgz" => "application/gzip",
@@ -295,7 +376,7 @@ fn mime_for(name: &str, is_dir: bool) -> String {
 /// `entry_from` does, so the owner and dates describe the target.
 #[tauri::command(async)]
 pub fn fm_stat_detail(path: String) -> Result<FileDetail, String> {
-    let entry = entry_from(Path::new(&path)).ok_or_else(|| format!("{path} does not exist"))?;
+    let entry = titled_entry(Path::new(&path)).ok_or_else(|| format!("{path} does not exist"))?;
     let meta = fs::metadata(&path)
         .or_else(|_| fs::symlink_metadata(&path))
         .map_err(|e| format!("could not stat {path}: {e}"))?;
@@ -592,6 +673,23 @@ pub fn fm_thumbnail(path: String, size: u32) -> Result<Option<Thumbnail>, String
     Ok(None)
 }
 
+/// Drive allows two files of one title in a folder; a disk does not. The
+/// second gets " (2)" before its extension.
+fn unclaimed_name(dir: &Path, title: &str) -> std::ffi::OsString {
+    if !dir.join(title).exists() {
+        return title.into();
+    }
+    let (stem, ext) = match title.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
+        _ => (title, String::new()),
+    };
+    (2..)
+        .map(|n| format!("{stem} ({n}){ext}"))
+        .find(|candidate| !dir.join(candidate).exists())
+        .unwrap_or_default()
+        .into()
+}
+
 fn checked_name(name: &str) -> Result<&str, String> {
     let name = name.trim();
     if name.is_empty() {
@@ -656,9 +754,7 @@ pub fn fm_rename(path: String, name: String) -> Result<String, String> {
 #[tauri::command(async)]
 pub fn fm_move(path: String, dir: String) -> Result<String, String> {
     let source = Path::new(&path);
-    let name = source
-        .file_name()
-        .ok_or_else(|| "cannot move the root".to_string())?;
+    let name = portable_name(source).ok_or_else(|| "cannot move the root".to_string())?;
     let parent = Path::new(&dir);
     if !parent.is_dir() {
         return Err(format!("{dir} is not a directory"));
@@ -695,9 +791,7 @@ pub fn fm_move(path: String, dir: String) -> Result<String, String> {
 #[tauri::command(async)]
 pub fn fm_copy(path: String, dir: String) -> Result<String, String> {
     let source = Path::new(&path);
-    let name = source
-        .file_name()
-        .ok_or_else(|| "cannot copy the root".to_string())?;
+    let name = portable_name(source).ok_or_else(|| "cannot copy the root".to_string())?;
     let parent = Path::new(&dir);
     if !parent.is_dir() {
         return Err(format!("{dir} is not a directory"));
@@ -731,9 +825,21 @@ fn copy_tree(source: &Path, target: &Path) -> Result<(), String> {
     let meta = fs::symlink_metadata(source).map_err(|e| format!("could not read {}: {e}", source.display()))?;
     if meta.is_dir() {
         fs::create_dir(target).map_err(|e| format!("could not create {}: {e}", target.display()))?;
+        // Out of a Drive folder the children are IDs; they land under their
+        // titles, and Docs-style shortcuts (nothing to copy) are left behind.
+        let titles = if gvfs::names_by_id(source) { gvfs::display_names(source) } else { Default::default() };
         for entry in fs::read_dir(source).map_err(|e| format!("could not list {}: {e}", source.display()))? {
             let entry = entry.map_err(|e| format!("could not list {}: {e}", source.display()))?;
-            copy_tree(&entry.path(), &target.join(entry.file_name()))?;
+            let id = entry.file_name();
+            let title = titles.get(id.to_string_lossy().as_ref());
+            if title.is_some_and(|t| t.link.is_some()) {
+                continue;
+            }
+            let name = match title.filter(|t| checked_name(&t.display).is_ok()) {
+                Some(t) => unclaimed_name(target, &t.display),
+                None => id,
+            };
+            copy_tree(&entry.path(), &target.join(name))?;
         }
     } else if meta.file_type().is_symlink() {
         let link = fs::read_link(source).map_err(|e| format!("could not read link {}: {e}", source.display()))?;
@@ -850,8 +956,14 @@ pub fn fm_open(path: String) -> Result<(), String> {
     if fs::symlink_metadata(&path).is_err() {
         return Err(format!("{path} does not exist"));
     }
+    // A Google Doc on a Drive mount opens as its web page.
+    let target = if gvfs::names_by_id(Path::new(&path)) {
+        gvfs::display_name(Path::new(&path)).and_then(|t| t.link).unwrap_or_else(|| path.clone())
+    } else {
+        path.clone()
+    };
     Command::new("xdg-open")
-        .arg(&path)
+        .arg(&target)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()

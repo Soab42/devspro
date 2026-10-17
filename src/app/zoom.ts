@@ -87,8 +87,11 @@ function writeStored(value: number) {
 /** Marks a region whose own zoom keys (the Browser's per-page zoom) win over the UI zoom. */
 export const OWN_ZOOM_ATTR = "data-own-zoom-keys";
 
-function inOwnZoomScope(target: EventTarget | null): boolean {
-  return target instanceof Element && target.closest(`[${OWN_ZOOM_ATTR}]`) !== null;
+/** Marks a region where Ctrl+wheel zooms its own content (the File Manager's pictures and icon sizes). */
+export const OWN_WHEEL_ZOOM_ATTR = "data-own-wheel-zoom";
+
+function inOwnZoomScope(target: EventTarget | null, attr = OWN_ZOOM_ATTR): boolean {
+  return target instanceof Element && target.closest(`[${attr}]`) !== null;
 }
 
 let level = readStored();
@@ -172,6 +175,7 @@ export function installZoom(): () => void {
   let lastWheel = 0;
   const onWheel = (e: WheelEvent) => {
     if (!(e.ctrlKey || e.metaKey)) return;
+    if (inOwnZoomScope(e.target, OWN_WHEEL_ZOOM_ATTR)) return;
     // Non-passive so this stops the webview's own pinch/ctrl-wheel zoom.
     e.preventDefault();
     e.stopPropagation();

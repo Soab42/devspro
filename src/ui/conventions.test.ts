@@ -132,6 +132,7 @@ describe("styling discipline", () => {
     "ui/SplitView.tsx", // aside width is whatever the user dragged it to
     "modules/file-manager/pages/FileManagerPage.tsx", // tree indent is the row's depth
     "modules/file-manager/components/ContextMenu.tsx", // opens at the pointer, measured at runtime
+    "modules/file-manager/components/ImageViewer.tsx", // picture size is the image's own pixels times the zoom
     "modules/databases/browser/ColumnManager.tsx", // portal position, measured at runtime
   ]);
 

@@ -96,9 +96,11 @@
   box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
+/* --fm-thumb is the icon size chosen with the toolbar's slider. */
 .fm-grid {
+  --fm-thumb: 96px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--fm-thumb) + 40px), 1fr));
   gap: var(--space-2);
   margin: 0;
   padding: var(--space-3);
@@ -144,8 +146,8 @@
 /* Tiles: a fixed box so a photo and an icon line up; the image is fitted,
    never cropped, since the point is to recognise the file. */
 .fm-tile .fm-thumb {
-  width: 64px;
-  height: 48px;
+  width: var(--fm-thumb);
+  height: calc(var(--fm-thumb) * 0.75);
   object-fit: contain;
   flex: 0 0 auto;
 }
@@ -156,9 +158,30 @@
   background-color: var(--color-surface);
 }
 
+/* Kind icons grow with the tile but stay lighter than a picture, with a
+   stroke that does not thicken as they scale up. */
 .fm-tile .fm-thumb-icon {
-  width: 32px;
-  height: 32px;
+  width: max(24px, calc(var(--fm-thumb) * 0.5));
+  height: max(24px, calc(var(--fm-thumb) * 0.5));
+  margin: calc(var(--fm-thumb) * 0.125) 0;
+  stroke-width: 1.5;
+}
+
+.fm-thumb-size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.fm-thumb-slider {
+  width: 88px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* Focusable only so keyboard shortcuts reach it after a click on a row. */
+.fm-folder:focus {
+  outline: none;
 }
 
 .fm-preview-hero img.fm-thumb {
@@ -458,4 +481,331 @@
 
 .fm-body.fm-drop-target {
   box-shadow: inset 0 0 0 2px var(--color-accent-border);
+}
+
+/* ---- file tabs: the folder view first, then every open file ---- */
+/* The folder view and each file tab fill the same space; only the one in
+   front is shown, the rest stay mounted so nothing is lost by switching. */
+.fm-folder,
+.fm-viewer-host,
+.fm-viewer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.fm-hidden {
+  display: none;
+}
+
+.fm-tabs {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background-color: var(--color-surface-2);
+}
+
+.fm-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  max-width: 15rem;
+  height: var(--control-h-md);
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border: 0;
+  border-right: 1px solid var(--color-border-subtle);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.fm-tab-folder {
+  padding-right: var(--space-3);
+}
+
+.fm-tab:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+.fm-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.fm-tab-active,
+.fm-tab-active:hover {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: inset 0 2px 0 var(--color-accent);
+}
+
+.fm-tab-drop {
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.fm-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fm-tab-where {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* The close mark doubles as the unsaved-changes dot, editor-style: a dot
+   until hovered, a cross when the pointer is on the tab. */
+.fm-tab-close {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  opacity: 0;
+}
+
+.fm-tab:hover .fm-tab-close,
+.fm-tab-active .fm-tab-close,
+.fm-tab-dirty .fm-tab-close {
+  opacity: 1;
+}
+
+.fm-tab-close:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+.fm-tab-dirty .fm-tab-close svg {
+  visibility: hidden;
+}
+
+.fm-tab-dirty .fm-tab-close::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background-color: currentColor;
+}
+
+.fm-tab-dirty .fm-tab-close:hover svg {
+  visibility: visible;
+}
+
+.fm-tab-dirty .fm-tab-close:hover::after {
+  display: none;
+}
+
+.fm-tabs-end {
+  flex: 1 0 var(--space-6);
+}
+
+/* ---- a file tab: its bar, then the editor, picture or player ---- */
+.fm-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  min-width: 0;
+  height: calc(var(--control-h-md) + var(--space-2));
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.fm-viewer-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.fm-viewer-notice {
+  font-size: var(--text-xs);
+}
+
+.fm-viewer .code-editor {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.fm-viewer-host > .callout,
+.fm-viewer > .callout {
+  margin: var(--space-3);
+}
+
+.fm-viewer-empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+}
+
+/* The stage scrolls; the frame around it holds what floats over the picture. */
+.fm-image-frame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Picasa-style: the new zoom level in large type over the middle of the
+   picture, fading out on its own. Never in the way of the pointer. */
+.fm-zoom-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-lg);
+  background-color: color-mix(in srgb, var(--gray-900) 72%, transparent);
+  color: #fff;
+  font-size: 2rem;
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  animation: fm-zoom-badge 1.2s ease-out forwards;
+}
+
+@keyframes fm-zoom-badge {
+  0%,
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fm-zoom-badge {
+    animation: none;
+  }
+}
+
+/* Pictures sit on a checkerboard so transparent pixels read as transparent. */
+.fm-image-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  /* Centred by the picture's auto margins, not place-items: those fall back
+     to zero once it is bigger than the stage, so its top and left edges stay
+     reachable by scrolling instead of being cut off. */
+  display: grid;
+  padding: var(--space-4);
+  user-select: none;
+  touch-action: none;
+  background-color: var(--color-surface-2);
+  background-image:
+    linear-gradient(45deg, var(--color-surface-3) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--color-surface-3) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--color-surface-3) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--color-surface-3) 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+}
+
+.fm-image {
+  display: block;
+  margin: auto;
+  max-width: none;
+  image-rendering: auto;
+}
+
+.fm-image-stage:focus-visible {
+  outline: none;
+  box-shadow: inset var(--shadow-focus);
+}
+
+.fm-image-stage-fit {
+  cursor: zoom-in;
+}
+
+/* Zoomed: press and drag moves the picture around. */
+.fm-image-stage-zoomed {
+  cursor: grab;
+}
+
+.fm-image-stage-panning {
+  cursor: grabbing;
+}
+
+/* Fitted, the picture fills the stage box and object-fit scales it down to
+   fit, never up: max-height has no height to resolve against in a grid row. */
+.fm-image-stage-fit {
+  position: relative;
+  overflow: hidden;
+}
+
+.fm-image-stage-fit .fm-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: var(--space-4);
+  box-sizing: border-box;
+  object-fit: scale-down;
+}
+
+.fm-media-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-surface-2);
+}
+
+.fm-video {
+  max-width: 100%;
+  max-height: 100%;
+  background-color: #000;
+}
+
+.fm-audio-stage {
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.fm-audio {
+  width: min(32rem, 90%);
+}
+
+.fm-pdf {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  background-color: var(--color-surface-2);
 }
