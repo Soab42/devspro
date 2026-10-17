@@ -3,6 +3,8 @@ import { Icon, SortState, Spinner } from "../../../ui";
 import { ChevronRight } from "../../../ui/icons";
 import { FileEntry, fmList } from "../api";
 import { entryIcon } from "../entryIcon";
+import type { GitMarkFor } from "../gitStatus";
+import GitBadge from "./GitBadge";
 import { EntrySortKey, columnChain, errorMessage, filterEntries, sortEntries } from "../utils";
 
 export interface ColumnViewProps {
@@ -28,6 +30,8 @@ export interface ColumnViewProps {
   dnd: DragHandlers;
   /** What the rightmost pane shows when a file is selected. */
   preview: ReactNode;
+  /** Git letters and folder dots for the rows. */
+  gitMark?: GitMarkFor;
 }
 
 export interface SelectMods {
@@ -75,6 +79,7 @@ export default function ColumnView({
   onContextMenu,
   dnd,
   preview,
+  gitMark,
 }: ColumnViewProps) {
   const chain = useMemo(() => columnChain(path, placePaths), [path, placePaths]);
   const last = chain.length - 1;
@@ -228,6 +233,7 @@ export default function ColumnView({
             onContextMenu(e, dir, entry);
           }}
           dnd={dnd}
+          gitMark={gitMark}
         />
       ))}
       {preview && <div className="fm-col fm-col-preview">{preview}</div>}
@@ -251,11 +257,12 @@ interface ColumnPaneProps {
   onOpen: (entry: FileEntry) => void;
   onContextMenu: (e: MouseEvent, entry: FileEntry | null) => void;
   dnd: DragHandlers;
+  gitMark?: GitMarkFor;
   ref: (el: HTMLDivElement | null) => void;
 }
 
 /** One directory listing, virtualised so a node_modules column scrolls like any other. */
-function ColumnPane({ dir, rows, error, loading, selected, leadsOn, focused, width, onWidth, onFocus, onPick, onOpen, onContextMenu, dnd, ref }: ColumnPaneProps) {
+function ColumnPane({ dir, rows, error, loading, selected, leadsOn, focused, width, onWidth, onFocus, onPick, onOpen, onContextMenu, dnd, gitMark, ref }: ColumnPaneProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(0);
@@ -357,6 +364,7 @@ function ColumnPane({ dir, rows, error, loading, selected, leadsOn, focused, wid
             <div style={{ transform: `translateY(${start * ROW_HEIGHT}px)` }}>
               {rows.slice(start, end).map((e) => {
                 const isSelected = selected.includes(e.path);
+                const git = gitMark?.(e.path, e.is_dir) ?? null;
                 const rowCls = [
                   "fm-col-item",
                   isSelected && (leadsOn && !focused ? "fm-col-item-ancestor" : "fm-col-item-selected"),
@@ -386,8 +394,9 @@ function ColumnPane({ dir, rows, error, loading, selected, leadsOn, focused, wid
                     onDrop={e.is_dir ? (ev) => drop(ev, e.path) : undefined}
                   >
                     <Icon icon={entryIcon(e)} size="sm" className={e.is_dir ? "fm-col-icon-dir" : "fm-col-icon"} />
-                    <span className="fm-col-item-name">{e.name}</span>
+                    <span className={git && !git.inside ? `fm-col-item-name fm-git-name fm-git-${git.code}` : "fm-col-item-name"}>{e.name}</span>
                     {e.is_symlink && <span className="u-muted">→</span>}
+                    <GitBadge mark={git} />
                     {e.is_dir && <Icon icon={ChevronRight} size="xs" className="fm-col-item-chevron" />}
                   </div>
                 );

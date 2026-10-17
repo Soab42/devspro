@@ -334,3 +334,23 @@ export function thumbRenderSize(display: number, pixelRatio = 1): number {
   const want = display * Math.max(1, pixelRatio);
   return [128, 256, 512].find((b) => b >= want) ?? 512;
 }
+
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 365 * 24 * 3600],
+  ["month", 30 * 24 * 3600],
+  ["week", 7 * 24 * 3600],
+  ["day", 24 * 3600],
+  ["hour", 3600],
+  ["minute", 60],
+];
+
+/** "3 days ago", the way GitLens dates a line. */
+export function relativeTime(unixSecs: number, nowMs = Date.now()): string {
+  const ago = Math.round(nowMs / 1000 - unixSecs);
+  if (ago < 45) return "just now";
+  const fmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  for (const [unit, secs] of RELATIVE_UNITS) {
+    if (ago >= secs) return fmt.format(-Math.floor(ago / secs), unit);
+  }
+  return fmt.format(-1, "minute");
+}

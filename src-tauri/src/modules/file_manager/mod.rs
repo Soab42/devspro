@@ -17,10 +17,17 @@
 //! Phones, USB drives and Google Drive accounts are listed by `devices` and
 //! browsed through the same commands once mounted; `gvfs` gives Drive's
 //! files their titles. `media` streams files to the image and video tabs.
+//!
+//! `git` answers the editor's gutter, blame and history from the real `git`,
+//! and `format` runs the project's own formatter on the unsaved buffer; both
+//! shell out through `process`, which `gvfs` shares for `gio`.
 
 pub mod devices;
+pub mod format;
+pub mod git;
 pub mod gvfs;
 pub mod media;
+pub mod process;
 
 use serde::Serialize;
 use std::fs;

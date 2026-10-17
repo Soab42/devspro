@@ -141,3 +141,74 @@ export async function fmMediaUrl(path: string, version = 0): Promise<string> {
   const url = convertFileSrc(`${await mediaToken}${path}`, "fmfile");
   return version ? `${url}?v=${version}` : url;
 }
+
+/* ---- git ---------------------------------------------------------------- */
+
+/** VS Code's letters: Modified, Added, Deleted, Renamed, Untracked, Conflict. */
+export type GitCode = "M" | "A" | "D" | "R" | "U" | "C";
+
+export interface GitFile {
+  /** Absolute. */
+  path: string;
+  code: GitCode;
+  staged: boolean;
+}
+
+export interface GitStatus {
+  root: string;
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  files: GitFile[];
+}
+
+export interface GitCommit {
+  sha: string;
+  author: string;
+  email: string;
+  /** Unix seconds. */
+  time: number;
+  summary: string;
+  uncommitted: boolean;
+}
+
+export interface GitBlame {
+  commits: GitCommit[];
+  /** For each line of the blamed text, its index into `commits`. */
+  lines: number[];
+}
+
+export interface GitLogEntry {
+  sha: string;
+  author: string;
+  email: string;
+  time: number;
+  summary: string;
+  /** The file's repo-relative path in that commit; it follows renames. */
+  path: string;
+}
+
+/** Null outside a repository, or on a phone or Drive mount. */
+export const fmGitStatus = (dir: string) => invoke<GitStatus | null>("fm_git_status", { dir });
+/** The file as staged, which the editor's change bars compare against; null when untracked. */
+export const fmGitBase = (path: string) => invoke<string | null>("fm_git_base", { path });
+/** Blames `contents` — the unsaved buffer — as the file at `path`. */
+export const fmGitBlame = (path: string, contents: string) => invoke<GitBlame>("fm_git_blame", { path, contents });
+export const fmGitLog = (path: string) => invoke<GitLogEntry[]>("fm_git_log", { path });
+/** The file before and after one commit. */
+export const fmGitShow = (path: string, sha: string, rel: string) =>
+  invoke<{ before: string; after: string }>("fm_git_show", { path, sha, rel });
+
+/* ---- formatting --------------------------------------------------------- */
+
+export interface Formatted {
+  /** Null when no formatter is installed for a language prettier knows; the editor then uses its own copy. */
+  contents: string | null;
+  tool: string | null;
+  /** The project's prettier settings, for that fallback. */
+  prettier_config: string | null;
+}
+
+/** Formats `contents` as the file at `path`, with the project's own formatter. */
+export const fmFormat = (path: string, contents: string) => invoke<Formatted>("fm_format", { path, contents });

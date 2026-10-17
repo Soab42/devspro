@@ -15,6 +15,8 @@ export interface MenuItem {
   disabled?: boolean;
   /** Draws a rule above this item — use to separate destructive actions. */
   separatorBefore?: boolean;
+  /** The keyboard shortcut for the same verb, shown at the item's end. */
+  hint?: string;
 }
 
 export interface MenuProps {
@@ -154,6 +156,7 @@ function MenuButton({ item, onDone }: { item: MenuItem; onDone: () => void }) {
       >
         {item.icon && <Icon icon={item.icon} size="sm" />}
         {item.label}
+        {item.hint && <span className="menu-item-hint">{item.hint}</span>}
       </button>
     </>
   );

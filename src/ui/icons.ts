@@ -218,6 +218,16 @@ export {
   Disc, // optical disc
   Cloud, // Google Drive and other online accounts
   Eject, // unmount, eject, safely remove
+
+  /* ---- file manager: editor and git ---- */
+  FoldVertical, // fold a block
+  UnfoldVertical, // unfold a block
+  MessageSquareCode, // toggle comment
+  GitBranch, // branch in the status line
+  GitCompare, // show changes inline
+  GitCommitHorizontal, // one commit
+  History, // file history
+  ArrowDown, // next change
 } from "lucide-react";
 
 /* ---- composed icons ------------------------------------------------------

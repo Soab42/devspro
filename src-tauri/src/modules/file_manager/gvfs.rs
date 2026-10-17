@@ -10,11 +10,8 @@
 //! shortcuts there: no bytes to read, only a web address to open.
 
 use std::collections::HashMap;
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Where gvfsd-fuse mounts its backends for this user.
 pub fn gvfs_root() -> PathBuf {
@@ -121,59 +118,12 @@ pub fn display_name(path: &Path) -> Option<GioName> {
 /// cache; a mount waiting on the network gets this long.
 pub const GIO_READ_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// Runs `gio args` with no shell and nothing on stdin, killed after
-/// `timeout`. Stdout on success; gio's own message on failure, since that is
-/// what tells the user why a phone or a share refused.
+/// Runs `gio args` with nothing on stdin, killed after `timeout`. Stdout on
+/// success; gio's own message on failure, since that is what tells the user
+/// why a phone or a share refused.
 pub fn gio<S: AsRef<std::ffi::OsStr>>(args: &[S], timeout: Duration) -> Result<String, String> {
-    let mut child = Command::new("gio")
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("could not run gio: {e}"))?;
-    // Drained on threads so a long listing never blocks on a full pipe.
-    let (tx, rx) = mpsc::channel::<(bool, String)>();
-    for (is_stdout, pipe) in [
-        (true, child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),
-        (false, child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),
-    ] {
-        if let Some(mut pipe) = pipe {
-            let tx = tx.clone();
-            std::thread::spawn(move || {
-                let mut buf = Vec::new();
-                let _ = pipe.read_to_end(&mut buf);
-                let _ = tx.send((is_stdout, String::from_utf8_lossy(&buf).into_owned()));
-            });
-        }
-    }
-    drop(tx);
-    let start = Instant::now();
-    let status = loop {
-        match child.try_wait().map_err(|e| e.to_string())? {
-            Some(status) => break status,
-            None if start.elapsed() >= timeout => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!("gio gave no answer within {}s", timeout.as_secs()));
-            }
-            None => std::thread::sleep(Duration::from_millis(20)),
-        }
-    };
-    let (mut out, mut err) = (String::new(), String::new());
-    while let Ok((is_stdout, text)) = rx.recv_timeout(Duration::from_secs(2)) {
-        if is_stdout {
-            out = text;
-        } else {
-            err = text;
-        }
-    }
-    if status.success() {
-        Ok(out)
-    } else {
-        let msg = err.trim().trim_start_matches("gio: ").to_string();
-        Err(if msg.is_empty() { format!("gio exited with {status}") } else { msg })
-    }
+    super::process::run("gio", args, None, None, timeout)
+        .map_err(|msg| msg.trim_start_matches("gio: ").to_string())
 }
 
 #[cfg(test)]

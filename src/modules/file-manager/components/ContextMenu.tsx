@@ -69,6 +69,7 @@ export default function ContextMenu({ menu, onClose }: { menu: ContextMenuState;
           >
             {item.icon && <Icon icon={item.icon} size="sm" />}
             {item.label}
+            {item.hint && <span className="menu-item-hint">{item.hint}</span>}
           </button>
         </div>
       ))}

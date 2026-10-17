@@ -48,6 +48,7 @@ import {
   Film,
   Folder,
   FolderPlus,
+  GitBranch,
   HardDrive,
   House,
   Image,
@@ -89,6 +90,8 @@ import {
   fmPlaces,
   fmRename,
   fmTrash,
+  fmGitStatus,
+  GitStatus,
 } from "../api";
 import ColumnView, { DragHandlers, SelectMods } from "../components/ColumnView";
 import ContextMenu, { ContextMenuState } from "../components/ContextMenu";
@@ -111,6 +114,8 @@ import {
 import FilePreview from "../components/FilePreview";
 import FileTab from "../components/FileTab";
 import FileTabStrip from "../components/FileTabStrip";
+import GitBadge from "../components/GitBadge";
+import { gitMarks } from "../gitStatus";
 import NameDialog from "../components/NameDialog";
 import PropertiesModal from "../components/PropertiesModal";
 import {
@@ -176,6 +181,11 @@ const EMPTY_HISTORY: History = { entries: [], index: -1 };
 /* The icon view's size is a per-viewer convenience, like the sidebar width. */
 const THUMB_KEY = "fm.thumb-size";
 
+/** Colours a row's name by its git change, VS Code-style; folders keep their colour. */
+function gitClass(mark: { code: string; inside: boolean } | null): string | undefined {
+  return mark && !mark.inside ? `fm-git-name fm-git-${mark.code}` : undefined;
+}
+
 function readThumbSize(): number {
   try {
     const raw = window.localStorage.getItem(THUMB_KEY);
@@ -226,6 +236,11 @@ export default function FileManagerPage() {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  // The repository the folder is in, if any: letters on changed files, dots on
+  // folders holding changes, the branch in the status line.
+  const [git, setGit] = useState<GitStatus | null>(null);
+  const [gitToken, setGitToken] = useState(0);
+  const refreshGit = useCallback(() => setGitToken((n) => n + 1), []);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ key: "name", dir: "asc" });
@@ -409,6 +424,24 @@ export default function FileManagerPage() {
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
+
+  useEffect(() => {
+    if (path === null) return;
+    let cancelled = false;
+    fmGitStatus(path)
+      .then((s) => !cancelled && setGit(s))
+      .catch(() => !cancelled && setGit(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [path, reloadToken, gitToken]);
+  // Commits and checkouts happen in other windows; look again on the way back.
+  useEffect(() => {
+    window.addEventListener("focus", refreshGit);
+    return () => window.removeEventListener("focus", refreshGit);
+  }, [refreshGit]);
+  const gitMark = useMemo(() => gitMarks(git), [git]);
+  const tabGitCode = useCallback((p: string) => gitMark(p, false)?.code ?? null, [gitMark]);
 
   const sortKey = sort.key as EntrySortKey;
   const visible = useMemo(() => sortEntries(filterEntries(entries, query, showHidden), sortKey, sort.dir), [entries, query, showHidden, sortKey, sort.dir]);
@@ -836,7 +869,8 @@ export default function FileManagerPage() {
             <span className="fm-tree-toggle fm-tree-toggle-blank" />
           )}
           <Icon icon={entryIcon(e)} size="sm" className={e.is_dir ? "fm-col-icon-dir" : "fm-col-icon"} />
-          <span className={e.is_hidden ? "fm-name-text u-muted" : "fm-name-text"}>{e.name}</span>
+          <span className={[e.is_hidden ? "fm-name-text u-muted" : "fm-name-text", gitClass(gitMark(e.path, e.is_dir))].filter(Boolean).join(" ")}>{e.name}</span>
+          <GitBadge mark={gitMark(e.path, e.is_dir)} />
           {e.is_symlink && <span className="u-muted">→</span>}
         </span>
       ),
@@ -1030,6 +1064,7 @@ export default function FileManagerPage() {
           <div className="fm-main">
             {tabs.files.length > 0 && (
               <FileTabStrip
+                gitCode={tabGitCode}
                 files={tabs.files}
                 active={tabs.active}
                 dirty={tabs.dirty}
@@ -1139,6 +1174,7 @@ export default function FileManagerPage() {
                     showHidden={showHidden}
                     sort={sort}
                     reloadToken={reloadToken}
+                    gitMark={gitMark}
                     onSelect={(dir, entry, mods) => {
                       if (dir === path && entry && (mods.ctrl || mods.shift)) select(entry, mods);
                       else navigate(dir, entry, mods);
@@ -1214,7 +1250,9 @@ export default function FileManagerPage() {
                           title={e.name}
                         >
                           <Thumbnail entry={e} size={thumbRender} className="fm-tile-icon" />
-                          <span className={e.is_hidden ? "fm-tile-name u-muted" : "fm-tile-name"}>{e.name}</span>
+                          <span className={[e.is_hidden ? "fm-tile-name u-muted" : "fm-tile-name", gitClass(gitMark(e.path, e.is_dir))].filter(Boolean).join(" ")}>
+                            {e.name}
+                          </span>
                         </button>
                       </li>
                     ))}
@@ -1227,6 +1265,18 @@ export default function FileManagerPage() {
                   {visible.length} {visible.length === 1 ? "item" : "items"}
                   {selectionLabel && ` · ${selectionLabel}`}
                 </span>
+                {git?.branch && (
+                  <span
+                    className="fm-status-git u-secondary u-nowrap"
+                    title={`${git.root}${git.upstream ? `\nTracking ${git.upstream}` : ""}${git.ahead ? `\n${git.ahead} commit(s) to push` : ""}${git.behind ? `\n${git.behind} commit(s) to pull` : ""}`}
+                  >
+                    <Icon icon={GitBranch} size="xs" />
+                    {git.branch}
+                    {git.ahead > 0 && ` ↑${git.ahead}`}
+                    {git.behind > 0 && ` ↓${git.behind}`}
+                    {git.files.length > 0 && ` · ${git.files.length} changed`}
+                  </span>
+                )}
                 <span className="fm-status-path">
                   <Mono truncate title={shownPath}>
                     {describe(shownPath)}
@@ -1244,6 +1294,7 @@ export default function FileManagerPage() {
                 onDirty={(d) => updateTabs((s) => setDirty(s, f.path, d))}
                 onSaved={() => {
                   if (path !== null && parentPath(f.path) === path) void load(path);
+                  refreshGit();
                 }}
                 onReveal={() => showInFolder(f.path)}
                 onOpenExternal={() => void run(f.path, () => fmOpen(f.path))}

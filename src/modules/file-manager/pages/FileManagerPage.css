@@ -809,3 +809,170 @@
   border: 0;
   background-color: var(--color-surface-2);
 }
+
+/* ---- git: VS Code's colours and letters for changed files ---- */
+.fm-git-name.fm-git-M,
+.fm-git-badge.fm-git-M {
+  color: var(--color-warning-text);
+}
+
+.fm-git-name.fm-git-A,
+.fm-git-name.fm-git-U,
+.fm-git-badge.fm-git-A,
+.fm-git-badge.fm-git-U {
+  color: var(--color-success-text);
+}
+
+.fm-git-name.fm-git-D,
+.fm-git-name.fm-git-C,
+.fm-git-badge.fm-git-D,
+.fm-git-badge.fm-git-C {
+  color: var(--color-danger-text);
+}
+
+.fm-git-name.fm-git-R,
+.fm-git-badge.fm-git-R {
+  color: var(--color-info-text);
+}
+
+.fm-git-badge {
+  flex: 0 0 auto;
+  margin-left: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+}
+
+.fm-git-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-left: var(--space-2);
+  border-radius: 50%;
+}
+
+.fm-git-dot.fm-git-M {
+  background-color: var(--color-warning);
+}
+
+.fm-git-dot.fm-git-A,
+.fm-git-dot.fm-git-U {
+  background-color: var(--color-success);
+}
+
+.fm-git-dot.fm-git-D,
+.fm-git-dot.fm-git-C {
+  background-color: var(--color-danger);
+}
+
+.fm-git-dot.fm-git-R {
+  background-color: var(--color-info);
+}
+
+.fm-status-git {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* ---- the editor and its git views ---- */
+.fm-editor-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* A formatter's message carries a code frame: keep its lines and columns. */
+.fm-viewer-error {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.fm-history {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  height: min(72vh, 760px);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.fm-history-list {
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  overflow: auto;
+  border-right: 1px solid var(--color-border-subtle);
+}
+
+.fm-history-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fm-history-item:hover {
+  background-color: var(--color-hover);
+}
+
+.fm-history-item-active,
+.fm-history-item-active:hover {
+  background-color: var(--color-accent-subtle);
+}
+
+.fm-history-summary,
+.fm-history-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fm-history-summary {
+  font-size: var(--text-sm);
+}
+
+.fm-history-meta {
+  font-size: var(--text-xs);
+}
+
+.fm-history-sha {
+  font-family: var(--font-mono);
+}
+
+.fm-history-diff {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.fm-history-diff .code-editor {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+@media (max-width: 720px) {
+  .fm-history {
+    grid-template-columns: 1fr;
+    grid-template-rows: 40% 1fr;
+  }
+
+  .fm-history-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+}

@@ -6,9 +6,15 @@ import {
   keymap,
   lineNumbers,
   highlightActiveLine,
+  highlightActiveLineGutter,
   placeholder as placeholderText,
 } from "@codemirror/view";
 import {
+  bracketMatching,
+  codeFolding,
+  foldGutter,
+  foldKeymap,
+  indentOnInput,
   indentUnit,
   syntaxHighlighting,
   HighlightStyle,
@@ -91,6 +97,17 @@ export interface CodeEditorProps {
   onHistoryChange?: (history: { canUndo: boolean; canRedo: boolean }) => void;
   /** Current selection, so a caller can run just the highlighted statement. */
   onSelectionChange?: (selected: string) => void;
+  /**
+   * A whole-file editor rather than a config field: a fold gutter with the
+   * fold keys (Ctrl+Shift+[ and ]), matching brackets, re-indent on typing.
+   * Fixed for the editor's lifetime.
+   */
+  ide?: boolean;
+  /**
+   * The caller's own CodeMirror extensions — change markers, blame — swapped
+   * in place whenever a new value is passed, without rebuilding the editor.
+   */
+  extensions?: Extension;
 }
 
 /** Smallest height the drag handle allows — a few lines, never a sliver. */
@@ -113,6 +130,8 @@ export interface CodeEditorHandle {
   scrollTo: (pos: ScrollPos) => void;
   /** Opens the "go to line" prompt — the same one Ctrl/Cmd+Alt+G opens. */
   openGotoLine: () => void;
+  /** The CodeMirror view, for callers that run commands of their own (a right-click menu). */
+  getView: () => EditorView | null;
   /**
    * Selects line `n` (1-based, clamped) and scrolls it into view, bringing the
    * editor itself on screen too. `focus: false` leaves the keyboard where it is,
@@ -218,6 +237,38 @@ const editorTheme = EditorView.theme({
   ".cm-searchMatch.cm-searchMatch-selected": {
     backgroundColor: "color-mix(in srgb, var(--color-warning) 60%, transparent)",
   },
+  // `ide` only. Open folds show their chevron while the gutter is hovered,
+  // closed ones always — the editor convention.
+  ".cm-foldGutter .cm-gutterElement": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "14px",
+    cursor: "pointer",
+  },
+  ".cm-fold-marker": {
+    display: "inline-block",
+    width: "6px",
+    height: "6px",
+    borderRight: "1.5px solid currentColor",
+    borderBottom: "1.5px solid currentColor",
+    transform: "rotate(-45deg)",
+  },
+  ".cm-fold-marker-open": { transform: "rotate(45deg) translate(-1px, -1px)", opacity: "0", transition: "opacity 120ms" },
+  ".cm-gutters:hover .cm-fold-marker-open": { opacity: "1" },
+  ".cm-foldPlaceholder": {
+    backgroundColor: "var(--color-surface-3)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "var(--radius-sm)",
+    color: "var(--color-text-secondary)",
+    padding: "0 4px",
+    margin: "0 2px",
+  },
+  "&.cm-focused .cm-matchingBracket": {
+    backgroundColor: "var(--color-accent-subtle)",
+    outline: "1px solid var(--color-accent-border)",
+  },
+  "&.cm-focused .cm-nonmatchingBracket": { color: "var(--color-danger)" },
 });
 
 /* A `.env` file: `[export ]KEY=value  # comment`. Hand-written because there is
@@ -278,6 +329,14 @@ const envLanguage = StreamLanguage.define<{ phase: EnvPhase }>({
   languageData: { commentTokens: { line: "#" } },
 });
 
+/** The fold gutter's chevron: drawn in CSS, pointing down while open. */
+function foldMarker(open: boolean): HTMLElement {
+  const el = document.createElement("span");
+  el.className = open ? "cm-fold-marker cm-fold-marker-open" : "cm-fold-marker";
+  el.title = open ? "Fold" : "Unfold";
+  return el;
+}
+
 /** The grammar for a file name, from CodeMirror's language catalogue. */
 async function languageForFile(name: string): Promise<Extension> {
   if (name === ".env" || name.startsWith(".env.")) return envLanguage;
@@ -318,6 +377,8 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     onSelectionChange,
     onHistoryChange,
     onScroll,
+    ide = false,
+    extensions,
   },
   ref,
 ) {
@@ -348,6 +409,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
   // The schema arrives after the table list loads, and can change with the
   // database, so completion is reconfigured rather than baked in at creation.
   const languageComp = useRef(new Compartment());
+  const extraComp = useRef(new Compartment());
 
   useEffect(() => {
     if (!host.current) return;
@@ -359,6 +421,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
         extensions: [
           lineNumbers(),
           highlightActiveLine(),
+          ...(ide ? [highlightActiveLineGutter(), foldGutter({ markerDOM: foldMarker }), codeFolding(), bracketMatching(), indentOnInput()] : []),
           ...(placeholder ? [placeholderText(placeholder)] : []),
           highlightSelectionMatches(),
           // Top, next to the toolbar that opens it, not under a tall document.
@@ -387,12 +450,14 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
             },
             indentWithTab,
             ...completionKeymap,
+            ...(ide ? foldKeymap : []),
             ...defaultKeymap,
             ...historyKeymap,
             ...searchKeymap,
           ]),
           editorTheme,
           readOnlyComp.current.of(EditorState.readOnly.of(readOnly)),
+          extraComp.current.of(extensions ?? []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) onChangeRef.current(update.state.doc.toString());
             if (update.transactions.length > 0) {
@@ -454,6 +519,16 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     });
   }, [readOnly]);
 
+  // The first value went in at creation; this is every one after it.
+  const firstExtensions = useRef(true);
+  useEffect(() => {
+    if (firstExtensions.current) {
+      firstExtensions.current = false;
+      return;
+    }
+    view.current?.dispatch({ effects: extraComp.current.reconfigure(extensions ?? []) });
+  }, [extensions]);
+
   // Serialized because a Compartment reconfigure needs a stable dependency and
   // `schema` is a fresh object on every render of the caller.
   const schemaKey = JSON.stringify(schema ?? null);
@@ -511,6 +586,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     openGotoLine: () => {
       if (view.current) gotoLine(view.current);
     },
+    getView: () => view.current,
     goToLine: (n: number, { focus = true } = {}) => {
       const editor = view.current;
       if (!editor) return;

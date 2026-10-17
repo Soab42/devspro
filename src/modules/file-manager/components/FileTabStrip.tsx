@@ -15,6 +15,7 @@ export default function FileTabStrip({
   files,
   active,
   dirty,
+  gitCode,
   describe,
   folderLabel,
   onActivate,
@@ -24,6 +25,8 @@ export default function FileTabStrip({
   files: OpenFile[];
   active: string | null;
   dirty: string[];
+  /** The git letter of an open file, which colours its tab like the listing. */
+  gitCode?: (path: string) => string | null;
   /** The path as the tooltip shows it. */
   describe: (path: string) => string;
   /** The folder the Files tab is showing. */
@@ -96,7 +99,7 @@ export default function FileTabStrip({
             {...dropProps(f.path)}
           >
             <Icon icon={entryIcon({ name: f.name, is_dir: false, is_symlink: false })} size="xs" className="fm-col-icon" />
-            <span className="fm-tab-name">{f.name}</span>
+            <span className={gitCode?.(f.path) ? `fm-tab-name fm-git-name fm-git-${gitCode(f.path)}` : "fm-tab-name"}>{f.name}</span>
             {where && <span className="fm-tab-where">{where}</span>}
             <span
               role="button"

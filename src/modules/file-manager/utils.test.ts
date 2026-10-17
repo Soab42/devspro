@@ -18,6 +18,7 @@ import {
   THUMB_MAX,
   THUMB_MIN,
   clampThumb,
+  relativeTime,
   thumbRenderSize,
   tildePath,
   viewerKind,
@@ -229,5 +230,16 @@ describe("icon sizes", () => {
     expect(thumbRenderSize(160)).toBe(256);
     expect(thumbRenderSize(160, 2)).toBe(512);
     expect(thumbRenderSize(256, 3)).toBe(512);
+  });
+});
+
+describe("relative time", () => {
+  const now = Date.UTC(2026, 9, 18, 12, 0, 0);
+  const ago = (secs: number) => relativeTime(now / 1000 - secs, now);
+  it("dates a commit the way GitLens does", () => {
+    expect(ago(10)).toBe("just now");
+    expect(ago(5 * 60)).toMatch(/5 minutes ago/);
+    expect(ago(3 * 24 * 3600)).toMatch(/3 days ago/);
+    expect(ago(400 * 24 * 3600)).toMatch(/last year|1 year ago/);
   });
 });
