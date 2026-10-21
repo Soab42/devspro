@@ -5,6 +5,15 @@
  * without a round-trip per keystroke.
  */
 
+/**
+ * On Windows the backend registers tasks with Task Scheduler (under a
+ * `\DevsPro\` folder) instead of writing the crontab; only the wording differs.
+ */
+export const ON_WINDOWS = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+
+/** Where enabled tasks end up, for UI copy. */
+export const SCHEDULER_NAME = ON_WINDOWS ? "Task Scheduler" : "crontab";
+
 export interface CronPreset {
   value: string;
   label: string;

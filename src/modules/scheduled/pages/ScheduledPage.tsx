@@ -38,7 +38,7 @@ import {
   runScheduledTaskNow,
   setScheduledTaskEnabled,
 } from "../api";
-import { formatAbsolute, formatRelative, lastOutputLine } from "../utils";
+import { ON_WINDOWS, SCHEDULER_NAME, formatAbsolute, formatRelative, lastOutputLine } from "../utils";
 
 export default function ScheduledPage() {
   const confirmAction = useConfirm();
@@ -69,7 +69,7 @@ export default function ScheduledPage() {
 
   async function handleRunNow(task: ScheduledTaskView) {
     const ok = await confirmAction(
-      `Runs "${task.name}" once, right now, the same way cron would. Output is appended to its log.`,
+      `Runs "${task.name}" once, right now, the same way ${ON_WINDOWS ? "Task Scheduler" : "cron"} would. Output is appended to its log.`,
       { title: "Run now?", confirmLabel: "Run" },
     );
     if (!ok) return;
@@ -81,7 +81,7 @@ export default function ScheduledPage() {
 
   async function handleDelete(task: ScheduledTaskView) {
     const ok = await confirmAction(
-      `"${task.name}" will be removed from your crontab and its log deleted.`,
+      `"${task.name}" will be removed from ${ON_WINDOWS ? "Task Scheduler" : "your crontab"} and its log deleted.`,
       { title: "Delete scheduled task?", confirmLabel: "Delete", danger: true },
     );
     if (!ok) return;
@@ -201,7 +201,7 @@ export default function ScheduledPage() {
         rows.length > 0 && (
           <StatusPill
             variant={enabledCount > 0 ? "ok" : "neutral"}
-            label={`${enabledCount}/${rows.length} in crontab`}
+            label={`${enabledCount}/${rows.length} ${ON_WINDOWS ? "enabled" : "in crontab"}`}
           />
         )
       }
@@ -230,7 +230,11 @@ export default function ScheduledPage() {
 
         <Section
           title="Recurring commands"
-          description="Enabled tasks are written to your user crontab inside a block DevsPro manages; everything else in it is left untouched."
+          description={
+            ON_WINDOWS
+              ? "Tasks are registered with Windows Task Scheduler under a \\DevsPro\\ folder and run while you're signed in; your other scheduled tasks are left untouched."
+              : `Enabled tasks are written to your user ${SCHEDULER_NAME} inside a block DevsPro manages; everything else in it is left untouched.`
+          }
           padding="none"
           isEmpty={!tasks.loading && rows.length === 0}
           empty={{
@@ -238,7 +242,7 @@ export default function ScheduledPage() {
             title: "No scheduled tasks yet",
             description: (
               <>
-                A scheduled task is a command cron runs for you on a timer — the canonical
+                A scheduled task is a command {ON_WINDOWS ? "Task Scheduler" : "cron"} runs for you on a timer — the canonical
                 one is Laravel&apos;s <Mono variant="chip">php artisan schedule:run</Mono> every
                 minute, but any shell command works.
               </>
