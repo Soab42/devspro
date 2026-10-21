@@ -5,8 +5,9 @@
 //! password prompt.
 //!
 //! On Windows the tab offers that OS's own system clutter instead (see
-//! `windows.rs`): the Recycle Bin, old temp files, the thumbnail cache and
-//! crash reports are cleaned in-process as the user; Windows' own temp folder,
+//! `windows.rs`): the thumbnail cache and the user's error reports are cleaned
+//! in-process as the user (the Recycle Bin, %TEMP% and `CrashDumps` are the
+//! Caches tab's); Windows' own temp folder,
 //! the Windows Update download cache, the Delivery Optimization cache and
 //! system crash dumps go through the helper, again as fixed operations whose
 //! paths the helper decides, all in one UAC prompt. Each OS's ids are refused
@@ -41,10 +42,8 @@ const PROMPT_NOTE: &str = "an admin password prompt will appear";
 pub const ID_APT: &str = "system:apt";
 pub const ID_JOURNAL: &str = "system:journal";
 
-pub const ID_RECYCLE_BIN: &str = "system:recycle-bin";
-pub const ID_USER_TEMP: &str = "system:temp";
 pub const ID_THUMBNAILS: &str = "system:thumbnails";
-pub const ID_CRASH_DUMPS: &str = "system:crash-dumps";
+pub const ID_ERROR_REPORTS: &str = "system:error-reports";
 pub const ID_WINDOWS_TEMP: &str = "system:windows-temp";
 pub const ID_WINDOWS_UPDATE: &str = "system:windows-update";
 pub const ID_DELIVERY_OPTIMIZATION: &str = "system:delivery-optimization";
@@ -55,14 +54,10 @@ pub enum SystemItem {
     Apt,
     Journal,
     Snap { name: String, revision: String },
-    /// Windows: every drive's Recycle Bin.
-    RecycleBin,
-    /// Windows: the user's %TEMP%, entries untouched for a day.
-    UserTemp,
     /// Windows: Explorer's thumbcache_*.db files.
     Thumbnails,
-    /// Windows: the user's own crash dumps and error reports.
-    CrashDumps,
+    /// Windows: the user's own Windows Error Reporting archive and queue.
+    ErrorReports,
     /// Windows, elevated: %SystemRoot%\Temp, entries untouched for a day.
     WindowsTemp,
     /// Windows, elevated: %SystemRoot%\SoftwareDistribution\Download.
@@ -109,10 +104,8 @@ fn parse_any_id(id: &str) -> Result<SystemItem, String> {
     let fixed = match id {
         ID_APT => Some(SystemItem::Apt),
         ID_JOURNAL => Some(SystemItem::Journal),
-        ID_RECYCLE_BIN => Some(SystemItem::RecycleBin),
-        ID_USER_TEMP => Some(SystemItem::UserTemp),
         ID_THUMBNAILS => Some(SystemItem::Thumbnails),
-        ID_CRASH_DUMPS => Some(SystemItem::CrashDumps),
+        ID_ERROR_REPORTS => Some(SystemItem::ErrorReports),
         ID_WINDOWS_TEMP => Some(SystemItem::WindowsTemp),
         ID_WINDOWS_UPDATE => Some(SystemItem::WindowsUpdate),
         ID_DELIVERY_OPTIMIZATION => Some(SystemItem::DeliveryOptimization),
@@ -144,9 +137,7 @@ pub fn to_operation(item: &SystemItem) -> Option<Operation> {
         SystemItem::WindowsUpdate => Operation::ClearWindowsUpdateCache,
         SystemItem::DeliveryOptimization => Operation::ClearDeliveryOptimizationCache,
         SystemItem::SystemCrashDumps => Operation::RemoveSystemCrashDumps,
-        SystemItem::RecycleBin | SystemItem::UserTemp | SystemItem::Thumbnails | SystemItem::CrashDumps => {
-            return None
-        }
+        SystemItem::Thumbnails | SystemItem::ErrorReports => return None,
     })
 }
 
@@ -362,10 +353,8 @@ fn label_of(item: &SystemItem) -> String {
         SystemItem::Apt => "apt package cache".to_string(),
         SystemItem::Journal => "systemd journal".to_string(),
         SystemItem::Snap { name, revision } => format!("{name} (old revision {revision})"),
-        SystemItem::RecycleBin => "Recycle Bin".to_string(),
-        SystemItem::UserTemp => "Temporary files".to_string(),
         SystemItem::Thumbnails => "Thumbnail cache".to_string(),
-        SystemItem::CrashDumps => "Crash dumps and error reports".to_string(),
+        SystemItem::ErrorReports => "Error reports".to_string(),
         SystemItem::WindowsTemp => "Windows temporary files".to_string(),
         SystemItem::WindowsUpdate => "Windows Update downloads".to_string(),
         SystemItem::DeliveryOptimization => "Delivery Optimization cache".to_string(),
@@ -498,7 +487,7 @@ bad_name          1              7      latest/stable    x            disabled\n
             parse_any_id("system:snap:core20:2182"),
             Ok(SystemItem::Snap { name: "core20".into(), revision: "2182".into() })
         );
-        assert_eq!(parse_any_id("system:recycle-bin"), Ok(SystemItem::RecycleBin));
+        assert_eq!(parse_any_id("system:error-reports"), Ok(SystemItem::ErrorReports));
         assert_eq!(parse_any_id("system:windows-update"), Ok(SystemItem::WindowsUpdate));
         for bad in [
             "", "system", "system:", "system:apt ", "system:Apt", "system:snap:", "system:snap:core20",
@@ -516,7 +505,7 @@ bad_name          1              7      latest/stable    x            disabled\n
     fn each_os_refuses_the_other_oss_ids() {
         let linux = ["system:apt", "system:journal", "system:snap:core20:2182"];
         let windows = [
-            ID_RECYCLE_BIN, ID_USER_TEMP, ID_THUMBNAILS, ID_CRASH_DUMPS, ID_WINDOWS_TEMP, ID_WINDOWS_UPDATE,
+            ID_THUMBNAILS, ID_ERROR_REPORTS, ID_WINDOWS_TEMP, ID_WINDOWS_UPDATE,
             ID_DELIVERY_OPTIMIZATION, ID_SYSTEM_CRASH_DUMPS,
         ];
         for id in linux {
@@ -543,7 +532,7 @@ bad_name          1              7      latest/stable    x            disabled\n
         assert!(matches!(to_operation(&SystemItem::DeliveryOptimization), Some(Operation::ClearDeliveryOptimizationCache)));
         assert!(matches!(to_operation(&SystemItem::SystemCrashDumps), Some(Operation::RemoveSystemCrashDumps)));
         // What the user owns is cleaned as the user, with no prompt.
-        for item in [SystemItem::RecycleBin, SystemItem::UserTemp, SystemItem::Thumbnails, SystemItem::CrashDumps] {
+        for item in [SystemItem::Thumbnails, SystemItem::ErrorReports] {
             assert!(to_operation(&item).is_none(), "{item:?}");
         }
     }

@@ -79,7 +79,7 @@ fn is_suggested(idle: Option<u32>, threshold: u32) -> bool {
 /// Last commit time, else the newest mtime among the top-level entries that
 /// are not artifacts.
 fn last_activity(project: &Path) -> Option<i64> {
-    let git = super::quiet_command("git")
+    let git = crate::modules::tools::command("git")
         .arg("-C")
         .arg(project)
         .args(["log", "-1", "--format=%ct"])

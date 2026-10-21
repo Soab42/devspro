@@ -1,9 +1,10 @@
 //! The System tab on Windows.
 //!
-//! Four items belong to the user and are cleaned here, as the user, with no
-//! prompt: the Recycle Bin (through the shell, which owns it), old entries in
-//! %TEMP%, Explorer's thumbnail cache and the user's own crash dumps and error
-//! reports. Four live under the Windows folder and need the helper: Windows'
+//! Two items belong to the user and are cleaned here, as the user, with no
+//! prompt: Explorer's thumbnail cache and the user's own error reports. (The
+//! Recycle Bin, %TEMP% and `CrashDumps` are offered by the Caches tab, so they
+//! are not repeated here.) Four live under the Windows folder and need the
+//! helper: Windows'
 //! own temp folder, the Windows Update download cache, the Delivery
 //! Optimization cache and machine-wide crash dumps. For those the helper
 //! decides every path itself; this side only measures, and often cannot even
@@ -12,7 +13,6 @@
 //! shown once it has been cleaned.
 
 use super::*;
-use crate::modules::cleaner::guard;
 use std::fs;
 use std::time::{Duration, SystemTime};
 
@@ -33,24 +33,6 @@ fn system_root() -> PathBuf {
     env_dir("SystemRoot").or_else(|| env_dir("windir")).unwrap_or_else(|| PathBuf::from(r"C:\Windows"))
 }
 
-/// `path` as the filesystem spells it (long names, real case), without the
-/// `\\?\` prefix `canonicalize` adds.
-fn resolved(path: &Path) -> Option<PathBuf> {
-    let real = fs::canonicalize(path).ok()?;
-    let text = real.to_string_lossy();
-    Some(text.strip_prefix(r"\\?\").map(PathBuf::from).unwrap_or(real))
-}
-
-/// The user's %TEMP%, only when it is the usual folder named `Temp` inside
-/// their profile. A TEMP pointed anywhere else is not cleaned: what else
-/// lives there is unknown.
-fn user_temp() -> Option<PathBuf> {
-    let temp = resolved(&std::env::temp_dir())?;
-    let home = resolved(&super::super::home_dir()?)?;
-    let named_temp = temp.file_name().is_some_and(|n| n.eq_ignore_ascii_case("temp"));
-    (named_temp && guard::within(&temp, &home) && !guard::same(&temp, &home)).then_some(temp)
-}
-
 fn local_app_data() -> Option<PathBuf> {
     env_dir("LOCALAPPDATA").or_else(|| super::super::home_dir().map(|h| h.join(r"AppData\Local")))
 }
@@ -59,11 +41,10 @@ fn thumbnail_dir() -> Option<PathBuf> {
     local_app_data().map(|l| l.join(r"Microsoft\Windows\Explorer"))
 }
 
-/// Folders whose every entry is a crash dump or an error report.
-fn user_crash_dirs() -> Vec<PathBuf> {
+/// Folders whose every entry is a Windows Error Reporting report.
+fn user_report_dirs() -> Vec<PathBuf> {
     let Some(local) = local_app_data() else { return Vec::new() };
     vec![
-        local.join("CrashDumps"),
         local.join(r"Microsoft\Windows\WER\ReportArchive"),
         local.join(r"Microsoft\Windows\WER\ReportQueue"),
     ]
@@ -160,43 +141,6 @@ fn removal_message((removed, left): (usize, usize), left_because: &str) -> Resul
     }
 }
 
-mod recycle_bin {
-    use windows_sys::Win32::UI::Shell::{
-        SHEmptyRecycleBinW, SHQueryRecycleBinW, SHERB_NOCONFIRMATION, SHERB_NOPROGRESSUI, SHERB_NOSOUND,
-        SHQUERYRBINFO,
-    };
-
-    /// What `SHEmptyRecycleBinW` answers when the bin is already empty.
-    const E_UNEXPECTED: i32 = 0x8000_FFFFu32 as i32;
-
-    /// Bytes in the Recycle Bins of every drive.
-    pub fn size() -> Option<u64> {
-        let mut info = SHQUERYRBINFO { cbSize: std::mem::size_of::<SHQUERYRBINFO>() as u32, i64Size: 0, i64NumItems: 0 };
-        // SAFETY: a null root means every drive; `info` is a valid out-pointer
-        // whose cbSize is set as the API requires.
-        let hr = unsafe { SHQueryRecycleBinW(std::ptr::null(), &mut info) };
-        (hr >= 0).then(|| info.i64Size.max(0) as u64)
-    }
-
-    /// Empties every drive's Recycle Bin, with no dialog or sound.
-    pub fn empty() -> Result<(), String> {
-        // SAFETY: a null window and root are documented as "no owner" and
-        // "every drive".
-        let hr = unsafe {
-            SHEmptyRecycleBinW(
-                std::ptr::null_mut(),
-                std::ptr::null(),
-                SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND,
-            )
-        };
-        if hr >= 0 || hr == E_UNEXPECTED {
-            Ok(())
-        } else {
-            Err(format!("could not empty the Recycle Bin (error {:#x})", hr as u32))
-        }
-    }
-}
-
 fn user_finding(item: &SystemItem, id: &str, reason: &str, method: &str, paths: Vec<PathBuf>, bytes: u64, risk: Risk) -> Finding {
     Finding {
         id: id.to_string(),
@@ -208,7 +152,7 @@ fn user_finding(item: &SystemItem, id: &str, reason: &str, method: &str, paths: 
         paths: paths.iter().map(|p| p.display().to_string()).collect(),
         bytes,
         risk,
-        suggested: risk != Risk::Danger && bytes >= SUGGEST_BYTES,
+        suggested: bytes >= SUGGEST_BYTES,
         blocked_by: None,
         needs_confirm_text: None,
     }
@@ -259,7 +203,7 @@ fn readable_usage(dir: &Path, entries: impl Fn(&Path) -> Vec<PathBuf>) -> Option
 /// closed to this user. Slow (PowerShell loads a module), so the scan runs it
 /// on a thread while it measures everything else.
 fn delivery_cache_bytes_reported() -> Option<u64> {
-    let out = crate::modules::cleaner::quiet_command("powershell")
+    let out = crate::modules::tools::command("powershell")
         .args(["-NoProfile", "-NonInteractive", "-Command", "(Get-DeliveryOptimizationPerfSnap).CacheSizeBytes"])
         .output()
         .ok()?;
@@ -295,31 +239,6 @@ pub fn scan_findings(scan: &Scan) -> Vec<Finding> {
     let delivery = std::thread::spawn(delivery_cache_bytes);
     let mut found = Vec::new();
 
-    if let Some(bytes) = recycle_bin::size().filter(|b| *b > 0) {
-        found.push(user_finding(
-            &SystemItem::RecycleBin,
-            ID_RECYCLE_BIN,
-            "Files you deleted. Emptying it deletes them for good.",
-            "empty the Recycle Bin",
-            Vec::new(),
-            bytes,
-            Risk::Danger,
-        ));
-    }
-    if let Some(temp) = user_temp() {
-        let bytes = usage_of(&stale_entries(&temp, MIN_TEMP_AGE));
-        if bytes > 0 {
-            found.push(user_finding(
-                &SystemItem::UserTemp,
-                ID_USER_TEMP,
-                "Temporary files apps left behind, untouched for a day. Anything still in use is skipped.",
-                "delete",
-                vec![temp],
-                bytes,
-                Risk::Safe,
-            ));
-        }
-    }
     let thumbs = thumbnail_files();
     let bytes = usage_of(&thumbs);
     if bytes > 0 {
@@ -333,15 +252,15 @@ pub fn scan_findings(scan: &Scan) -> Vec<Finding> {
             Risk::Safe,
         ));
     }
-    let crash_dirs = user_crash_dirs();
-    let bytes: u64 = crash_dirs.iter().map(|d| usage_of(&all_entries(d))).sum();
+    let report_dirs = user_report_dirs();
+    let bytes: u64 = report_dirs.iter().map(|d| usage_of(&all_entries(d))).sum();
     if bytes > 0 {
         found.push(user_finding(
-            &SystemItem::CrashDumps,
-            ID_CRASH_DUMPS,
-            "Memory dumps and error reports from apps that crashed; only useful for reporting that crash.",
+            &SystemItem::ErrorReports,
+            ID_ERROR_REPORTS,
+            "Reports Windows Error Reporting kept about apps that crashed or hung; only useful for reporting that problem.",
             "delete",
-            crash_dirs,
+            report_dirs,
             bytes,
             Risk::Review,
         ));
@@ -407,10 +326,8 @@ pub fn scan_findings(scan: &Scan) -> Vec<Finding> {
 /// after cleaning; for an elevated one, its share of the freed space.
 pub fn item_bytes(item: &SystemItem) -> u64 {
     match item {
-        SystemItem::RecycleBin => recycle_bin::size().unwrap_or(0),
-        SystemItem::UserTemp => user_temp().map(|t| usage_of(&stale_entries(&t, MIN_TEMP_AGE))).unwrap_or(0),
         SystemItem::Thumbnails => usage_of(&thumbnail_files()),
-        SystemItem::CrashDumps => user_crash_dirs().iter().map(|d| usage_of(&all_entries(d))).sum(),
+        SystemItem::ErrorReports => user_report_dirs().iter().map(|d| usage_of(&all_entries(d))).sum(),
         SystemItem::WindowsTemp => readable_usage(&windows_temp(), |d| stale_entries(d, MIN_TEMP_AGE)).unwrap_or(0),
         SystemItem::WindowsUpdate => readable_usage(&update_downloads(), all_entries).unwrap_or(0),
         SystemItem::DeliveryOptimization => readable_usage(&delivery_cache(), all_entries).unwrap_or(0),
@@ -422,17 +339,12 @@ pub fn item_bytes(item: &SystemItem) -> u64 {
 /// Cleans one of the items the user owns.
 pub fn clean_local(item: &SystemItem) -> Result<String, String> {
     match item {
-        SystemItem::RecycleBin => recycle_bin::empty().map(|()| "Emptied".to_string()),
-        SystemItem::UserTemp => {
-            let temp = user_temp().ok_or("%TEMP% is not the usual folder in your profile, so it is left alone")?;
-            removal_message(remove_entries(&stale_entries(&temp, MIN_TEMP_AGE)), "in use were left")
-        }
         SystemItem::Thumbnails => removal_message(
             remove_entries(&thumbnail_files()),
             "open in Explorer were left; sign out and back in, then clean again",
         ),
-        SystemItem::CrashDumps => {
-            let entries: Vec<PathBuf> = user_crash_dirs().iter().flat_map(|d| all_entries(d)).collect();
+        SystemItem::ErrorReports => {
+            let entries: Vec<PathBuf> = user_report_dirs().iter().flat_map(|d| all_entries(d)).collect();
             removal_message(remove_entries(&entries), "in use were left")
         }
         other => Err(format!("{} needs the administrator helper", label_of(other))),
@@ -522,28 +434,22 @@ mod tests {
     }
 
     #[test]
-    fn user_temp_is_inside_the_profile_and_named_temp() {
-        if let Some(t) = user_temp() {
-            assert!(t.file_name().unwrap().eq_ignore_ascii_case("temp"));
-            assert!(!guard::within(&t, &system_root()));
-        }
-    }
-
-    #[test]
     fn admin_findings_without_a_size_say_so_and_are_not_suggested() {
         let f = admin_finding(&SystemItem::WindowsTemp, ID_WINDOWS_TEMP, "Old files.", "delete", vec![], None);
         assert!(f.reason.contains("administrator") && f.method.contains("administrator prompt"));
         assert!(!f.suggested && f.bytes == 0);
         let big = admin_finding(&SystemItem::WindowsUpdate, ID_WINDOWS_UPDATE, "x", "y", vec![], Some(SUGGEST_BYTES));
         assert!(big.suggested && big.risk == Risk::Review);
-        let bin = user_finding(&SystemItem::RecycleBin, ID_RECYCLE_BIN, "x", "y", vec![], 10 * SUGGEST_BYTES, Risk::Danger);
-        assert!(!bin.suggested, "deleting for good is never pre-selected");
-        assert!(!bin.method.contains("prompt"));
+        let thumbs = user_finding(&SystemItem::Thumbnails, ID_THUMBNAILS, "x", "y", vec![], 10, Risk::Safe);
+        assert!(!thumbs.suggested && !thumbs.method.contains("prompt"));
     }
 
     #[test]
-    fn the_recycle_bin_can_be_measured() {
-        assert!(recycle_bin::size().is_some());
+    fn caches_tab_items_are_not_repeated_here() {
+        // The Recycle Bin, %TEMP% and CrashDumps belong to the Caches tab.
+        let found = scan_findings(&Scan::detached());
+        assert!(found.iter().all(|f| !f.label.contains("Recycle") && !f.label.starts_with("Temporary files")));
+        assert!(user_report_dirs().iter().all(|d| !d.ends_with("CrashDumps")));
     }
 
     #[test]

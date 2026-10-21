@@ -33,7 +33,7 @@ pub struct DockerScan {
 type Runner<'a> = &'a dyn Fn(&[&str]) -> Result<String, String>;
 
 fn run_docker(args: &[&str]) -> Result<String, String> {
-    let out = super::quiet_command("docker").args(args).output().map_err(|e| format!("failed to run docker: {e}"))?;
+    let out = crate::modules::tools::command("docker").args(args).output().map_err(|e| format!("failed to run docker: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {

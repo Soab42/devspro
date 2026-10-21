@@ -29,7 +29,6 @@ pub mod system_items;
 use crate::db::Db;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command;
 use tauri::State;
 
 pub use measure::{CleanerState, Scan};
@@ -107,20 +106,6 @@ impl Default for CleanerSettings {
 pub fn home_dir() -> Option<PathBuf> {
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     std::env::var_os(var).map(PathBuf::from).filter(|h| h.is_absolute())
-}
-
-/// `Command::new(program)` that opens no console window on Windows, where a
-/// GUI app spawning `git` or `docker` would otherwise flash one per call.
-pub fn quiet_command(program: &str) -> Command {
-    #[allow(unused_mut)]
-    let mut command = Command::new(program);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    command
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

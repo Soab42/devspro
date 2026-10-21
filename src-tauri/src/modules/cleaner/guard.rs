@@ -115,9 +115,25 @@ fn remove_path_with(
         // either way only the link goes, never what it points at.
         fs::remove_file(path).or_else(|_| fs::remove_dir(path))
     } else {
-        fs::remove_file(path)
+        remove_file_even_read_only(path, &meta)
     };
     result.map_err(|e| format!("could not delete {}: {e}", path.display()))
+}
+
+/// Windows refuses to delete a file with the read-only attribute set, which
+/// Unix never looks at; clear it and try again. (`remove_dir_all` already
+/// deletes read-only files inside a tree.)
+fn remove_file_even_read_only(path: &Path, meta: &fs::Metadata) -> std::io::Result<()> {
+    match fs::remove_file(path) {
+        Err(e) if cfg!(windows) && meta.permissions().readonly() => {
+            let mut writable = meta.permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            writable.set_readonly(false);
+            fs::set_permissions(path, writable).map_err(|_| e)?;
+            fs::remove_file(path)
+        }
+        other => other,
+    }
 }
 
 /// Whether `path` is a system or credential location this OS protects, the
@@ -535,6 +551,25 @@ mod tests {
         remove_path(&d.join("lone"), true).unwrap();
         assert!(!d.join("t").exists() && !d.join("lone").exists());
         assert!(remove_path(&d.join("gone"), true).is_err());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn permanent_removal_deletes_read_only_files_and_trees_holding_them() {
+        let d = scratch("rm-readonly");
+        let make_read_only = |p: &Path| {
+            let mut perms = fs::metadata(p).unwrap().permissions();
+            perms.set_readonly(true);
+            fs::set_permissions(p, perms).unwrap();
+        };
+        fs::write(d.join("lone"), "x").unwrap();
+        make_read_only(&d.join("lone"));
+        fs::create_dir_all(d.join("t")).unwrap();
+        fs::write(d.join("t/f"), "x").unwrap();
+        make_read_only(&d.join("t/f"));
+        remove_path(&d.join("lone"), true).unwrap();
+        remove_path(&d.join("t"), true).unwrap();
+        assert!(!d.join("lone").exists() && !d.join("t").exists());
         fs::remove_dir_all(&d).unwrap();
     }
 
