@@ -92,6 +92,12 @@ windows-sys = { version = "0.59", features = [
     # Maps a listening port's owning pid to a process name, without needing the
     # OpenProcess rights that reading another user's process would.
     "Win32_System_Diagnostics_ToolHelp",
+    # The Cleaner's Caches tab (src/modules/cleaner/caches): the user's SID names
+    # their Recycle Bin folder on each drive, and NtQueryInformationProcess reads
+    # another process's command line to tell an `npm install` from `npm run`.
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Wdk_System_Threading",
 ] }
 
 [workspace]
