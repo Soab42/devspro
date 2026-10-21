@@ -2,7 +2,7 @@
 //! view. Places the other tabs already cover (caches, package stores, project
 //! artifacts, the trash) are left out of the file scan.
 
-use super::guard::{check_removable, remove_path};
+use super::guard::{check_removable, remove_path, within};
 use super::measure::{disk_usage, free_bytes};
 use super::{history, CleanOutcome, CleanerSettings, CleanerState, Scan};
 use crate::db::Db;
@@ -17,6 +17,7 @@ const TAB: &str = "large-files";
 const MAX_RESULTS: usize = 2000;
 
 /// Under $HOME: owned by another tab, so not offered here.
+#[cfg(not(windows))]
 const HOME_SKIPPED: &[&str] = &[
     ".cache",
     ".npm",
@@ -27,6 +28,35 @@ const HOME_SKIPPED: &[&str] = &[
     ".gradle",
     ".m2",
     ".local/share/Trash",
+];
+
+/// Under %USERPROFILE%: owned by another tab (Caches, System, Docker), so not
+/// offered here. Docker Desktop's disk image lives under `AppData/Local/Docker`
+/// and holds every image and volume; deleting it as a "large file" would lose
+/// them all, which the Docker tab exists to do one item at a time.
+#[cfg(windows)]
+const HOME_SKIPPED: &[&str] = &[
+    ".cache",
+    ".npm",
+    ".cargo",
+    ".rustup",
+    ".gradle",
+    ".m2",
+    ".nuget",
+    "AppData/Local/Temp",
+    "AppData/Local/npm-cache",
+    "AppData/Local/pnpm",
+    "AppData/Local/pnpm-cache",
+    "AppData/Local/Yarn",
+    "AppData/Local/pip",
+    "AppData/Local/NuGet",
+    "AppData/Local/Composer",
+    "AppData/Local/go-build",
+    "AppData/Local/Docker",
+    "AppData/Local/CrashDumps",
+    "AppData/Local/Microsoft/Windows/Explorer",
+    "AppData/Local/Microsoft/Windows/INetCache",
+    "AppData/Local/Microsoft/Windows/WER",
 ];
 
 const VIDEO: &[&str] = &["mp4", "mkv", "avi", "mov", "webm", "wmv", "flv", "m4v", "mpg", "mpeg"];
@@ -57,6 +87,20 @@ pub struct FolderEntry {
 
 fn skipped_dirs(home: Option<&Path>) -> Vec<PathBuf> {
     home.map(|h| HOME_SKIPPED.iter().map(|p| h.join(p)).collect()).unwrap_or_default()
+}
+
+/// Windows: what the guard would refuse to remove anyway — the Windows and
+/// Program Files folders, the Recycle Bin, `pagefile.sys` and the like when a
+/// whole drive is a scan root — is not worth listing. Linux lists everything
+/// and lets the guard refuse, as it always has.
+#[cfg(windows)]
+fn os_owned(path: &Path) -> bool {
+    super::guard::is_protected(path)
+}
+
+#[cfg(not(windows))]
+fn os_owned(_path: &Path) -> bool {
+    false
 }
 
 /// A project's own build output: the project-junk tab owns these.
@@ -139,9 +183,10 @@ fn find_large_files(
                 if ft.is_dir() {
                     let name = entry.file_name().to_string_lossy().into_owned();
                     let covered = meta.dev() != dev
-                        || exclusions.iter().any(|e| path.starts_with(e))
-                        || skipped.iter().any(|s| path.starts_with(s))
-                        || is_project_artifact(&path, &name);
+                        || exclusions.iter().any(|e| within(&path, e))
+                        || skipped.iter().any(|s| within(&path, s))
+                        || is_project_artifact(&path, &name)
+                        || os_owned(&path);
                     if !covered {
                         stack.push(path);
                     }
@@ -155,7 +200,7 @@ fn find_large_files(
                 if bytes < min_bytes || cutoff.is_some_and(|c| meta.mtime() >= c) {
                     continue;
                 }
-                if exclusions.iter().any(|e| path.starts_with(e)) {
+                if exclusions.iter().any(|e| within(&path, e)) || os_owned(&path) {
                     continue;
                 }
                 if meta.nlink() > 1 && !seen_links.insert((meta.dev(), meta.ino())) {
@@ -279,7 +324,7 @@ pub fn cleaner_scan_large_files(
     let scan = Scan::start(&state, &app, &scan_id, TAB);
     let roots: Vec<PathBuf> = settings.scan_roots.iter().map(PathBuf::from).collect();
     let exclusions: Vec<PathBuf> = settings.exclusions.iter().map(PathBuf::from).collect();
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = super::home_dir();
     Ok(find_large_files(&roots, &exclusions, &skipped_dirs(home.as_deref()), min_bytes, older_than_days, &scan))
 }
 
@@ -338,7 +383,11 @@ mod tests {
     }
 
     fn names(found: &[LargeFile], root: &Path) -> Vec<String> {
-        found.iter().map(|f| f.path.strip_prefix(root.to_str().unwrap()).unwrap().trim_start_matches('/').to_string()).collect()
+        // Windows separators read as `/`, so one expectation fits both OSes.
+        found
+            .iter()
+            .map(|f| f.path.strip_prefix(root.to_str().unwrap()).unwrap().replace('\\', "/").trim_start_matches('/').to_string())
+            .collect()
     }
 
     fn find(root: &Path, skipped: &[PathBuf], min: u64, days: Option<u32>) -> Vec<LargeFile> {
@@ -391,13 +440,30 @@ mod tests {
         }
     }
 
+    /// A directory link: a symlink on Unix, a junction on Windows (which needs
+    /// no admin rights, unlike a Windows symlink).
+    fn link_dir(target: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, link).unwrap();
+        #[cfg(windows)]
+        assert!(std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap()
+            .status
+            .success());
+    }
+
     #[test]
     fn symlinks_are_not_followed() {
         let root = scratch("links");
         let outside = scratch("links-outside");
         file(&outside.join("huge.bin"), 256);
+        #[cfg(unix)]
         std::os::unix::fs::symlink(outside.join("huge.bin"), root.join("file-link")).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("dir-link")).unwrap();
+        link_dir(&outside, &root.join("dir-link"));
         assert!(find(&root, &[], 64 * 1024, None).is_empty());
         fs::remove_dir_all(&root).unwrap();
         fs::remove_dir_all(&outside).unwrap();
@@ -407,7 +473,8 @@ mod tests {
     fn skips_other_tabs_folders_and_exclusions() {
         let root = scratch("skips");
         file(&root.join(".cache/a.bin"), 128);
-        file(&root.join(".local/share/Trash/files/b.bin"), 128);
+        let other_tab = if cfg!(windows) { "AppData/Local/Temp/b.bin" } else { ".local/share/Trash/files/b.bin" };
+        file(&root.join(other_tab), 128);
         file(&root.join("app/node_modules/c.bin"), 128);
         file(&root.join("app/.next/d.bin"), 128);
         file(&root.join("rust/Cargo.toml"), 1);
@@ -471,7 +538,7 @@ mod tests {
         // A link inside the root that points out of it is not listed.
         let outside = scratch("folders-outside");
         file(&outside.join("secret.bin"), 4);
-        std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
+        link_dir(&outside, &root.join("escape"));
         let err = folder_entries(&root.join("escape"), &roots, &Scan::detached()).unwrap_err();
         assert!(err.contains("symbolic link"), "{err}");
         let top = folder_entries(&root, &roots, &Scan::detached()).unwrap();

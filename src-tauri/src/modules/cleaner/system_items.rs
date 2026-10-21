@@ -3,6 +3,17 @@
 //! elevated helper as three fixed operations (`AptClean`, `VacuumJournal`,
 //! `RemoveSnapRevision`), all selected items in one call so there is one
 //! password prompt.
+//!
+//! On Windows the tab offers that OS's own system clutter instead (see
+//! `windows.rs`): the Recycle Bin, old temp files, the thumbnail cache and
+//! crash reports are cleaned in-process as the user; Windows' own temp folder,
+//! the Windows Update download cache, the Delivery Optimization cache and
+//! system crash dumps go through the helper, again as fixed operations whose
+//! paths the helper decides, all in one UAC prompt. Each OS's ids are refused
+//! on the other.
+
+#[cfg(windows)]
+mod windows;
 
 use super::measure::{disk_usage, free_bytes};
 use super::{history, CleanOutcome, CleanerState, Finding, Risk, Scan};
@@ -10,6 +21,7 @@ use crate::db::Db;
 use crate::elevate::{self, Operation, OperationManifest};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::process::Command;
 use tauri::{AppHandle, State};
 
@@ -29,11 +41,42 @@ const PROMPT_NOTE: &str = "an admin password prompt will appear";
 pub const ID_APT: &str = "system:apt";
 pub const ID_JOURNAL: &str = "system:journal";
 
+pub const ID_RECYCLE_BIN: &str = "system:recycle-bin";
+pub const ID_USER_TEMP: &str = "system:temp";
+pub const ID_THUMBNAILS: &str = "system:thumbnails";
+pub const ID_CRASH_DUMPS: &str = "system:crash-dumps";
+pub const ID_WINDOWS_TEMP: &str = "system:windows-temp";
+pub const ID_WINDOWS_UPDATE: &str = "system:windows-update";
+pub const ID_DELIVERY_OPTIMIZATION: &str = "system:delivery-optimization";
+pub const ID_SYSTEM_CRASH_DUMPS: &str = "system:system-crash-dumps";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SystemItem {
     Apt,
     Journal,
     Snap { name: String, revision: String },
+    /// Windows: every drive's Recycle Bin.
+    RecycleBin,
+    /// Windows: the user's %TEMP%, entries untouched for a day.
+    UserTemp,
+    /// Windows: Explorer's thumbcache_*.db files.
+    Thumbnails,
+    /// Windows: the user's own crash dumps and error reports.
+    CrashDumps,
+    /// Windows, elevated: %SystemRoot%\Temp, entries untouched for a day.
+    WindowsTemp,
+    /// Windows, elevated: %SystemRoot%\SoftwareDistribution\Download.
+    WindowsUpdate,
+    /// Windows, elevated: the Delivery Optimization peer cache.
+    DeliveryOptimization,
+    /// Windows, elevated: MEMORY.DMP, minidumps and machine-wide reports.
+    SystemCrashDumps,
+}
+
+impl SystemItem {
+    fn is_windows(&self) -> bool {
+        !matches!(self, SystemItem::Apt | SystemItem::Journal | SystemItem::Snap { .. })
+    }
 }
 
 // The same rules the helper enforces; checking here too gives a clear message
@@ -53,12 +96,31 @@ pub fn snap_id(name: &str, revision: &str) -> String {
     format!("system:snap:{name}:{revision}")
 }
 
-/// Strict: only the three id shapes this scan produces.
+/// Strict: only the id shapes this OS's scan produces.
 pub fn parse_id(id: &str) -> Result<SystemItem, String> {
-    match id {
-        ID_APT => return Ok(SystemItem::Apt),
-        ID_JOURNAL => return Ok(SystemItem::Journal),
-        _ => {}
+    let item = parse_any_id(id)?;
+    if item.is_windows() != cfg!(windows) {
+        return Err(format!("{id:?} is not offered on this operating system"));
+    }
+    Ok(item)
+}
+
+fn parse_any_id(id: &str) -> Result<SystemItem, String> {
+    let fixed = match id {
+        ID_APT => Some(SystemItem::Apt),
+        ID_JOURNAL => Some(SystemItem::Journal),
+        ID_RECYCLE_BIN => Some(SystemItem::RecycleBin),
+        ID_USER_TEMP => Some(SystemItem::UserTemp),
+        ID_THUMBNAILS => Some(SystemItem::Thumbnails),
+        ID_CRASH_DUMPS => Some(SystemItem::CrashDumps),
+        ID_WINDOWS_TEMP => Some(SystemItem::WindowsTemp),
+        ID_WINDOWS_UPDATE => Some(SystemItem::WindowsUpdate),
+        ID_DELIVERY_OPTIMIZATION => Some(SystemItem::DeliveryOptimization),
+        ID_SYSTEM_CRASH_DUMPS => Some(SystemItem::SystemCrashDumps),
+        _ => None,
+    };
+    if let Some(item) = fixed {
+        return Ok(item);
     }
     let bad = || format!("{id:?} is not a system item id");
     let rest = id.strip_prefix("system:snap:").ok_or_else(bad)?;
@@ -69,19 +131,29 @@ pub fn parse_id(id: &str) -> Result<SystemItem, String> {
     Ok(SystemItem::Snap { name: name.to_string(), revision: revision.to_string() })
 }
 
-pub fn to_operation(item: &SystemItem) -> Operation {
-    match item {
+/// The helper operation that cleans `item`, or `None` for the items cleaned
+/// in-process as the user.
+pub fn to_operation(item: &SystemItem) -> Option<Operation> {
+    Some(match item {
         SystemItem::Apt => Operation::AptClean,
         SystemItem::Journal => Operation::VacuumJournal { max_bytes: JOURNAL_TARGET_BYTES },
         SystemItem::Snap { name, revision } => {
             Operation::RemoveSnapRevision { name: name.clone(), revision: revision.clone() }
         }
-    }
+        SystemItem::WindowsTemp => Operation::ClearWindowsTemp,
+        SystemItem::WindowsUpdate => Operation::ClearWindowsUpdateCache,
+        SystemItem::DeliveryOptimization => Operation::ClearDeliveryOptimizationCache,
+        SystemItem::SystemCrashDumps => Operation::RemoveSystemCrashDumps,
+        SystemItem::RecycleBin | SystemItem::UserTemp | SystemItem::Thumbnails | SystemItem::CrashDumps => {
+            return None
+        }
+    })
 }
 
 /// `journalctl --disk-usage`: "Archived and active journals take up 1.2G in the
 /// file system." (older versions: "Journals take up 96.0M on disk."). Units are
 /// powers of 1024.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn parse_journal_disk_usage(out: &str) -> Option<u64> {
     let rest = out.split("take up").nth(1)?.trim_start();
     let token = rest.split_whitespace().next()?;
@@ -102,6 +174,7 @@ pub fn parse_journal_disk_usage(out: &str) -> Option<u64> {
 
 /// Disabled revisions from `snap list --all`, as (name, revision). The Notes
 /// column is the last one and holds a comma-separated list.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn parse_snap_list(out: &str) -> Vec<(String, String)> {
     out.lines()
         .skip(1)
@@ -134,6 +207,7 @@ fn finding(id: String, label: String, reason: String, method: String, paths: Vec
     }
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 fn apt_finding(bytes: u64) -> Finding {
     finding(
         ID_APT.to_string(),
@@ -146,6 +220,7 @@ fn apt_finding(bytes: u64) -> Finding {
     )
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 fn journal_finding(bytes: u64) -> Finding {
     finding(
         ID_JOURNAL.to_string(),
@@ -158,6 +233,7 @@ fn journal_finding(bytes: u64) -> Finding {
     )
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 fn snap_finding(name: &str, revision: &str, bytes: u64) -> Finding {
     finding(
         snap_id(name, revision),
@@ -170,53 +246,85 @@ fn snap_finding(name: &str, revision: &str, bytes: u64) -> Finding {
     )
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 fn snap_file(name: &str, revision: &str) -> PathBuf {
     Path::new(SNAP_DIR).join(format!("{name}_{revision}.snap"))
 }
 
-fn tool_present(tool: &str) -> bool {
-    std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).any(|d| d.join(tool).is_file()))
-        .unwrap_or(false)
-}
+#[cfg(not(windows))]
+mod platform {
+    use super::*;
 
-fn stdout_of(program: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new(program).args(args).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
-fn journal_bytes() -> Option<u64> {
-    if !tool_present("journalctl") {
-        return None;
+    fn tool_present(tool: &str) -> bool {
+        std::env::var_os("PATH")
+            .map(|p| std::env::split_paths(&p).any(|d| d.join(tool).is_file()))
+            .unwrap_or(false)
     }
-    parse_journal_disk_usage(&stdout_of("journalctl", &["--disk-usage"])?)
-}
 
-fn scan_findings(scan: &Scan) -> Vec<Finding> {
-    let mut found = Vec::new();
-    if tool_present("apt-get") && Path::new(APT_DIR).is_dir() {
-        let bytes = disk_usage(Path::new(APT_DIR), scan).bytes;
-        if bytes > 0 {
-            found.push(apt_finding(bytes));
+    fn stdout_of(program: &str, args: &[&str]) -> Option<String> {
+        let out = Command::new(program).args(args).output().ok()?;
+        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    fn journal_bytes() -> Option<u64> {
+        if !tool_present("journalctl") {
+            return None;
+        }
+        parse_journal_disk_usage(&stdout_of("journalctl", &["--disk-usage"])?)
+    }
+
+    pub fn scan_findings(scan: &Scan) -> Vec<Finding> {
+        let mut found = Vec::new();
+        if tool_present("apt-get") && Path::new(APT_DIR).is_dir() {
+            let bytes = disk_usage(Path::new(APT_DIR), scan).bytes;
+            if bytes > 0 {
+                found.push(apt_finding(bytes));
+            }
+        }
+        if scan.is_cancelled() {
+            return found;
+        }
+        if let Some(bytes) = journal_bytes().filter(|b| *b > 0) {
+            found.push(journal_finding(bytes));
+        }
+        if scan.is_cancelled() || !tool_present("snap") {
+            return found;
+        }
+        if let Some(listing) = stdout_of("snap", &["list", "--all"]) {
+            for (name, revision) in parse_snap_list(&listing) {
+                let bytes = std::fs::metadata(snap_file(&name, &revision)).map(|m| m.len()).unwrap_or(0);
+                found.push(snap_finding(&name, &revision, bytes));
+            }
+        }
+        found
+    }
+
+    /// Size of what an item occupies now, used to split the freed space between
+    /// items that went through one elevated call.
+    pub fn item_bytes(item: &SystemItem) -> u64 {
+        match item {
+            SystemItem::Apt => disk_usage(Path::new(APT_DIR), &Scan::detached()).bytes,
+            SystemItem::Journal => journal_bytes().unwrap_or(0).saturating_sub(JOURNAL_TARGET_BYTES),
+            SystemItem::Snap { name, revision } => {
+                std::fs::metadata(snap_file(name, revision)).map(|m| m.len()).unwrap_or(0)
+            }
+            _ => 0,
         }
     }
-    if scan.is_cancelled() {
-        return found;
+
+    /// Every Linux item goes through the helper; `parse_id` refuses the rest.
+    pub fn clean_local(item: &SystemItem) -> Result<String, String> {
+        Err(format!("{} is not cleaned on this operating system", label_of(item)))
     }
-    if let Some(bytes) = journal_bytes().filter(|b| *b > 0) {
-        found.push(journal_finding(bytes));
+
+    /// Where freed space is read from.
+    pub fn free_probe() -> PathBuf {
+        PathBuf::from("/var")
     }
-    if scan.is_cancelled() || !tool_present("snap") {
-        return found;
-    }
-    if let Some(listing) = stdout_of("snap", &["list", "--all"]) {
-        for (name, revision) in parse_snap_list(&listing) {
-            let bytes = std::fs::metadata(snap_file(&name, &revision)).map(|m| m.len()).unwrap_or(0);
-            found.push(snap_finding(&name, &revision, bytes));
-        }
-    }
-    found
 }
+
+#[cfg(windows)]
+use windows as platform;
 
 #[tauri::command(async)]
 pub fn cleaner_scan_system(
@@ -226,19 +334,7 @@ pub fn cleaner_scan_system(
     scan_id: String,
 ) -> Result<Vec<Finding>, String> {
     let scan = Scan::start(&state, &app, &scan_id, TAB);
-    Ok(scan_findings(&scan))
-}
-
-/// Size of what an item occupies now, used to split the freed space between
-/// items that went through one elevated call.
-fn item_bytes(item: &SystemItem) -> u64 {
-    match item {
-        SystemItem::Apt => disk_usage(Path::new(APT_DIR), &Scan::detached()).bytes,
-        SystemItem::Journal => journal_bytes().unwrap_or(0).saturating_sub(JOURNAL_TARGET_BYTES),
-        SystemItem::Snap { name, revision } => {
-            std::fs::metadata(snap_file(name, revision)).map(|m| m.len()).unwrap_or(0)
-        }
-    }
+    Ok(platform::scan_findings(&scan))
 }
 
 /// Splits `total` across items in proportion to `weights`; all-zero weights
@@ -266,6 +362,14 @@ fn label_of(item: &SystemItem) -> String {
         SystemItem::Apt => "apt package cache".to_string(),
         SystemItem::Journal => "systemd journal".to_string(),
         SystemItem::Snap { name, revision } => format!("{name} (old revision {revision})"),
+        SystemItem::RecycleBin => "Recycle Bin".to_string(),
+        SystemItem::UserTemp => "Temporary files".to_string(),
+        SystemItem::Thumbnails => "Thumbnail cache".to_string(),
+        SystemItem::CrashDumps => "Crash dumps and error reports".to_string(),
+        SystemItem::WindowsTemp => "Windows temporary files".to_string(),
+        SystemItem::WindowsUpdate => "Windows Update downloads".to_string(),
+        SystemItem::DeliveryOptimization => "Delivery Optimization cache".to_string(),
+        SystemItem::SystemCrashDumps => "System crash dumps".to_string(),
     }
 }
 
@@ -287,30 +391,48 @@ pub fn cleaner_clean_system(
         .collect();
     let items: Vec<SystemItem> = requested.iter().filter_map(|(_, p)| p.as_ref().ok().cloned()).collect();
 
-    let mut ran: Vec<(bool, String)> = Vec::new();
+    let mut ran: Vec<(bool, String)> = vec![(false, String::new()); items.len()];
     let mut freed: Vec<u64> = vec![0; items.len()];
-    if !items.is_empty() {
-        let weights: Vec<u64> = items.iter().map(item_bytes).collect();
-        let before = free_bytes(Path::new("/var")).ok();
+    let (elevated, local): (Vec<usize>, Vec<usize>) = (0..items.len()).partition(|i| to_operation(&items[*i]).is_some());
+
+    // In-process items: each one's own shrinkage is what it freed.
+    for i in local {
+        let before = platform::item_bytes(&items[i]);
+        ran[i] = match platform::clean_local(&items[i]) {
+            Ok(message) => {
+                freed[i] = before.saturating_sub(platform::item_bytes(&items[i]));
+                (true, message)
+            }
+            Err(e) => (false, e),
+        };
+    }
+
+    if !elevated.is_empty() {
+        let weights: Vec<u64> = elevated.iter().map(|i| platform::item_bytes(&items[*i])).collect();
+        let probe = platform::free_probe();
+        let before = free_bytes(&probe).ok();
         let results = elevate::run(
             &app,
             OperationManifest {
                 allowed_write_prefix: String::new(),
-                operations: items.iter().map(to_operation).collect(),
+                operations: elevated.iter().filter_map(|i| to_operation(&items[*i])).collect(),
             },
         );
-        match results {
-            Ok(r) if r.len() == items.len() => ran = r.into_iter().map(|o| (o.success, o.message)).collect(),
-            Ok(_) => ran = items.iter().map(|_| (false, "helper returned an unexpected number of results".to_string())).collect(),
-            Err(e) => ran = items.iter().map(|_| (false, e.clone())).collect(),
-        }
-        if let (Some(before), Ok(after)) = (before, free_bytes(Path::new("/var"))) {
+        let outcomes: Vec<(bool, String)> = match results {
+            Ok(r) if r.len() == elevated.len() => r.into_iter().map(|o| (o.success, o.message)).collect(),
+            Ok(_) => elevated.iter().map(|_| (false, "helper returned an unexpected number of results".to_string())).collect(),
+            Err(e) => elevated.iter().map(|_| (false, e.clone())).collect(),
+        };
+        if let (Some(before), Ok(after)) = (before, free_bytes(&probe)) {
             // Shared among the items that succeeded only.
-            let ok_idx: Vec<usize> = (0..ran.len()).filter(|i| ran[*i].0).collect();
-            let ok_weights: Vec<u64> = ok_idx.iter().map(|i| weights[*i]).collect();
-            for (i, part) in ok_idx.into_iter().zip(split_freed(after.saturating_sub(before), &ok_weights)) {
-                freed[i] = part;
+            let ok_idx: Vec<usize> = (0..outcomes.len()).filter(|k| outcomes[*k].0).collect();
+            let ok_weights: Vec<u64> = ok_idx.iter().map(|k| weights[*k]).collect();
+            for (k, part) in ok_idx.into_iter().zip(split_freed(after.saturating_sub(before), &ok_weights)) {
+                freed[elevated[k]] = part;
             }
+        }
+        for (k, outcome) in outcomes.into_iter().enumerate() {
+            ran[elevated[k]] = outcome;
         }
     }
 
@@ -370,32 +492,60 @@ bad_name          1              7      latest/stable    x            disabled\n
 
     #[test]
     fn ids_are_validated_strictly() {
-        assert_eq!(parse_id("system:apt"), Ok(SystemItem::Apt));
-        assert_eq!(parse_id("system:journal"), Ok(SystemItem::Journal));
+        assert_eq!(parse_any_id("system:apt"), Ok(SystemItem::Apt));
+        assert_eq!(parse_any_id("system:journal"), Ok(SystemItem::Journal));
         assert_eq!(
-            parse_id("system:snap:core20:2182"),
+            parse_any_id("system:snap:core20:2182"),
             Ok(SystemItem::Snap { name: "core20".into(), revision: "2182".into() })
         );
+        assert_eq!(parse_any_id("system:recycle-bin"), Ok(SystemItem::RecycleBin));
+        assert_eq!(parse_any_id("system:windows-update"), Ok(SystemItem::WindowsUpdate));
         for bad in [
             "", "system", "system:", "system:apt ", "system:Apt", "system:snap:", "system:snap:core20",
             "system:snap:core20:", "system:snap::12", "system:snap:Core:12", "system:snap:core20:12x",
             "system:snap:core20:-1", "system:snap:core20:12:3", "system:snap:-x:12", "system:snap:a b:12",
-            "system:snap:../x:12", "system:snap:core20:0", "caches:foo", "/etc/passwd",
+            "system:snap:../x:12", "system:snap:core20:0", "caches:foo", "/etc/passwd", "system:Recycle-Bin",
+            "system:windows-temp ", "C:\\Windows\\Temp",
         ] {
+            assert!(parse_any_id(bad).is_err(), "{bad:?}");
             assert!(parse_id(bad).is_err(), "{bad:?}");
         }
     }
 
     #[test]
+    fn each_os_refuses_the_other_oss_ids() {
+        let linux = ["system:apt", "system:journal", "system:snap:core20:2182"];
+        let windows = [
+            ID_RECYCLE_BIN, ID_USER_TEMP, ID_THUMBNAILS, ID_CRASH_DUMPS, ID_WINDOWS_TEMP, ID_WINDOWS_UPDATE,
+            ID_DELIVERY_OPTIMIZATION, ID_SYSTEM_CRASH_DUMPS,
+        ];
+        for id in linux {
+            assert_eq!(parse_id(id).is_ok(), cfg!(not(windows)), "{id}");
+        }
+        for id in windows {
+            assert_eq!(parse_id(id).is_ok(), cfg!(windows), "{id}");
+        }
+    }
+
+    #[test]
     fn ids_map_to_fixed_operations() {
-        assert!(matches!(to_operation(&SystemItem::Apt), Operation::AptClean));
+        assert!(matches!(to_operation(&SystemItem::Apt), Some(Operation::AptClean)));
         assert!(matches!(
             to_operation(&SystemItem::Journal),
-            Operation::VacuumJournal { max_bytes } if max_bytes == 200 * MIB
+            Some(Operation::VacuumJournal { max_bytes }) if max_bytes == 200 * MIB
         ));
-        let op = to_operation(&parse_id("system:snap:core20:2182").unwrap());
-        assert!(matches!(&op, Operation::RemoveSnapRevision { name, revision } if name == "core20" && revision == "2182"));
+        let op = to_operation(&parse_any_id("system:snap:core20:2182").unwrap());
+        assert!(matches!(&op, Some(Operation::RemoveSnapRevision { name, revision }) if name == "core20" && revision == "2182"));
         assert_eq!(snap_id("core20", "2182"), "system:snap:core20:2182");
+
+        assert!(matches!(to_operation(&SystemItem::WindowsTemp), Some(Operation::ClearWindowsTemp)));
+        assert!(matches!(to_operation(&SystemItem::WindowsUpdate), Some(Operation::ClearWindowsUpdateCache)));
+        assert!(matches!(to_operation(&SystemItem::DeliveryOptimization), Some(Operation::ClearDeliveryOptimizationCache)));
+        assert!(matches!(to_operation(&SystemItem::SystemCrashDumps), Some(Operation::RemoveSystemCrashDumps)));
+        // What the user owns is cleaned as the user, with no prompt.
+        for item in [SystemItem::RecycleBin, SystemItem::UserTemp, SystemItem::Thumbnails, SystemItem::CrashDumps] {
+            assert!(to_operation(&item).is_none(), "{item:?}");
+        }
     }
 
     #[test]

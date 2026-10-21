@@ -10,6 +10,10 @@
 //! - `caches`, `system_items`, `docker`, `large_files`, `projects` — the tabs.
 //!
 //! Elevated cleanup, where a tab needs it, goes through the helper.
+//!
+//! The tabs run on Linux and Windows. What differs — the protected folders,
+//! the System items, the folders other tabs own — is chosen with `cfg` inside
+//! each tab, next to the Linux version it mirrors.
 
 pub mod caches;
 pub mod docker;
@@ -24,6 +28,8 @@ pub mod system_items;
 
 use crate::db::Db;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::process::Command;
 use tauri::State;
 
 pub use measure::{CleanerState, Scan};
@@ -87,13 +93,34 @@ pub struct CleanerSettings {
 impl Default for CleanerSettings {
     fn default() -> Self {
         CleanerSettings {
-            scan_roots: std::env::var("HOME").ok().filter(|h| !h.is_empty()).into_iter().collect(),
+            scan_roots: home_dir().map(|h| h.to_string_lossy().into_owned()).into_iter().collect(),
             project_roots: Vec::new(),
             exclusions: Vec::new(),
             large_file_min_bytes: 500 * 1024 * 1024,
             project_idle_days: 30,
         }
     }
+}
+
+/// The user's home: `$HOME` on Unix, `%USERPROFILE%` on Windows (where HOME
+/// is normally unset). `None` when unset or not absolute.
+pub fn home_dir() -> Option<PathBuf> {
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(var).map(PathBuf::from).filter(|h| h.is_absolute())
+}
+
+/// `Command::new(program)` that opens no console window on Windows, where a
+/// GUI app spawning `git` or `docker` would otherwise flash one per call.
+pub fn quiet_command(program: &str) -> Command {
+    #[allow(unused_mut)]
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

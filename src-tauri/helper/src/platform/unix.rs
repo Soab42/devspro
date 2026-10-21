@@ -175,3 +175,29 @@ pub fn fix_laravel_permissions(project_path: &str) -> OpResult {
         message: messages.join("; "),
     }
 }
+
+/// The four Windows-only cleanups of the Cleaner's System tab. The app never
+/// sends them from Unix; a manifest that does gets a plain refusal rather than
+/// a success for work that wasn't done.
+fn windows_only(what: &str) -> OpResult {
+    OpResult {
+        success: false,
+        message: format!("{what} exists only on Windows"),
+    }
+}
+
+pub fn clear_windows_temp() -> OpResult {
+    windows_only("the Windows temp folder")
+}
+
+pub fn clear_windows_update_cache() -> OpResult {
+    windows_only("the Windows Update download cache")
+}
+
+pub fn clear_delivery_optimization_cache() -> OpResult {
+    windows_only("the Delivery Optimization cache")
+}
+
+pub fn remove_system_crash_dumps() -> OpResult {
+    windows_only("the Windows crash dump store")
+}
