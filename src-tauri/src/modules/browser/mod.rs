@@ -246,7 +246,10 @@ pub(crate) fn origin_of(url: &str) -> Option<String> {
     })
 }
 
-/// Runs `f` on the GTK main thread and waits for its answer.
+/// Runs `f` on the GTK main thread and waits for its answer. Called from the
+/// main thread already (any sync command), `f` runs inline — so on Windows
+/// nothing that pumps a nested message loop, like building a WebView2, may be
+/// reached through a sync command. See `browser_open`.
 fn on_main<T, F>(app: &AppHandle, f: F) -> Result<T, String>
 where
     T: Send + 'static,
@@ -360,7 +363,19 @@ fn unique_download_path(dir: &std::path::Path, suggested: &str) -> PathBuf {
         .expect("an unused download name exists")
 }
 
-#[tauri::command]
+// On Windows this must be an async command. Tauri runs a plain (sync) command
+// on the main thread, inside the app webview's WebView2 resource-request
+// callback that carries the IPC call; `run_on_main_thread` then runs `on_main`'s
+// closure inline, right there. wry builds the tab's WebView2 by pumping a nested
+// message loop until the environment and controller callbacks arrive, and
+// WebView2 does not deliver those while one of its own callbacks is still on
+// the stack. The pump waits forever, and the creation is aborted (E_ABORT) as
+// soon as anything tears it down. As an async command the body runs on a
+// worker, so `on_main` posts to the event loop and the view is built outside
+// any WebView2 callback, the same way Tauri builds its own webviews.
+// Linux keeps the sync command: WebKitGTK has no such restriction.
+#[cfg_attr(target_os = "windows", tauri::command(async))]
+#[cfg_attr(not(target_os = "windows"), tauri::command)]
 pub fn browser_open(
     app: AppHandle,
     window: tauri::Window,
