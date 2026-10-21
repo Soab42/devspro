@@ -129,7 +129,7 @@ export default function AiPage() {
       id: `ai-${crypto.randomUUID()}`,
       agentId: agent.id,
       title: `Install ${agent.name}`,
-      command: installCommand(agent.install),
+      command: installCommand(agent.install_shell, agent.install),
       kind: "install",
       exited: false,
     });
