@@ -2,11 +2,11 @@
 //! pane is doing, MobaXterm-style. One POSIX script reads `/proc`, `df` and
 //! `who`; it runs through `sh` for a local pane and through an exec channel
 //! on the SFTP session's SSH connection for a remote one, so the two produce
-//! the same shape. Counters (CPU ticks, network bytes) come back raw and the
+//! the same shape (a local pane on Windows is read through the dashboard's
+//! system sources instead; see `sample_local`). Counters (CPU ticks, network bytes) come back raw and the
 //! frontend turns consecutive samples into percentages and rates.
 
 use serde::Serialize;
-use std::process::Command;
 use tauri::State;
 
 use super::SshState;
@@ -30,9 +30,11 @@ pub struct HostSample {
     pub mem_available_kb: u64,
     pub swap_total_kb: u64,
     pub swap_free_kb: u64,
-    pub load1: f32,
+    /// `None` only for this machine on Windows, which keeps no load average.
+    pub load1: Option<f32>,
     pub uptime_seconds: u64,
-    pub users: u32,
+    /// `None` only for this machine on Windows (no `who`).
+    pub users: Option<u32>,
     pub rx_bytes: u64,
     pub tx_bytes: u64,
     pub disks: Vec<DiskUsage>,
@@ -54,7 +56,7 @@ echo @@df; df -P -k -x tmpfs -x devtmpfs -x squashfs -x overlay -x efivarfs 2>/d
 /// Turns the script's output into a sample. Tolerant by design: a section
 /// that is missing or malformed leaves its fields at zero.
 pub fn parse_sample(output: &str) -> HostSample {
-    let mut sample = HostSample::default();
+    let mut sample = HostSample { load1: Some(0.0), users: Some(0), ..HostSample::default() };
     let mut section = "";
     let mut mem_free = 0u64;
     let mut have_available = false;
@@ -96,9 +98,9 @@ pub fn parse_sample(output: &str) -> HostSample {
                     _ => {}
                 }
             }
-            "load" => sample.load1 = words[0].parse().unwrap_or(0.0),
+            "load" => sample.load1 = Some(words[0].parse().unwrap_or(0.0)),
             "uptime" => sample.uptime_seconds = words[0].parse::<f64>().unwrap_or(0.0) as u64,
-            "users" => sample.users = words[0].parse().unwrap_or(0),
+            "users" => sample.users = Some(words[0].parse().unwrap_or(0)),
             "net" => {
                 // "eth0: rx_bytes rx_packets ... (8 fields) tx_bytes ..." — the
                 // interface name may or may not be glued to the first number.
@@ -139,8 +141,9 @@ pub fn parse_sample(output: &str) -> HostSample {
     sample
 }
 
+#[cfg(not(windows))]
 fn run_local() -> Result<String, String> {
-    let out = Command::new("sh")
+    let out = std::process::Command::new("sh")
         .arg("-c")
         .arg(STATS_SCRIPT)
         .output()
@@ -148,14 +151,59 @@ fn run_local() -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+#[cfg(not(windows))]
+fn sample_local() -> Result<HostSample, String> {
+    Ok(parse_sample(&run_local()?))
+}
+
+/// This machine on Windows, where there is no `sh` or `/proc` to run the
+/// script against. The same counters come from the dashboard's Windows
+/// sources instead, in the same units, so the frontend's rate math is
+/// unchanged. Load average and logged-in users have no Windows equivalent
+/// and are left `None` rather than shown as zero.
+#[cfg(windows)]
+fn sample_local() -> Result<HostSample, String> {
+    use crate::modules::system::platform;
+    let cpu = platform::cpu_sample();
+    let (cpu_idle, cpu_total) = cpu.ticks.first().map(|t| (t.idle, t.total)).unwrap_or((0, 0));
+    let mem = platform::memory();
+    let (rx_bytes, tx_bytes) = platform::net_bytes()
+        .values()
+        .fold((0u64, 0u64), |(rx, tx), (r, t)| (rx.saturating_add(*r), tx.saturating_add(*t)));
+    let disks = platform::disks()
+        .into_iter()
+        .filter(|d| d.total_bytes > 0)
+        .map(|d| DiskUsage {
+            percent: (d.used_bytes as f64 / d.total_bytes as f64 * 100.0) as f32,
+            mount: d.mount_point,
+            total_kb: d.total_bytes / 1024,
+            used_kb: d.used_bytes / 1024,
+        })
+        .collect();
+    Ok(HostSample {
+        hostname: std::env::var("COMPUTERNAME").unwrap_or_default(),
+        cpu_idle,
+        cpu_total,
+        mem_total_kb: mem.total_kb,
+        mem_available_kb: mem.available_kb,
+        swap_total_kb: mem.swap_total_kb,
+        swap_free_kb: mem.swap_total_kb.saturating_sub(mem.swap_used_kb),
+        load1: None,
+        uptime_seconds: platform::uptime_seconds(),
+        users: None,
+        rx_bytes,
+        tx_bytes,
+        disks,
+    })
+}
+
 /// A sample of the local machine, or of the host behind an SFTP session.
 #[tauri::command(async)]
 pub fn term_host_stats(state: State<SshState>, session: Option<String>) -> Result<HostSample, String> {
-    let output = match session {
-        None => run_local()?,
-        Some(id) => super::sftp::exec_on_session(&state, &id, STATS_SCRIPT)?,
-    };
-    Ok(parse_sample(&output))
+    match session {
+        None => sample_local(),
+        Some(id) => Ok(parse_sample(&super::sftp::exec_on_session(&state, &id, STATS_SCRIPT)?)),
+    }
 }
 
 #[cfg(test)]
@@ -170,9 +218,9 @@ mod tests {
         assert_eq!(s.hostname, "vmi2875812");
         assert_eq!((s.cpu_total, s.cpu_idle), (9620, 8100));
         assert_eq!((s.mem_total_kb, s.mem_available_kb, s.swap_total_kb, s.swap_free_kb), (12247040, 5600000, 2097148, 2000000));
-        assert_eq!(s.load1, 0.45);
+        assert_eq!(s.load1, Some(0.45));
         assert_eq!(s.uptime_seconds, 8553600);
-        assert_eq!(s.users, 3);
+        assert_eq!(s.users, Some(3));
         assert_eq!((s.rx_bytes, s.tx_bytes), (1000, 2000));
         assert_eq!(s.disks.len(), 3);
         assert_eq!(s.disks[0], DiskUsage { mount: "/".into(), total_kb: 100000, used_kb: 59000, percent: 59.0 });
@@ -186,12 +234,12 @@ mod tests {
         assert_eq!(s.mem_available_kb, 40);
         assert_eq!(s.cpu_total, 0);
         assert!(s.disks.is_empty());
-        assert_eq!(parse_sample(""), HostSample::default());
+        assert_eq!(parse_sample(""), HostSample { load1: Some(0.0), users: Some(0), ..HostSample::default() });
     }
 
     #[test]
-    fn local_script_runs_here() {
-        let s = parse_sample(&run_local().unwrap());
+    fn this_machine_samples_here() {
+        let s = sample_local().unwrap();
         assert!(!s.hostname.is_empty());
         assert!(s.cpu_total > 0);
         assert!(s.mem_total_kb > 0);

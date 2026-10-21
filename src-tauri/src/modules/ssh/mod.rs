@@ -35,13 +35,89 @@ pub struct SshState {
     pub sftp: sftp::SftpMap,
 }
 
-/// `$HOME`, as a path. Linux only for now, so the environment variable is
-/// authoritative — it's what `ssh` itself uses to find `~/.ssh`.
+/// `$HOME`, as a path. On Unix the environment variable is authoritative —
+/// it's what `ssh` itself uses to find `~/.ssh`.
+#[cfg(not(windows))]
 pub fn home_dir() -> Result<PathBuf, String> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| "HOME is not set; cannot locate ~/.ssh".to_string())
+}
+
+/// `%USERPROFILE%`, which is where Windows OpenSSH looks for `.ssh`. `HOME`
+/// is deliberately ignored even when set (Git Bash sets it, sometimes to a
+/// different drive): `ssh.exe` never reads it, so a key found through it
+/// would not be the one ssh uses.
+#[cfg(windows)]
+pub fn home_dir() -> Result<PathBuf, String> {
+    std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| "USERPROFILE is not set; cannot locate ~/.ssh".to_string())
+}
+
+/// What to hand `Command::new` (or a PTY's `CommandBuilder`) to run one of
+/// OpenSSH's programs, `ssh` or `ssh-keygen`. On Unix the bare name, exactly
+/// as before. On Windows the copy on PATH, else the one the "OpenSSH Client"
+/// optional feature puts in `System32\OpenSSH` — which is on PATH in a stock
+/// install, but not always in the environment a desktop app inherits. Looked
+/// up once per program: the key list runs `ssh-keygen` for every key.
+pub fn openssh_program(tool: &str) -> String {
+    #[cfg(windows)]
+    {
+        use std::collections::HashMap;
+        use std::sync::{Mutex, OnceLock};
+        static FOUND: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+        let cache = FOUND.get_or_init(Default::default);
+        if let Some(hit) = cache.lock().ok().and_then(|c| c.get(tool).cloned()) {
+            return hit;
+        }
+        let found = crate::modules::tools::program(tool).or_else(|| {
+            let root = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+            let bundled = root.join("System32").join("OpenSSH").join(format!("{tool}.exe"));
+            bundled.is_file().then(|| bundled.to_string_lossy().into_owned())
+        });
+        match found {
+            Some(path) => {
+                if let Ok(mut c) = cache.lock() {
+                    c.insert(tool.to_string(), path.clone());
+                }
+                path
+            }
+            // Not cached, so installing OpenSSH takes effect without a restart.
+            None => tool.to_string(),
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        tool.to_string()
+    }
+}
+
+/// A `Command` for one of OpenSSH's programs (see `openssh_program`). On
+/// Windows it is started without a console window, which a GUI app's child
+/// would otherwise flash up for every key listed.
+pub fn openssh_command(tool: &str) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(openssh_program(tool));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+/// Appended to a "failed to run ssh-keygen" error: on Windows the usual cause
+/// is the OpenSSH Client optional feature being absent.
+pub fn openssh_missing_hint() -> &'static str {
+    if cfg!(windows) {
+        " — install the \"OpenSSH Client\" optional feature (Settings › System › Optional features)"
+    } else {
+        ""
+    }
 }
 
 pub fn ssh_dir() -> Result<PathBuf, String> {

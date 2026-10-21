@@ -65,7 +65,8 @@ gtk = "0.18"
 webkit2gtk = "2.0"
 
 # getuid(), to tell whether a private key is the user's own — the only kind
-# OpenSSH checks the mode of (see modules/ssh/key_perms.rs).
+# OpenSSH checks the mode of (see modules/ssh/key_perms.rs). Windows checks the
+# key's ACL instead, through windows-sys below.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
@@ -92,6 +93,10 @@ windows-sys = { version = "0.59", features = [
     # Maps a listening port's owning pid to a process name, without needing the
     # OpenProcess rights that reading another user's process would.
     "Win32_System_Diagnostics_ToolHelp",
+    # Reading and tightening a private key's ACL, which is what Windows OpenSSH
+    # checks instead of mode bits (src/modules/ssh/key_perms.rs).
+    "Win32_Security",
+    "Win32_Security_Authorization",
 ] }
 
 [workspace]

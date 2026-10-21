@@ -8,7 +8,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tauri::State;
 
 use super::session::{connect, Credentials};
@@ -107,7 +106,7 @@ pub fn install_script(public_key: &str) -> String {
 }
 
 fn ssh_keygen_fingerprint(pub_path: &Path) -> Option<Fingerprint> {
-    let output = Command::new("ssh-keygen").arg("-lf").arg(pub_path).output().ok()?;
+    let output = super::openssh_command("ssh-keygen").arg("-lf").arg(pub_path).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -229,10 +228,10 @@ pub fn ssh_keys_generate(args: GenerateKeyArgs) -> Result<SshKey, String> {
         return Err(format!("a key named \"{name}\" already exists in ~/.ssh"));
     }
     let argv = keygen_args(&args, &private_path)?;
-    let output = Command::new("ssh-keygen")
+    let output = super::openssh_command("ssh-keygen")
         .args(&argv)
         .output()
-        .map_err(|e| format!("failed to run ssh-keygen: {e}"))?;
+        .map_err(|e| format!("failed to run ssh-keygen: {e}{}", super::openssh_missing_hint()))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("ssh-keygen failed: {}", stderr.trim()));
@@ -304,6 +303,16 @@ fn write_private(path: &Path, contents: &str) -> Result<(), String> {
     let mut file = options
         .open(path)
         .map_err(|e| format!("failed to create {}: {e}", path.display()))?;
+    // Windows has no creation mode. The new file inherits its folder's ACL —
+    // under the user's profile already you, SYSTEM and Administrators — and is
+    // then cut down to you alone, as ssh-keygen does for a key it generates,
+    // before anything (including the `ssh-keygen -y` below) reads it.
+    #[cfg(windows)]
+    if let Err(e) = super::key_perms::restrict(path) {
+        drop(file);
+        let _ = std::fs::remove_file(path);
+        return Err(e);
+    }
     file.write_all(contents.as_bytes())
         .map_err(|e| format!("failed to write {}: {e}", path.display()))
 }
@@ -311,7 +320,7 @@ fn write_private(path: &Path, contents: &str) -> Result<(), String> {
 /// What the private key says its public half is, via `ssh-keygen -y`. Errs
 /// with ssh-keygen's own words, which name a wrong or missing passphrase.
 fn derive_public(private_path: &Path, passphrase: &str) -> Result<String, String> {
-    let output = Command::new("ssh-keygen")
+    let output = super::openssh_command("ssh-keygen")
         .arg("-y")
         .arg("-P")
         .arg(passphrase)
@@ -319,7 +328,7 @@ fn derive_public(private_path: &Path, passphrase: &str) -> Result<String, String
         .arg(private_path)
         .stdin(std::process::Stdio::null())
         .output()
-        .map_err(|e| format!("failed to run ssh-keygen: {e}"))?;
+        .map_err(|e| format!("failed to run ssh-keygen: {e}{}", super::openssh_missing_hint()))?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     } else {
@@ -561,7 +570,7 @@ mod tests {
     /// Runs real `ssh-keygen` against a temp dir; skipped where it's missing.
     fn keygen_pair(dir: &Path, name: &str, passphrase: &str) -> Option<(String, String)> {
         let path = dir.join(name);
-        let ok = Command::new("ssh-keygen")
+        let ok = crate::modules::ssh::openssh_command("ssh-keygen")
             .args(["-q", "-t", "ed25519", "-N", passphrase, "-C", "me@box", "-f"])
             .arg(&path)
             .status()

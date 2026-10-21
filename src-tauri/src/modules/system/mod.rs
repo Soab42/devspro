@@ -10,7 +10,9 @@
 //! whatever the frontend's last poll handed us — the polling interval itself
 //! becomes the sample window.
 
-mod platform;
+// Crate-visible so the terminal's status strip (ssh/stats.rs) can sample this
+// machine on Windows, where there is no `/proc` script to run.
+pub(crate) mod platform;
 
 use serde::Serialize;
 use std::collections::HashMap;
@@ -109,9 +111,9 @@ pub struct OsIdentity {
 }
 
 #[derive(Clone, Copy, Default)]
-struct CpuTicks {
-    idle: u64,
-    total: u64,
+pub(crate) struct CpuTicks {
+    pub(crate) idle: u64,
+    pub(crate) total: u64,
 }
 
 #[derive(Default)]
