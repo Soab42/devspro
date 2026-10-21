@@ -179,13 +179,14 @@ fn step_site(ctx: &mut Ctx) -> Result<String, String> {
 /// module, so the folder is at least reachable by name once a site exists.
 fn step_hosts(ctx: &mut Ctx) -> Result<String, String> {
     let domain = ctx.plan.domain.trim().to_lowercase();
-    let contents = std::fs::read_to_string(hosts_file::HOSTS_PATH)
-        .map_err(|e| format!("could not read {}: {e}", hosts_file::HOSTS_PATH))?;
+    let path = hosts_file::hosts_path();
+    let contents = std::fs::read_to_string(&path)
+        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
     if hosts_file::parse(&contents).loopback_hostnames().contains(&domain) {
         return Ok(format!("{domain} resolves to 127.0.0.1"));
     }
     hosts_file::hosts_file_add(ctx.app.clone(), "127.0.0.1".to_string(), domain.clone())?;
-    Ok(format!("added {domain} to {}", hosts_file::HOSTS_PATH))
+    Ok(format!("added {domain} to {}", path.display()))
 }
 
 fn step_database(ctx: &mut Ctx) -> Result<String, String> {

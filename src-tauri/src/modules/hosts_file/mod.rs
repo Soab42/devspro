@@ -1,4 +1,5 @@
-//! Hosts file — a structured editor for /etc/hosts.
+//! Hosts file — a structured editor for /etc/hosts (on Windows,
+//! `%SystemRoot%\System32\drivers\etc\hosts`).
 //!
 //! The file is parsed line by line into `Line`s that each keep their original
 //! text, so writing back a file nothing was changed in is byte-identical: comments,
@@ -7,7 +8,11 @@
 //!
 //! All mutation is pure (`HostsFile::add/remove/update`) and unit-tested; the
 //! commands wrap it in read → mutate → hand the full new contents to the
-//! elevated helper. The core never writes /etc/hosts itself.
+//! elevated helper. The core never writes the hosts file itself.
+//!
+//! Windows hosts files use CRLF. Every line keeps its own `\r` in `raw`, and the
+//! lines this module adds or rewrites get one too when the file uses CRLF, so an
+//! edit never leaves a file with mixed line endings.
 //!
 //! Two kinds of entry count as "managed" (created by this app, safe to edit
 //! freely): lines tagged with the `# devspro` marker comment, which this module
@@ -19,9 +24,22 @@ use crate::db::Db;
 use crate::elevate::{self, Operation, OperationManifest};
 use serde::Serialize;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use tauri::{AppHandle, State};
 
-pub const HOSTS_PATH: &str = "/etc/hosts";
+/// Where the system hosts file lives on this OS.
+#[cfg(unix)]
+pub fn hosts_path() -> PathBuf {
+    PathBuf::from("/etc/hosts")
+}
+
+/// Where the system hosts file lives on this OS. `%SystemRoot%` is normally
+/// `C:\Windows`, which is also the fallback if it is somehow unset.
+#[cfg(windows)]
+pub fn hosts_path() -> PathBuf {
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+    PathBuf::from(root).join(r"System32\drivers\etc\hosts")
+}
 
 /// Trailing comment that tags an entry as written by this module.
 pub const MARKER: &str = "devspro";
@@ -50,6 +68,9 @@ pub struct HostsFile {
     /// Whether the original ended with `\n`. Preserved so a round-trip of a file
     /// without one stays identical.
     pub trailing_newline: bool,
+    /// Lines end in `\r\n` (the Windows convention). New and rewritten lines
+    /// follow suit.
+    pub crlf: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +87,8 @@ pub struct EntryView {
 pub struct HostsView {
     pub entries: Vec<EntryView>,
     pub raw: String,
+    /// The hosts file's location on this OS, for display.
+    pub path: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +112,7 @@ fn parse_entry(line: &str) -> Option<Entry> {
 
 pub fn parse(contents: &str) -> HostsFile {
     let trailing_newline = contents.ends_with('\n');
+    let crlf = contents.contains("\r\n");
     let body = contents.strip_suffix('\n').unwrap_or(contents);
     let mut in_sync_block = false;
     let lines = if contents.is_empty() {
@@ -112,7 +136,7 @@ pub fn parse(contents: &str) -> HostsFile {
             })
             .collect()
     };
-    HostsFile { lines, trailing_newline }
+    HostsFile { lines, trailing_newline, crlf }
 }
 
 pub fn render(file: &HostsFile) -> String {
@@ -164,7 +188,11 @@ impl HostsFile {
                 })
             })
             .collect();
-        HostsView { entries, raw: render(self) }
+        HostsView {
+            entries,
+            raw: render(self),
+            path: hosts_path().display().to_string(),
+        }
     }
 
     /// Hostnames that resolve to an IPv4 loopback address through this file,
@@ -205,8 +233,19 @@ impl HostsFile {
             hostnames: vec![hostname.to_string()],
             comment: Some(MARKER.to_string()),
         };
+        // A CRLF file that lacked a final newline: its last line gets the `\r` it
+        // would have had, since a newline now follows it.
+        if self.crlf && !self.trailing_newline {
+            if let Some(last) = self.lines.last_mut() {
+                last.raw.push('\r');
+            }
+        }
+        let mut raw = render_entry(&entry);
+        if self.crlf {
+            raw.push('\r');
+        }
         self.lines.push(Line {
-            raw: render_entry(&entry),
+            raw,
             entry: Some(entry),
             in_sync_block: false,
         });
@@ -246,7 +285,11 @@ impl HostsFile {
             hostnames: hostnames.to_vec(),
             comment,
         };
+        let had_cr = line.raw.ends_with('\r');
         line.raw = render_entry(&entry);
+        if had_cr {
+            line.raw.push('\r');
+        }
         line.entry = Some(entry);
         Ok(())
     }
@@ -299,8 +342,9 @@ pub fn validate_hostname(hostname: &str) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 fn read_file() -> Result<HostsFile, String> {
-    let raw = std::fs::read_to_string(HOSTS_PATH)
-        .map_err(|e| format!("could not read {HOSTS_PATH}: {e}"))?;
+    let path = hosts_path();
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
     Ok(parse(&raw))
 }
 
@@ -357,7 +401,7 @@ pub fn hosts_file_update(
     mutate(&app, |f| f.update(line_no, ip.trim(), &hostnames))
 }
 
-/// Enabled nginx site domains with no loopback entry in /etc/hosts. Disabled
+/// Enabled nginx site domains with no loopback entry in the hosts file. Disabled
 /// sites are skipped: nginx does not serve them, so an entry would only point
 /// the browser at a connection refused.
 #[tauri::command(async)]
@@ -393,6 +437,31 @@ mod tests {
         assert_eq!(render(&parse("")), "");
         let crlf = "127.0.0.1 localhost\r\n\r\n# c\r\n";
         assert_eq!(render(&parse(crlf)), crlf);
+    }
+
+    /// The stock Windows hosts file: CRLF, and localhost only in comments.
+    const WINDOWS_SAMPLE: &str = "# Copyright (c) 1993-2009 Microsoft Corp.\r\n#\r\n# localhost name resolution is handled within DNS itself.\r\n#\t127.0.0.1       localhost\r\n#\t::1             localhost\r\n";
+
+    #[test]
+    fn crlf_files_stay_crlf_when_edited() {
+        let mut f = parse(WINDOWS_SAMPLE);
+        assert!(f.crlf);
+        assert!(f.view().entries.is_empty());
+        f.add("127.0.0.1", "app.test").unwrap();
+        assert_eq!(
+            render(&f),
+            format!("{WINDOWS_SAMPLE}127.0.0.1\tapp.test # devspro\r\n")
+        );
+        f.update(6, "127.0.0.1", &["app.test".into(), "www.app.test".into()]).unwrap();
+        assert_eq!(f.lines[5].raw, "127.0.0.1\tapp.test www.app.test # devspro\r");
+        assert_eq!(f.view().entries[0].comment.as_deref(), Some("devspro"));
+        f.remove(6).unwrap();
+        assert_eq!(render(&f), WINDOWS_SAMPLE);
+
+        // No final newline: the old last line gets its CRLF when one is appended.
+        let mut f = parse("# a\r\n10.0.0.1 box");
+        f.add("10.0.0.2", "nas").unwrap();
+        assert_eq!(render(&f), "# a\r\n10.0.0.1 box\r\n10.0.0.2\tnas # devspro\r\n");
     }
 
     #[test]
