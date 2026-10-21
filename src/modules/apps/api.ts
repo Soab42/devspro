@@ -5,7 +5,10 @@ export interface AppStatus {
   name: string;
   category: string;
   description: string;
-  method: "apt" | "npm" | "git";
+  /** Display label for how this app installs. Not a closed set: the elevated mechanism is
+   *  named after whichever package manager this OS uses (`apt`, `dnf`, `pacman`, `winget`),
+   *  alongside `npm`, `git` and `binary`. */
+  method: string;
   homepage: string | null;
   installed: boolean;
   can_auto_install: boolean;

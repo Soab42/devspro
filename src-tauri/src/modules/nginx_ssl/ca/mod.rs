@@ -175,6 +175,14 @@ pub fn nginx_ssl_ca_ensure(app: tauri::AppHandle) -> Result<CaStatus, String> {
 /// Firefox instead keeps a separate `cert9.db` per profile, so it needs its own
 /// entry even after Chrome's import succeeds.
 fn nss_db_paths_for_current_user() -> Vec<String> {
+    // Windows has none of this. Chrome and Edge read the OS trust store there, which the
+    // helper writes with `certutil -addstore`, and the only `certutil` on PATH is
+    // Microsoft's unrelated tool of that name — so there is nothing here to import into.
+    // Returned empty explicitly rather than left to `$HOME` being unset, which would
+    // otherwise produce a `~/.pki/nssdb` path on any machine that happens to define it.
+    if cfg!(windows) {
+        return Vec::new();
+    }
     let Ok(home) = std::env::var("HOME") else {
         return Vec::new();
     };
@@ -207,12 +215,11 @@ fn nss_db_paths_for_current_user() -> Vec<String> {
     paths
 }
 
+/// NSS's `certutil`, which writes the trust store Firefox and Chrome-on-Linux read. Only
+/// ever consulted when there are NSS databases to import into, which is never the case on
+/// Windows — where the `certutil` on PATH is Microsoft's unrelated tool of the same name.
 fn certutil_available() -> bool {
-    std::process::Command::new("which")
-        .arg("certutil")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    crate::modules::tools::is_available("certutil")
 }
 
 /// Debian/Ubuntu, Fedora, and Arch each name the NSS command-line tools package
@@ -239,7 +246,7 @@ pub fn nginx_ssl_ca_install(app: tauri::AppHandle) -> Result<String, String> {
     // often not installed by default, silently skipping that half of "install the
     // CA" otherwise.
     if !nss_db_paths.is_empty() && !certutil_available() {
-        if let Some(manager) = crate::modules::nginx_ssl::nginx::linux_package_manager() {
+        if let Some(manager) = crate::modules::nginx_ssl::nginx::package_manager() {
             let package = nss_tools_package(&manager).to_string();
             operations.push(crate::elevate::Operation::InstallPackage {
                 manager,

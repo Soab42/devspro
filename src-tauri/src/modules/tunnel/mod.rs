@@ -71,14 +71,6 @@ pub struct TunnelStatus {
     pub last_log: Option<String>,
 }
 
-fn which(bin: &str) -> bool {
-    Command::new("which")
-        .arg(bin)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
 /// Strips ANSI CSI escape sequences (`ESC '[' ... <letter>`), which is all
 /// that cloudflared's colorized log level tags (`\x1b[32mINF\x1b[0m`) use.
 fn strip_ansi(input: &str) -> String {
@@ -136,7 +128,7 @@ fn parse_quick_tunnel_url(text: &str) -> Option<String> {
 }
 
 fn require_binary() -> Result<(), String> {
-    if which(BINARY) {
+    if crate::modules::tools::is_available(BINARY) {
         Ok(())
     } else {
         Err(format!(
@@ -186,7 +178,7 @@ fn spawn_quick_tunnel(target_url: &str) -> Result<(Child, Arc<Mutex<RuntimeInfo>
 
 #[tauri::command(async)]
 pub fn tunnel_detect() -> TunnelDetection {
-    TunnelDetection { found: which(BINARY) }
+    TunnelDetection { found: crate::modules::tools::is_available(BINARY) }
 }
 
 #[tauri::command(async)]

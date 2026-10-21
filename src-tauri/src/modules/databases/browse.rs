@@ -440,14 +440,10 @@ enum Runner {
     Image { image: String, host: String, port: u16 },
 }
 
-/// Whether `program` is on PATH. Uses `which`, as the rest of the app does for
-/// nginx/docker-compose/php, rather than a second PATH-walking implementation.
+/// Whether `program` is on PATH. Goes through `tools`, as the rest of the app does
+/// for nginx/docker-compose/php, rather than a second PATH-walking implementation.
 fn on_path(program: &str) -> bool {
-    Command::new("which")
-        .arg(program)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    crate::modules::tools::is_available(program)
 }
 
 fn runner_for(conn: &Conn, program: &str) -> Runner {

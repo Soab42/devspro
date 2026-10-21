@@ -23,5 +23,6 @@ pub mod settings;
 pub mod ssh;
 pub mod system;
 pub mod tail;
+pub mod tools;
 pub mod tunnel;
 pub mod workers;
