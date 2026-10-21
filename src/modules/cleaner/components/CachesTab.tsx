@@ -10,6 +10,9 @@ import ScanStamp from "./ScanStamp";
 import { useTabSlot } from "../tabState";
 import { useCachesScan } from "./caches/useCachesScan";
 
+/** What the backend offers as the trash entry on this OS. */
+const TRASH = typeof navigator !== "undefined" && /Win/.test(navigator.platform) ? "the Recycle Bin" : "Trash";
+
 /** User-level caches and package stores, plus the system section the backend adds. */
 export default function CachesTab() {
   const { caches, system, error, systemError, scannedAt, scanned, scanning, progress, scan, cancel } = useCachesScan();
@@ -86,7 +89,7 @@ export default function CachesTab() {
           icon={Eraser}
           size="md"
           title="Find caches"
-          description="Scan for package-manager caches, browser caches and Trash. Nothing is removed until you review it."
+          description={`Scan for package-manager caches, browser caches and ${TRASH}. Nothing is removed until you review it.`}
         />
       )}
 
