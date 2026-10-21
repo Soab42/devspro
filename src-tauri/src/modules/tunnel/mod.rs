@@ -28,7 +28,7 @@ use crate::modules::nginx_ssl::sites;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::BufRead;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 
 /// Exposed so the Apps catalog can assert it installs cloudflared under exactly
@@ -158,7 +158,7 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(reader: R, info: Arc<Mutex<Ru
 }
 
 fn spawn_quick_tunnel(target_url: &str) -> Result<(Child, Arc<Mutex<RuntimeInfo>>), String> {
-    let mut child = Command::new(BINARY)
+    let mut child = crate::modules::tools::command(BINARY)
         .args(["tunnel", "--no-tls-verify", "--url", target_url])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

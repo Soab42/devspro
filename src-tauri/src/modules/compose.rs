@@ -14,7 +14,7 @@ enum Flavor {
 }
 
 fn detect() -> Result<Flavor, String> {
-    let plugin_ok = Command::new("docker")
+    let plugin_ok = crate::modules::tools::command("docker")
         .args(["compose", "version"])
         .output()
         .map(|o| o.status.success())
@@ -35,13 +35,13 @@ fn detect() -> Result<Flavor, String> {
 pub fn build(args: &[&str]) -> Result<Command, String> {
     match detect()? {
         Flavor::Plugin => {
-            let mut cmd = Command::new("docker");
+            let mut cmd = crate::modules::tools::command("docker");
             cmd.arg("compose");
             cmd.args(args);
             Ok(cmd)
         }
         Flavor::Standalone(path) => {
-            let mut cmd = Command::new(path);
+            let mut cmd = crate::modules::tools::command(path);
             cmd.args(args);
             Ok(cmd)
         }

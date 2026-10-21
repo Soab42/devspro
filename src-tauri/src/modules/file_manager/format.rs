@@ -78,12 +78,16 @@ fn pick_tool(path: &Path, path_var: &str, edition: &str) -> Result<Tool, String>
     })
 }
 
+/// npm's launcher for a package binary: a shell script on Unix, a `.cmd`
+/// beside it on Windows (the extensionless one there is for Git Bash).
+const PRETTIER_BIN: &str = if cfg!(windows) { "node_modules/.bin/prettier.cmd" } else { "node_modules/.bin/prettier" };
+
 /// `node_modules/.bin/prettier` of the nearest enclosing project. The walk
 /// stops after the home folder: a stray `~/node_modules` further up should not
 /// style an unrelated project.
 fn project_prettier(dir: &Path, home: Option<&Path>) -> Option<PathBuf> {
     for ancestor in dir.ancestors() {
-        let bin = ancestor.join("node_modules/.bin/prettier");
+        let bin = ancestor.join(PRETTIER_BIN);
         if bin.is_file() {
             return Some(bin);
         }
@@ -155,7 +159,7 @@ fn format_with(path: &Path, contents: &str, path_var: &str, home: Option<&Path>)
 /// Formats an editor buffer as the file at `path` with the project's tool.
 #[tauri::command(async)]
 pub fn fm_format(path: String, contents: String) -> Result<Formatted, String> {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = super::home_dir().ok();
     let path_var = std::env::var("PATH").unwrap_or_default();
     format_with(Path::new(&path), &contents, &path_var, home.as_deref())
 }
@@ -171,11 +175,20 @@ mod tests {
         dir
     }
 
+    /// What an installed tool's file is called: `black`, or `black.exe` on Windows.
+    fn exe(name: &str) -> String {
+        if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.to_string()
+        }
+    }
+
     #[test]
     fn tools_are_chosen_by_extension_and_availability() {
         let dir = temp();
-        std::fs::write(dir.join("black"), "").unwrap();
-        std::fs::write(dir.join("rustfmt"), "").unwrap();
+        std::fs::write(dir.join(exe("black")), "").unwrap();
+        std::fs::write(dir.join(exe("rustfmt")), "").unwrap();
         let path_var = dir.to_string_lossy().into_owned();
         assert_eq!(pick_tool(Path::new("/x/a.py"), &path_var, "2021").unwrap().name, "black");
         let rs = pick_tool(Path::new("/x/A.RS"), &path_var, "2018").unwrap();
@@ -207,14 +220,13 @@ mod tests {
         let home = temp();
         let proj = home.join("proj/src");
         std::fs::create_dir_all(&proj).unwrap();
-        let bin = home.join("proj/node_modules/.bin");
-        std::fs::create_dir_all(&bin).unwrap();
-        std::fs::write(bin.join("prettier"), "").unwrap();
-        assert_eq!(project_prettier(&proj, Some(&home)), Some(bin.join("prettier")));
+        std::fs::create_dir_all(home.join("proj/node_modules/.bin")).unwrap();
+        std::fs::write(home.join("proj").join(PRETTIER_BIN), "").unwrap();
+        assert_eq!(project_prettier(&proj, Some(&home)), Some(home.join("proj").join(PRETTIER_BIN)));
         // A prettier above home is out of reach.
         let outer = temp();
         std::fs::create_dir_all(outer.join("node_modules/.bin")).unwrap();
-        std::fs::write(outer.join("node_modules/.bin/prettier"), "").unwrap();
+        std::fs::write(outer.join(PRETTIER_BIN), "").unwrap();
         let inner_home = outer.join("home");
         std::fs::create_dir_all(inner_home.join("p")).unwrap();
         assert_eq!(project_prettier(&inner_home.join("p"), Some(&inner_home)), None);
@@ -250,7 +262,8 @@ mod tests {
         let path = dir.join("a.rs");
         let out = format_with(&path, "fn   main( ){let x=1;}", &std::env::var("PATH").unwrap(), None).unwrap();
         assert_eq!(out.tool.as_deref(), Some("rustfmt"));
-        assert_eq!(out.contents.as_deref(), Some("fn main() {\n    let x = 1;\n}\n"));
+        // With no line ending in the input, rustfmt writes the OS's own.
+        assert_eq!(out.contents.map(|c| c.replace("\r\n", "\n")).as_deref(), Some("fn main() {\n    let x = 1;\n}\n"));
         let err = format_with(&path, "fn (", &std::env::var("PATH").unwrap(), None).unwrap_err();
         assert!(!err.is_empty());
         assert!(!path.exists());

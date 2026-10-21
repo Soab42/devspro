@@ -6,7 +6,7 @@ import { splitHostnames, validateEntry } from "../utils";
 /**
  * Add or edit one entry. Hosted in a Modal but renders its own actions, so the
  * ordering mirrors ModalFooter: cancel, then primary. The primary triggers the
- * system password prompt; the hint says so, since the dialog appears outside
+ * system password (or UAC) prompt; the hint says so, since the dialog appears outside
  * the app window and is easy to miss.
  */
 export default function HostsEntryForm({

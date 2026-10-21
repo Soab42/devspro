@@ -3,7 +3,7 @@ import { Button, CopyButton, Mono, Spinner } from "../../../ui";
 import { ExternalLink, Eye, HardDrive } from "../../../ui/icons";
 import Thumbnail from "./Thumbnail";
 import { FileDetail, FileEntry, fmStatDetail } from "../api";
-import { errorMessage, fileKind, formatModified, formatSize } from "../utils";
+import { errorMessage, fileKind, formatModified, formatSize, ownerLabel, permissionsLabel } from "../utils";
 
 /**
  * The rightmost column once a file is selected: a big icon, the facts a
@@ -81,12 +81,10 @@ export default function FilePreview({
         <dd>{detail ? formatModified(detail.created) : <Spinner />}</dd>
         <dt>Permissions</dt>
         <dd>
-          <Mono>
-            0{entry.permissions} {detail ? `(${detail.mode_symbolic})` : ""}
-          </Mono>
+          <Mono>{permissionsLabel(entry.path, entry.permissions, detail?.mode_symbolic)}</Mono>
         </dd>
         <dt>Owner</dt>
-        <dd>{detail ? <Mono>{`${detail.owner}:${detail.group}`}</Mono> : <Spinner />}</dd>
+        <dd>{detail ? <Mono>{ownerLabel(detail.owner, detail.group)}</Mono> : <Spinner />}</dd>
       </dl>
       {error && <p className="fm-col-note u-secondary">{error}</p>}
     </div>

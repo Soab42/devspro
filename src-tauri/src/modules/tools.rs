@@ -42,6 +42,26 @@ pub fn program(tool: &str) -> Option<String> {
     platform::program(tool)
 }
 
+/// `Command::new(program)`, except that on Windows the child never opens a console window.
+///
+/// The release build is a GUI-subsystem app there, so it has no console of its own, and
+/// Windows gives every console program it starts a fresh one: a black window that flashes
+/// up for each `docker ps` a page polls, or sits on screen for the whole life of a tunnel.
+/// `CREATE_NO_WINDOW` suppresses only that window — stdout and stderr are captured exactly
+/// as before, and a GUI program (an editor, a browser) still shows its own window. On Unix
+/// this is plain `Command::new`.
+pub fn command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut command = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 #[cfg(unix)]
 mod platform {
     use std::process::Command;

@@ -15,7 +15,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use tauri::Manager;
 
 pub mod browse;
@@ -182,9 +182,80 @@ fn render_service_block(name: &str, host_port: u16, spec: &ServiceSpec) -> Strin
     }
     s.push_str(&format!("    ports:\n      - \"{host_port}:{}\"\n", spec.container_port));
     if let Some(target) = &spec.volume_target {
-        s.push_str(&format!("    volumes:\n      - ./volumes/{name}_data:{target}\n"));
+        s.push_str(&format!("    volumes:\n      - {}:{target}\n", volume_source(name)));
     }
     s
+}
+
+/// Where a database keeps its data: a folder beside the compose file on Unix.
+#[cfg(not(windows))]
+fn volume_source(name: &str) -> String {
+    format!("./volumes/{name}_data")
+}
+
+/// On Windows, a Docker named volume instead. Docker Desktop's containers run in a Linux
+/// VM, and a bind mount of a Windows folder reaches them through a file-sharing layer
+/// that has no real Unix ownership or modes: Postgres refuses to initialise a data
+/// directory it can't `chmod 0700`, and MySQL is many times slower on one. A named
+/// volume lives inside the VM's own filesystem, which is what Docker recommends for
+/// database storage on Windows.
+#[cfg(windows)]
+fn volume_source(name: &str) -> String {
+    named_volume(name)
+}
+
+/// The compose-level name of `name`'s volume. Hyphenated because database names can't
+/// contain a hyphen (`valid_name`), so a volume key can never be mistaken for a service
+/// key by `service_block_text` — `shop_data` could be a database, `shop-data` can't.
+#[cfg(any(windows, test))]
+fn named_volume(name: &str) -> String {
+    format!("{name}-data")
+}
+
+/// Declares `volume` in the compose file's top-level `volumes:` section, creating the
+/// section at the top of the file if there isn't one. At the top rather than the end
+/// because new services are appended at the end, and they must stay under `services:`.
+#[cfg(any(windows, test))]
+fn declare_volume(contents: &str, volume: &str) -> String {
+    let entry = format!("  {volume}:");
+    let lines: Vec<&str> = contents.lines().collect();
+    let Some(header) = lines.iter().position(|l| l.trim_end() == "volumes:") else {
+        return format!("volumes:\n{entry}\n{contents}");
+    };
+    let section_end = lines[(header + 1)..]
+        .iter()
+        .position(|l| !l.trim().is_empty() && indent_of(l) == 0)
+        .map(|i| header + 1 + i)
+        .unwrap_or(lines.len());
+    if lines[header + 1..section_end].iter().any(|l| l.trim_end() == entry) {
+        return contents.to_string();
+    }
+    let mut out: Vec<&str> = Vec::with_capacity(lines.len() + 1);
+    out.extend(&lines[..=header]);
+    out.push(&entry);
+    out.extend(&lines[header + 1..]);
+    out.join("\n") + "\n"
+}
+
+/// Removes `volume`'s declaration from the top-level `volumes:` section, if it has one.
+/// The section header stays even when it empties: compose reads a bare `volumes:` as no
+/// volumes, the same way it reads the bare `services:` a fresh file starts with.
+#[cfg(any(windows, test))]
+fn undeclare_volume(contents: &str, volume: &str) -> String {
+    let entry = format!("  {volume}:");
+    let mut lines: Vec<&str> = contents.lines().collect();
+    let Some(header) = lines.iter().position(|l| l.trim_end() == "volumes:") else {
+        return contents.to_string();
+    };
+    let Some(at) = lines[header + 1..]
+        .iter()
+        .take_while(|l| l.trim().is_empty() || indent_of(l) > 0)
+        .position(|l| l.trim_end() == entry)
+    else {
+        return contents.to_string();
+    };
+    lines.remove(header + 1 + at);
+    lines.join("\n") + "\n"
 }
 
 fn random_password() -> String {
@@ -380,6 +451,10 @@ pub fn databases_create(app: tauri::AppHandle, input: CreateDatabaseInput) -> Re
         new_content.push('\n');
     }
     new_content.push_str(&appended);
+    #[cfg(windows)]
+    if spec.volume_target.is_some() {
+        new_content = declare_volume(&new_content, &named_volume(&name));
+    }
     fs::write(&file, new_content).map_err(|e| format!("could not write {}: {e}", file.display()))?;
 
     let file_str = file.to_string_lossy().to_string();
@@ -432,7 +507,7 @@ pub struct DevsproContainer {
 
 #[tauri::command(async)]
 pub fn databases_list() -> Result<Vec<DevsproContainer>, String> {
-    let output = Command::new("docker")
+    let output = crate::modules::tools::command("docker")
         .args([
             "ps",
             "-a",
@@ -504,11 +579,23 @@ pub fn databases_remove(app: tauri::AppHandle, name: String, delete_data: bool) 
     if has_ui {
         updated = remove_service_block(&updated, &ui_name);
     }
+    #[cfg(windows)]
+    {
+        updated = undeclare_volume(&updated, &named_volume(&name));
+    }
     fs::write(&file, updated).map_err(|e| format!("could not write {}: {e}", file.display()))?;
 
     if delete_data {
         let dir = compose_dir(&app)?;
+        // Also on Windows: a database created before named volumes were used there
+        // still keeps its data in this folder.
         let _ = fs::remove_dir_all(dir.join("volumes").join(format!("{name}_data")));
+        // Compose prefixes the volumes it creates with the project name. Best-effort,
+        // like the folder above: there is no volume for a database made the old way.
+        #[cfg(windows)]
+        let _ = crate::modules::tools::command("docker")
+            .args(["volume", "rm", &format!("{PROJECT_NAME}_{}", named_volume(&name))])
+            .output();
     }
 
     Ok(format!("removed {name}"))
@@ -529,7 +616,7 @@ fn container_name(base: &str) -> String {
 fn docker_exec(container: &str, args: &[&str]) -> Result<std::process::Output, String> {
     let mut full: Vec<&str> = vec!["exec", container];
     full.extend(args);
-    Command::new("docker")
+    crate::modules::tools::command("docker")
         .args(&full)
         .output()
         .map_err(|e| format!("failed to run docker exec: {e}"))
@@ -1160,7 +1247,7 @@ fn docker_exec_to_file(container: &str, args: &[&str], file_path: &Path) -> Resu
     let file = fs::File::create(file_path).map_err(|e| format!("could not create {}: {e}", file_path.display()))?;
     let mut full: Vec<&str> = vec!["exec", container];
     full.extend(args);
-    let child = Command::new("docker")
+    let child = crate::modules::tools::command("docker")
         .args(&full)
         .stdout(Stdio::from(file))
         .stderr(Stdio::piped())
@@ -1178,7 +1265,7 @@ fn docker_exec_from_file(container: &str, args: &[&str], file_path: &Path) -> Re
     let file = fs::File::open(file_path).map_err(|e| format!("could not open {}: {e}", file_path.display()))?;
     let mut full: Vec<&str> = vec!["exec", "-i", container];
     full.extend(args);
-    let child = Command::new("docker")
+    let child = crate::modules::tools::command("docker")
         .args(&full)
         .stdin(Stdio::from(file))
         .stdout(Stdio::piped())
@@ -1277,7 +1364,7 @@ fn redis_backup(container: &str, admin_password: &str, file_path: &Path) -> Resu
     if let Some(err) = command_failed(&out) {
         return Err(err);
     }
-    let out = Command::new("docker")
+    let out = crate::modules::tools::command("docker")
         .arg("cp")
         .arg(format!("{container}:/data/dump.rdb"))
         .arg(file_path)
@@ -1287,7 +1374,7 @@ fn redis_backup(container: &str, admin_password: &str, file_path: &Path) -> Resu
 }
 
 fn redis_restore(container: &str, file_path: &Path) -> Result<(), String> {
-    let out = Command::new("docker")
+    let out = crate::modules::tools::command("docker")
         .arg("cp")
         .arg(file_path)
         .arg(format!("{container}:/data/dump.rdb"))
@@ -1296,7 +1383,7 @@ fn redis_restore(container: &str, file_path: &Path) -> Result<(), String> {
     if let Some(err) = command_failed(&out) {
         return Err(err);
     }
-    let out = Command::new("docker")
+    let out = crate::modules::tools::command("docker")
         .args(["restart", container])
         .output()
         .map_err(|e| format!("failed to restart container: {e}"))?;
@@ -1462,6 +1549,35 @@ mod tests {
         let block = render_service_block("shop", 3307, &spec);
         assert_eq!(extract_host_port(&block), Some(3307));
         assert_eq!(extract_host_port("  x:\n    image: mysql\n"), None);
+    }
+
+    #[test]
+    fn declaring_a_volume_keeps_new_services_under_services() {
+        let fresh = declare_volume("services:\n", "shop-data");
+        assert_eq!(fresh, "volumes:\n  shop-data:\nservices:\n");
+
+        // A second database joins the existing section rather than opening another.
+        let both = declare_volume(&fresh, "blog-data");
+        assert_eq!(both, "volumes:\n  blog-data:\n  shop-data:\nservices:\n");
+
+        // Already declared: unchanged, not duplicated.
+        assert_eq!(declare_volume(&both, "shop-data"), both);
+
+        // The volume key never shadows a service that happens to end in `_data`.
+        let with_service = format!("{both}  shop_data:\n    image: mysql:8\n");
+        assert!(service_block_text(&with_service, "shop_data").unwrap().contains("image: mysql:8"));
+    }
+
+    #[test]
+    fn undeclaring_a_volume_removes_only_that_entry() {
+        let contents = "volumes:\n  blog-data:\n  shop-data:\nservices:\n  shop:\n    image: mysql:8\n";
+        assert_eq!(
+            undeclare_volume(contents, "shop-data"),
+            "volumes:\n  blog-data:\nservices:\n  shop:\n    image: mysql:8\n"
+        );
+        // Not declared, or no section at all: nothing to do.
+        assert_eq!(undeclare_volume(contents, "other-data"), contents);
+        assert_eq!(undeclare_volume("services:\n", "shop-data"), "services:\n");
     }
 
     #[test]

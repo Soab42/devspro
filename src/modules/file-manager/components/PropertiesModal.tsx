@@ -3,7 +3,7 @@ import { Button, Callout, Modal, ModalFooter, Mono, Spinner, Stack } from "../..
 import { Info } from "../../../ui/icons";
 import Thumbnail from "./Thumbnail";
 import { DirStats, FileDetail, FileEntry, fmDirStats, fmStatDetail } from "../api";
-import { errorMessage, fileKind, formatModified, formatSize, tildePath } from "../utils";
+import { errorMessage, fileKind, formatModified, formatSize, ownerLabel, permissionsLabel, tildePath } from "../utils";
 
 /**
  * "Get Info" for one entry, or a headcount for several. Folders also get a
@@ -89,12 +89,10 @@ export default function PropertiesModal({ entries, home, onClose }: { entries: F
               <dd>{detail ? formatModified(detail.created) : <Spinner />}</dd>
               <dt>Permissions</dt>
               <dd>
-                <Mono>
-                  0{single.permissions} {detail ? `(${detail.mode_symbolic})` : ""}
-                </Mono>
+                <Mono>{permissionsLabel(single.path, single.permissions, detail?.mode_symbolic)}</Mono>
               </dd>
               <dt>Owner</dt>
-              <dd>{detail ? <Mono>{`${detail.owner}:${detail.group}`}</Mono> : <Spinner />}</dd>
+              <dd>{detail ? <Mono>{ownerLabel(detail.owner, detail.group)}</Mono> : <Spinner />}</dd>
               {single.is_symlink && (
                 <>
                   <dt>Link</dt>

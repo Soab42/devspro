@@ -7,6 +7,7 @@
 //! | `target_for_version()` | The `fastcgi_pass` value for one pinned version. |
 //! | `install_hint()` | What to tell a user who has no usable PHP. |
 //! | `missing_version_hint()` | Why a pinned version can't be used right now. |
+//! | `cli_binary()` | The PHP CLI to run artisan with, matching a pinned version. |
 //!
 //! The contract deliberately returns whole `fastcgi_pass` values rather than socket paths:
 //! Unix hands nginx `unix:/run/php/php8.3-fpm.sock` and Windows hands it

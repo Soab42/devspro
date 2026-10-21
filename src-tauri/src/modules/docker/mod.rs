@@ -10,7 +10,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::process::Command;
 
 #[derive(Debug, Serialize)]
 pub struct DockerDetection {
@@ -27,7 +26,7 @@ pub struct DockerDetection {
 /// Docker. This runs on every page open and used to run again after every
 /// container action, so the saved spawn is not free.
 pub fn detect() -> DockerDetection {
-    match Command::new("docker")
+    match crate::modules::tools::command("docker")
         .args(["version", "--format", "{{.Server.Version}}"])
         .output()
     {
@@ -108,7 +107,7 @@ fn label(labels: &str, key: &str) -> Option<String> {
 }
 
 pub fn list_containers() -> Result<Vec<Container>, String> {
-    let output = Command::new("docker")
+    let output = crate::modules::tools::command("docker")
         .args(["ps", "-a", "--format", "{{json .}}"])
         .output()
         .map_err(|e| format!("failed to run docker: {e}"))?;
@@ -138,7 +137,7 @@ pub fn list_containers() -> Result<Vec<Container>, String> {
 }
 
 fn run_action(action: &str, id: &str) -> Result<String, String> {
-    let output = Command::new("docker")
+    let output = crate::modules::tools::command("docker")
         .args([action, id])
         .output()
         .map_err(|e| format!("failed to run docker {action}: {e}"))?;
@@ -231,7 +230,7 @@ struct ComposeInfo {
 /// that service — which also makes the change durable (survives the next
 /// `docker compose up`), unlike a one-off `docker run` replacement would.
 fn compose_info(id: &str) -> Result<ComposeInfo, String> {
-    let output = Command::new("docker")
+    let output = crate::modules::tools::command("docker")
         .args([
             "inspect",
             id,
@@ -366,7 +365,7 @@ pub fn docker_change_port(id: String, container_port: u16, new_host_port: u16) -
 /// `docker_compose_up_file` takes an explicit path — it is how a stack gets
 /// started again once it is no longer represented on the daemon.
 fn project_compose_file(project: &str) -> Result<String, String> {
-    let output = Command::new("docker")
+    let output = crate::modules::tools::command("docker")
         .args([
             "ps",
             "-a",
@@ -515,7 +514,7 @@ pub fn docker_read_project_compose(project: String) -> Result<ComposeSource, Str
 }
 
 fn inspect_label(id: &str, label: &str) -> Result<Option<String>, String> {
-    let output = Command::new("docker")
+    let output = crate::modules::tools::command("docker")
         .args([
             "inspect",
             id,
@@ -732,7 +731,7 @@ services:
 /// `docker logs -f` in a real terminal.
 #[tauri::command(async)]
 pub fn docker_logs(id: String, tail: u32) -> Result<String, String> {
-    let output = Command::new("docker")
+    let output = crate::modules::tools::command("docker")
         .args(["logs", "--tail", &tail.to_string(), &id])
         .output()
         .map_err(|e| format!("failed to fetch logs: {e}"))?;

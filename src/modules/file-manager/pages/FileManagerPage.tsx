@@ -134,6 +134,9 @@ import {
   formatSize,
   historyPush,
   historyStep,
+  isRootPath,
+  isUnder,
+  isWindowsPath,
   parentPath,
   planMove,
   sortEntries,
@@ -281,6 +284,10 @@ export default function FileManagerPage() {
   const [dropOn, setDropOn] = useState<string | null>(null);
 
   const home = places.data?.home ?? "";
+  // Deleting goes to the Recycle Bin on Windows, the desktop's trash elsewhere.
+  const onWindows = isWindowsPath(home);
+  const trashName = onWindows ? "Recycle Bin" : "trash";
+  const trashFrom = onWindows ? "the Recycle Bin" : "your desktop's trash";
   // Devices count as places for the column view: their columns start at the device.
   const placePaths = useMemo(
     () => [...(places.data?.places ?? []).map((p) => p.path), ...devices.list.flatMap((d) => (d.path ? [d.path] : []))],
@@ -527,7 +534,7 @@ export default function FileManagerPage() {
 
   /** Closes the tabs on or under `roots`, asking first when any holds unsaved edits. */
   async function closeTabsFor(roots: string[], why: string): Promise<boolean> {
-    const under = (p: string) => roots.some((r) => p === r || p.startsWith(`${r}/`));
+    const under = (p: string) => roots.some((r) => isUnder(p, r));
     const unsaved = tabs.dirty.filter(under);
     if (unsaved.length) {
       const ok = await confirmAction(`${unsaved.length === 1 ? "An open file has" : `${unsaved.length} open files have`} unsaved changes, which will be lost.`, {
@@ -566,13 +573,13 @@ export default function FileManagerPage() {
   async function handleTrash(targets: FileEntry[]) {
     if (targets.length === 0) return;
     const what = targets.length === 1 ? `"${targets[0].name}"` : `${targets.length} items`;
-    const ok = await confirmAction(`${what} will be moved to the trash. You can restore it from your desktop's trash.`, {
-      title: targets.length === 1 ? (targets[0].is_dir ? "Move folder to trash?" : "Move file to trash?") : "Move items to trash?",
-      confirmLabel: "Move to trash",
+    const ok = await confirmAction(`${what} will be moved to the ${trashName}. You can restore it from ${trashFrom}.`, {
+      title: targets.length === 1 ? (targets[0].is_dir ? `Move folder to ${trashName}?` : `Move file to ${trashName}?`) : `Move items to ${trashName}?`,
+      confirmLabel: `Move to ${trashName}`,
       danger: true,
     });
     if (!ok) return;
-    if (!(await closeTabsFor(targets.map((t) => t.path), "Move to trash?"))) return;
+    if (!(await closeTabsFor(targets.map((t) => t.path), `Move to ${trashName}?`))) return;
     clearSelection();
     await run("trash", async () => {
       const failed: string[] = [];
@@ -584,7 +591,7 @@ export default function FileManagerPage() {
         }
       }
       if (failed.length) throw new Error(failed.join("\n"));
-      return targets.length === 1 ? `Moved ${targets[0].name} to the trash` : `Moved ${targets.length} items to the trash`;
+      return targets.length === 1 ? `Moved ${targets[0].name} to the ${trashName}` : `Moved ${targets.length} items to the ${trashName}`;
     }, true);
   }
 
@@ -598,13 +605,13 @@ export default function FileManagerPage() {
         try {
           followMove(p, await fmMove(p, dir));
         } catch (e) {
-          failed.push(`${p.split("/").pop()}: ${errorMessage(e)}`);
+          failed.push(`${baseName(p)}: ${errorMessage(e)}`);
         }
       }
       if (failed.length) throw new Error(failed.join("\n"));
       const n = moves.length;
       const note = skipped.length ? ` (${skipped.length} already there or skipped)` : "";
-      return `Moved ${n === 1 ? moves[0].split("/").pop() : `${n} items`} to ${tildePath(dir, home)}${note}`;
+      return `Moved ${n === 1 ? baseName(moves[0]) : `${n} items`} to ${tildePath(dir, home)}${note}`;
     }, true);
   }
 
@@ -678,7 +685,7 @@ export default function FileManagerPage() {
     if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
     const focusPath = selected[selected.length - 1];
     const index = focusPath ? rowOrder.indexOf(focusPath) : -1;
-    if (e.key === "Backspace" && path && path !== "/") {
+    if (e.key === "Backspace" && path && !isRootPath(path)) {
       e.preventDefault();
       navigate(parentPath(path));
     } else if (e.key === "Enter" && single) {
@@ -782,7 +789,7 @@ export default function FileManagerPage() {
     items.push({ key: "props", label: "Properties", icon: Info, onClick: () => setDialog({ kind: "props", entries: targets }) });
     items.push({
       key: "trash",
-      label: one ? "Move to trash" : `Move ${targets.length} items to trash`,
+      label: one ? `Move to ${trashName}` : `Move ${targets.length} items to ${trashName}`,
       icon: Trash2,
       danger: true,
       separatorBefore: true,
@@ -802,7 +809,7 @@ export default function FileManagerPage() {
     const here = dir === path;
     const folderEntry = entryByPath.get(dir);
     const asEntry: FileEntry = folderEntry ?? {
-      name: dir.split("/").pop() || "/",
+      name: baseName(dir) || dir,
       path: dir,
       is_dir: true,
       is_symlink: false,
@@ -964,7 +971,7 @@ export default function FileManagerPage() {
     if (!target || !d.path || deviceBusy) return;
     if (!(await closeTabsFor([d.path], `${how === "eject" ? "Eject" : "Unmount"} ${d.label}?`))) return;
     // An open listing keeps the device busy; step off it first.
-    if (path !== null && (path === d.path || path.startsWith(`${d.path}/`))) navigate(home);
+    if (path !== null && isUnder(path, d.path)) navigate(home);
     setDeviceBusy(d.id);
     setError(null);
     try {
@@ -984,7 +991,7 @@ export default function FileManagerPage() {
       key: `dev:${d.id}`,
       label: d.label,
       icon: <Icon icon={DEVICE_ICON[d.kind] ?? HardDrive} size="sm" />,
-      meta: deviceBusy === d.id ? (d.path ? "Ejecting…" : "Mounting…") : undefined,
+      meta: deviceBusy === d.id ? (d.path ? "Ejecting…" : "Mounting…") : d.free !== undefined ? `${formatSize(d.free)} free` : undefined,
       muted: !d.path,
       active: here?.id === d.id && tabs.active === null,
       onSelect: () => void openDevice(d),
@@ -1090,7 +1097,7 @@ export default function FileManagerPage() {
                 <ActionGroup>
                   <IconButton icon={ChevronLeft} label="Back" disabled={!canGoBack(history)} onClick={() => setHistory((h) => historyStep(h, -1))} />
                   <IconButton icon={ChevronRight} label="Forward" disabled={!canGoForward(history)} onClick={() => setHistory((h) => historyStep(h, 1))} />
-                  <IconButton icon={ArrowUp} label="Enclosing folder" disabled={!path || path === "/"} onClick={() => path && navigate(parentPath(path))} />
+                  <IconButton icon={ArrowUp} label="Enclosing folder" disabled={!path || isRootPath(path)} onClick={() => path && navigate(parentPath(path))} />
                 </ActionGroup>
                 <nav className="fm-crumbs" aria-label="Current folder">
                   {crumbs.map((crumb, i) => (

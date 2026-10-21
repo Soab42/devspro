@@ -5,18 +5,75 @@ export interface Crumb {
   path: string;
 }
 
-/** "/var/log/nginx" -> [/, var, log, nginx], each with its absolute path. */
+/*
+ * Paths come from the backend in the OS's own spelling: `/home/me/x` on
+ * Linux, `C:\Users\me\x` on Windows, where every drive is a root of its own.
+ * The helpers below tell the two apart by the path's shape rather than by
+ * asking which OS this is, so a Unix path is handled exactly as it always was.
+ */
+
+/** `C:\…`, `C:/…`, a bare `C:`, or a UNC `\\server\share\…`. */
+export function isWindowsPath(path: string): boolean {
+  return /^[A-Za-z]:([\\/]|$)/.test(path) || path.startsWith("\\\\");
+}
+
+/** The separator a path is written with. */
+export function pathSep(path: string): "/" | "\\" {
+  return isWindowsPath(path) ? "\\" : "/";
+}
+
+/** The root a path hangs from: `/`, or its drive (`C:\`) or share (`\\server\share\`). */
+export function pathRoot(path: string): string {
+  if (!isWindowsPath(path)) return "/";
+  const unc = /^\\\\[^\\/]+[\\/][^\\/]+/.exec(path);
+  if (unc) return `${unc[0].replace(/\//g, "\\")}\\`;
+  return `${path.slice(0, 2).toUpperCase()}\\`;
+}
+
+export function isRootPath(path: string): boolean {
+  return path === pathRoot(path) || (isWindowsPath(path) && path.replace(/[\\/]+$/, "") === pathRoot(path).slice(0, -1));
+}
+
+/** `dir` and `name` with exactly one separator between them. */
+export function joinPath(dir: string, name: string): string {
+  const sep = pathSep(dir);
+  return dir.endsWith("/") || dir.endsWith("\\") ? `${dir}${name}` : `${dir}${sep}${name}`;
+}
+
+/** Whether `path` is `root` itself or anywhere beneath it. */
+export function isUnder(path: string, root: string): boolean {
+  if (path === root) return true;
+  return path.startsWith(root.endsWith("/") || root.endsWith("\\") ? root : `${root}${pathSep(root)}`);
+}
+
+/** The path's segments below its root. */
+function segments(path: string): string[] {
+  const rest = path.slice(pathRoot(path).length - (isWindowsPath(path) ? 1 : 0));
+  return rest.split(isWindowsPath(path) ? /[\\/]/ : "/").filter(Boolean);
+}
+
+/**
+ * "/var/log/nginx" -> [/, var, log, nginx], each with its absolute path;
+ * "C:\Users\me" -> [C:, Users, me].
+ */
 export function splitBreadcrumb(path: string): Crumb[] {
-  const crumbs: Crumb[] = [{ label: "/", path: "/" }];
-  let acc = "";
-  for (const part of path.split("/").filter(Boolean)) {
-    acc += `/${part}`;
+  const root = pathRoot(path);
+  const crumbs: Crumb[] = [{ label: root === "/" ? "/" : root.slice(0, -1), path: root }];
+  let acc = root;
+  for (const part of segments(path)) {
+    acc = joinPath(acc, part);
     crumbs.push({ label: part, path: acc });
   }
   return crumbs;
 }
 
 export function parentPath(path: string): string {
+  if (isWindowsPath(path)) {
+    const root = pathRoot(path);
+    const trimmed = path.replace(/[\\/]+$/, "");
+    const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
+    return idx < root.length ? root : trimmed.slice(0, idx);
+  }
   const trimmed = path.replace(/\/+$/, "");
   const idx = trimmed.lastIndexOf("/");
   if (idx <= 0) return "/";
@@ -24,6 +81,10 @@ export function parentPath(path: string): string {
 }
 
 export function baseName(path: string): string {
+  if (isWindowsPath(path)) {
+    const parts = segments(path);
+    return parts[parts.length - 1] ?? "";
+  }
   const parts = path.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? "";
 }
@@ -32,7 +93,21 @@ export function baseName(path: string): string {
 export function tildePath(path: string, home: string): string {
   if (!home) return path;
   if (path === home) return "~";
-  return path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+  return isUnder(path, home) ? `~${path.slice(home.length)}` : path;
+}
+
+/**
+ * The Permissions row: the octal mode and its `rwx` spelling on Unix. Windows
+ * has no mode bits, only a read-only flag, which is all the mode reports there.
+ */
+export function permissionsLabel(path: string, permissions: string, symbolic?: string): string {
+  if (isWindowsPath(path)) return parseInt(permissions || "0", 8) & 0o200 ? "Read and write" : "Read-only";
+  return `0${permissions}${symbolic ? ` (${symbolic})` : ""}`;
+}
+
+/** The Owner row: `user:group`, or just the owner where there is no group (Windows). */
+export function ownerLabel(owner: string, group: string): string {
+  return group ? `${owner}:${group}` : owner;
 }
 
 const UNITS = ["B", "KB", "MB", "GB", "TB"];
@@ -218,19 +293,17 @@ export const canGoForward = (h: History) => h.index < h.entries.length - 1;
  * The directories a column view shows for `path`: the nearest place that
  * contains it (so the home column sits first rather than seven columns of
  * `/`, `/home`, ...), then every folder down to `path` itself. A path under no
- * place starts at `/`.
+ * place starts at its root: `/`, or its drive on Windows.
  */
 export function columnChain(path: string, placePaths: string[]): string[] {
   const root =
-    placePaths
-      .filter((p) => p === path || path.startsWith(p === "/" ? "/" : `${p}/`))
-      .sort((a, b) => b.length - a.length)[0] ?? "/";
+    placePaths.filter((p) => isUnder(path, p)).sort((a, b) => b.length - a.length)[0] ?? pathRoot(path);
   const chain = [root];
   if (path === root) return chain;
-  const rest = path.slice(root === "/" ? 1 : root.length + 1).split("/").filter(Boolean);
-  let acc = root === "/" ? "" : root;
+  const rest = path.slice(root.length).split(isWindowsPath(path) ? /[\\/]/ : "/").filter(Boolean);
+  let acc = root;
   for (const part of rest) {
-    acc += `/${part}`;
+    acc = joinPath(acc, part);
     chain.push(acc);
   }
   return chain;
@@ -301,7 +374,7 @@ export function planMove(paths: string[], dir: string): { moves: string[]; skipp
   const moves: string[] = [];
   const skipped: string[] = [];
   for (const p of paths) {
-    const inside = dir === p || dir.startsWith(`${p}/`);
+    const inside = isUnder(dir, p);
     if (parentPath(p) === dir || inside) skipped.push(p);
     else moves.push(p);
   }

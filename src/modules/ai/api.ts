@@ -16,6 +16,13 @@ export interface AgentStatus {
   /** Where the command resolved to, when it did. */
   path: string | null;
   custom: boolean;
+  /** The program and leading arguments that run it; `args` and extra ones follow.
+   *  Just `[command]` on Linux; on Windows the resolved path, or `cmd.exe /d /c call
+   *  <path>` for an npm `.cmd` shim. */
+  launch: string[];
+  /** The program and leading arguments that run `install` as a script: `sh -c`, or
+   *  PowerShell on Windows. */
+  install_shell: string[];
 }
 
 export interface CustomAgentInput {
