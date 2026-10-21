@@ -38,16 +38,19 @@ export function splitArgs(input: string): string[] {
 
 /** The PTY command that runs an agent in a project, with any extra arguments after its fixed ones. */
 export function launchCommand(agent: AgentStatus, cwd: string | null, extraArgs: string): PtyCommand {
-  return { exec: { program: agent.command, args: [...agent.args, ...splitArgs(extraArgs)], cwd } };
+  const [program = agent.command, ...lead] = agent.launch;
+  return { exec: { program, args: [...lead, ...agent.args, ...splitArgs(extraArgs)], cwd } };
 }
 
-/** The PTY command that runs an agent's install one-liner in the user's shell. */
-export function installCommand(script: string): PtyCommand {
-  return { exec: { program: "sh", args: ["-c", script], cwd: null } };
+/** The PTY command that runs an agent's install one-liner through the shell the backend names. */
+export function installCommand(shell: string[], script: string): PtyCommand {
+  const [program = "sh", ...lead] = shell;
+  return { exec: { program, args: [...lead, script], cwd: null } };
 }
 
+/** The last path component, for `/` and Windows `\` separators alike. */
 export function baseName(path: string): string {
-  const parts = path.split("/").filter(Boolean);
+  const parts = path.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? path;
 }
 

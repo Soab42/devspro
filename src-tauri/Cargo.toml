@@ -76,6 +76,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Threading",
     "Win32_System_Registry",
+    # Hands an RDP password to mstsc through Credential Manager rather than a
+    # command line (src/modules/remote_desktop/mstsc.rs).
+    "Win32_Security_Credentials",
     # The dashboard's system sources (src/modules/system/platform/windows.rs).
     # `Wdk_System_SystemInformation` is only for NtQuerySystemInformation, the one
     # documented way to read *per-core* CPU ticks — GetSystemTimes gives the
@@ -92,6 +95,12 @@ windows-sys = { version = "0.59", features = [
     # Maps a listening port's owning pid to a process name, without needing the
     # OpenProcess rights that reading another user's process would.
     "Win32_System_Diagnostics_ToolHelp",
+    # The Cleaner's Caches tab (src/modules/cleaner/caches): the user's SID names
+    # their Recycle Bin folder on each drive, and NtQueryInformationProcess reads
+    # another process's command line to tell an `npm install` from `npm run`.
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Wdk_System_Threading",
 ] }
 
 [workspace]

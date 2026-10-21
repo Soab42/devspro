@@ -58,7 +58,21 @@ export function splitProjectFolder(path: string): { parentDir: string; name: str
   const trimmed = path.replace(/[\\/]+$/, "");
   const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
   if (idx < 0) return { parentDir: "", name: trimmed };
-  return { parentDir: trimmed.slice(0, idx) || "/", name: trimmed.slice(idx + 1) };
+  const parent = trimmed.slice(0, idx);
+  // A folder at the root of a Windows drive: the parent is `C:\`, not `C:` —
+  // a bare drive letter means "the current directory on C:", so `C:` joined
+  // with `shop` would be `C:shop`, somewhere else entirely.
+  if (/^[A-Za-z]:$/.test(parent)) return { parentDir: `${parent}\\`, name: trimmed.slice(idx + 1) };
+  return { parentDir: parent || "/", name: trimmed.slice(idx + 1) };
+}
+
+/**
+ * `parent` and `name` joined for display, with the separator `parent` already
+ * uses — a Windows path keeps its backslashes rather than gaining a `/`.
+ */
+export function joinFolder(parent: string, name: string): string {
+  const sep = parent.includes("\\") || /^[A-Za-z]:/.test(parent) ? "\\" : "/";
+  return `${parent.replace(/[\\/]+$/, "")}${sep}${name}`;
 }
 
 /**
@@ -105,7 +119,7 @@ export function plannedSteps(plan: WizardPlan): string[] {
 export function planSummary(plan: WizardPlan): { label: string; value: string }[] {
   const rows = [
     { label: "Template", value: TEMPLATE_LABELS[plan.template] },
-    { label: "Folder", value: `${plan.parent_dir.replace(/[\\/]+$/, "")}/${plan.name}` },
+    { label: "Folder", value: joinFolder(plan.parent_dir, plan.name) },
     { label: "Domain", value: `https://${plan.domain}` },
     { label: "PHP", value: plan.php_version ?? "System default" },
     {

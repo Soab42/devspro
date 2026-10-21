@@ -1,6 +1,7 @@
 import { RefObject, useId, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useConfirm } from "../../../app/ConfirmContext";
+import { examplePath } from "../../../app/platform";
 import {
   Badge,
   Button,
@@ -276,7 +277,7 @@ export default function EnvSource({
                 <TextInput
                   id={pathId}
                   mono
-                  placeholder="/home/you/project/.env"
+                  placeholder={examplePath("project", ".env")}
                   value={pathDraft}
                   onChange={(e) => setPathDraft(e.target.value)}
                   onKeyDown={(e) => {

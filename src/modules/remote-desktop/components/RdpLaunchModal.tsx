@@ -26,6 +26,7 @@ export default function RdpLaunchModal({
 
   const found = clients.data ?? [];
   const chosen = client || found[0]?.id || "";
+  const chosenClient = found.find((c) => c.id === chosen);
   const none = !clients.loading && found.length === 0;
 
   async function handleSubmit() {
@@ -77,7 +78,7 @@ export default function RdpLaunchModal({
               <Field
                 label="Password"
                 htmlFor="rd-rdp-password"
-                description="Passed to the client for this launch only. It is visible to other users of this machine in the process list while the client runs; leave it empty to let the client ask."
+                description={chosenClient?.password_note}
               >
                 <TextInput
                   id="rd-rdp-password"

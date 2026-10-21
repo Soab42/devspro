@@ -875,6 +875,7 @@ pub struct SystemBrowser {
 
 /// Real engines installed on this machine, for the moments a UA switch isn't
 /// enough. Only ones actually on PATH are listed.
+#[cfg(not(windows))]
 const KNOWN_BROWSERS: &[(&str, &str, &[&str])] = &[
     ("chrome", "Google Chrome", &["google-chrome", "google-chrome-stable", "google-chrome-beta"]),
     ("chromium", "Chromium", &["chromium", "chromium-browser"]),
@@ -884,11 +885,13 @@ const KNOWN_BROWSERS: &[(&str, &str, &[&str])] = &[
     ("epiphany", "GNOME Web", &["epiphany"]),
 ];
 
+#[cfg(not(windows))]
 fn on_path(cmd: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else { return false };
     std::env::split_paths(&path).any(|dir| dir.join(cmd).is_file())
 }
 
+#[cfg(not(windows))]
 #[tauri::command(async)]
 pub fn browser_system_browsers() -> Vec<SystemBrowser> {
     KNOWN_BROWSERS
@@ -903,6 +906,84 @@ pub fn browser_system_browsers() -> Vec<SystemBrowser> {
         .collect()
 }
 
+/// Windows browsers don't put themselves on PATH, so the Linux lookup finds none of them.
+/// Each is looked for where its installer puts it — per-machine under Program Files or
+/// per-user under LocalAppData — and then through its `App Paths` registration, which is
+/// how Windows itself finds `msedge.exe` from the Run box wherever it was installed.
+/// `command` is the full path to the executable.
+#[cfg(windows)]
+const WINDOWS_BROWSERS: &[(&str, &str, &str, Option<&str>)] = &[
+    ("chrome", "Google Chrome", r"Google\Chrome\Application\chrome.exe", Some("chrome.exe")),
+    // Chromium's executable is also chrome.exe, so its App Paths entry would be Chrome's.
+    ("chromium", "Chromium", r"Chromium\Application\chrome.exe", None),
+    ("brave", "Brave", r"BraveSoftware\Brave-Browser\Application\brave.exe", Some("brave.exe")),
+    ("edge", "Microsoft Edge", r"Microsoft\Edge\Application\msedge.exe", Some("msedge.exe")),
+    ("firefox", "Firefox", r"Mozilla Firefox\firefox.exe", Some("firefox.exe")),
+];
+
+#[cfg(windows)]
+#[tauri::command(async)]
+pub fn browser_system_browsers() -> Vec<SystemBrowser> {
+    let roots: Vec<std::path::PathBuf> = ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"]
+        .iter()
+        .filter_map(|var| std::env::var_os(var).map(std::path::PathBuf::from))
+        .collect();
+    WINDOWS_BROWSERS
+        .iter()
+        .filter_map(|(id, label, relative, app_path)| {
+            let found = roots
+                .iter()
+                .map(|root| root.join(relative))
+                .find(|path| path.is_file())
+                .or_else(|| app_path.and_then(registered_app_path))?;
+            Some(SystemBrowser {
+                id: id.to_string(),
+                label: label.to_string(),
+                command: found.to_string_lossy().into_owned(),
+            })
+        })
+        .collect()
+}
+
+/// The executable `exe` is registered at under `App Paths`, per-user first, if that file
+/// still exists.
+#[cfg(windows)]
+fn registered_app_path(exe: &str) -> Option<std::path::PathBuf> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+
+    let subkey: Vec<u16> = format!(r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}")
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    for root in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        let mut buf = [0u16; 1024];
+        let mut size = std::mem::size_of_val(&buf) as u32;
+        // SAFETY: `subkey` is NUL-terminated, a null value name reads the key's default
+        // value, and `size` tells the call how many bytes `buf` holds.
+        let status = unsafe {
+            RegGetValueW(
+                root,
+                subkey.as_ptr(),
+                std::ptr::null(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr().cast(),
+                &mut size,
+            )
+        };
+        if status != 0 {
+            continue;
+        }
+        let len = (size as usize / 2).saturating_sub(1).min(buf.len());
+        let value = String::from_utf16_lossy(&buf[..len]);
+        let path = std::path::PathBuf::from(value.trim().trim_matches('"'));
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
 #[tauri::command(async)]
 pub fn browser_open_in(browser: String, url: String) -> Result<(), String> {
     let url = checked_url(&url)?;
@@ -910,7 +991,7 @@ pub fn browser_open_in(browser: String, url: String) -> Result<(), String> {
         .into_iter()
         .find(|b| b.id == browser)
         .ok_or_else(|| format!("{browser} is not installed"))?;
-    std::process::Command::new(found.command)
+    crate::modules::tools::command(found.command)
         .arg(url.as_str())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

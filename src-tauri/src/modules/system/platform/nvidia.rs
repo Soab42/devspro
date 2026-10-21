@@ -5,7 +5,6 @@
 //! installed or fails, so callers can tell "no NVIDIA tooling here" apart from
 //! "the tool ran and reported no GPUs".
 
-use std::process::Command;
 use std::sync::OnceLock;
 
 use super::super::{GpuInfo, TemperatureReading};
@@ -16,11 +15,11 @@ static AVAILABLE: OnceLock<bool> = OnceLock::new();
 
 pub fn query() -> Option<Vec<GpuInfo>> {
     let available = *AVAILABLE
-        .get_or_init(|| Command::new("nvidia-smi").arg("-L").output().is_ok_and(|o| o.status.success()));
+        .get_or_init(|| crate::modules::tools::command("nvidia-smi").arg("-L").output().is_ok_and(|o| o.status.success()));
     if !available {
         return None;
     }
-    let output = Command::new("nvidia-smi")
+    let output = crate::modules::tools::command("nvidia-smi")
         .args([
             "--query-gpu=name,driver_version,utilization.gpu,memory.used,memory.total,temperature.gpu",
             "--format=csv,noheader,nounits",

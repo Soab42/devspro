@@ -103,6 +103,16 @@ pub fn missing_version_hint(version: &str) -> String {
     )
 }
 
+/// The PHP command-line binary to run artisan with. Prefers the version-suffixed binary
+/// (`php8.3`) when a version is pinned and Debian/Ubuntu's alternatives layout provides
+/// one, so artisan runs under the same PHP the site is served with.
+pub fn cli_binary(version: Option<&str>) -> String {
+    version
+        .map(|v| format!("php{}", v.trim()))
+        .filter(|bin| crate::modules::tools::is_available(bin))
+        .unwrap_or_else(|| "php".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

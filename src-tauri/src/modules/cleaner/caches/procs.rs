@@ -1,9 +1,13 @@
 //! Which running processes hold a cache open. A cache whose owner is running
 //! is reported as blocked rather than cleaned underneath it.
 
-use std::fs;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::snapshot;
 
-/// One running process: its short name and argument list.
+/// One running process: its short name and argument list. On Windows the
+/// name is the executable's, lower-cased and without ".exe".
 #[derive(Debug, Clone, Default)]
 pub struct Proc {
     pub comm: String,
@@ -11,7 +15,9 @@ pub struct Proc {
 }
 
 /// Reads /proc once. Unreadable entries (other users, exited meanwhile) are skipped.
+#[cfg(unix)]
 pub fn snapshot() -> Vec<Proc> {
+    use std::fs;
     let Ok(dir) = fs::read_dir("/proc") else { return Vec::new() };
     let mut out = Vec::new();
     for entry in dir.flatten() {
@@ -53,7 +59,7 @@ fn installing(manager: &str, p: &Proc) -> bool {
         return false;
     }
     let names_manager = p.args.iter().any(|a| {
-        let file = a.rsplit('/').next().unwrap_or(a);
+        let file = a.rsplit(|c| c == '/' || (cfg!(windows) && c == '\\')).next().unwrap_or(a);
         file == manager || file.starts_with(&format!("{manager}-")) || file.starts_with(&format!("{manager}."))
     });
     names_manager && p.args.iter().any(|a| INSTALL_VERBS.contains(&a.as_str()))
@@ -70,7 +76,7 @@ impl Blocker {
             Blocker::Gradle => procs
                 .iter()
                 .any(|p| {
-                    p.comm == "java"
+                    (p.comm == "java" || (cfg!(windows) && p.comm == "javaw"))
                         && p.args.iter().any(|a| a.contains("GradleDaemon") || a.contains("gradle.launcher.daemon"))
                 })
                 .then(|| "a Gradle daemon is running".to_string()),
@@ -112,5 +118,14 @@ mod tests {
         assert!(Blocker::Installing("npm").hit(&[run]).is_none());
         assert!(Blocker::Installing("pnpm").hit(&[install]).is_none());
         assert!(Blocker::Installing("yarn").hit(&[proc("yarn", &["yarn", "add", "left-pad"])]).is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn installing_reads_windows_paths() {
+        let install = proc("node", &[r"C:\Program Files\nodejs\node.exe", r"C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js", "ci"]);
+        assert_eq!(Blocker::Installing("npm").hit(&[install]).as_deref(), Some("npm is installing"));
+        let pnpm = proc("pnpm", &[r"C:\Users\me\AppData\Local\pnpm\pnpm.exe", "install"]);
+        assert!(Blocker::Installing("pnpm").hit(&[pnpm]).is_some());
     }
 }

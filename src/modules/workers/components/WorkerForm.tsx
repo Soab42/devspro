@@ -11,6 +11,7 @@ import {
   TextInput,
 } from "../../../ui";
 import { Site } from "../../nginx-ssl/api";
+import { examplePath } from "../../../app/platform";
 import { WorkerView, createWorker, updateWorker } from "../api";
 
 export default function WorkerForm({
@@ -120,7 +121,7 @@ export default function WorkerForm({
             <TextInput
               id="worker-dir"
               mono
-              placeholder="/home/you/sites/myapp"
+              placeholder={examplePath("sites", "myapp")}
               value={workingDir}
               onChange={(e) => setWorkingDir(e.target.value)}
               className="u-flex-1"

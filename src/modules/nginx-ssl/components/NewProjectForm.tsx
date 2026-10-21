@@ -22,6 +22,7 @@ import { listPhpVersions, scaffoldWizardRun, type PhpFpmVersion } from "../api";
 import {
   connectionOption,
   dbNameSlug,
+  joinFolder,
   plannedSteps,
   planSummary,
   splitProjectFolder,
@@ -260,7 +261,7 @@ export default function NewProjectForm({
                       Choose folder…
                     </Button>
                   </FormRow>
-                  {parentDir && name && <Mono truncate>{`${parentDir}/${name}`}</Mono>}
+                  {parentDir && name && <Mono truncate>{joinFolder(parentDir, name)}</Mono>}
                 </Stack>
               </Field>
             ) : (

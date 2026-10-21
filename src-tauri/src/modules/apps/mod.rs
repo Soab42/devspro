@@ -23,7 +23,6 @@
 mod platform;
 
 use serde::Serialize;
-use std::process::Command;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InstallMethod {
@@ -223,7 +222,7 @@ fn install_binary_release(name: &str, url_template: &str) -> Result<String, Stri
 
     // curl rather than an HTTP crate, and this is not a Unix assumption — Windows 10 and 11
     // ship curl.exe in System32.
-    let output = Command::new("curl")
+    let output = crate::modules::tools::command("curl")
         .args([
             "--fail",
             "--location",
@@ -258,7 +257,7 @@ fn install_binary_release(name: &str, url_template: &str) -> Result<String, Stri
 
     // Prove the thing we just downloaded actually runs on this machine, rather
     // than reporting success for a 200 response that returned an error page.
-    let version = Command::new(&final_path)
+    let version = crate::modules::tools::command(&final_path)
         .arg("--version")
         .output()
         .map_err(|e| format!("{name} was downloaded but would not run: {e}"))?;
@@ -411,7 +410,7 @@ fn npm_install_global(package: &str) -> Result<String, String> {
     // Unix, where this is still the bare name.
     let npm = crate::modules::tools::program("npm")
         .ok_or("npm was not found on this account's PATH — install Node.js first")?;
-    let output = Command::new(&npm)
+    let output = crate::modules::tools::command(&npm)
         .args(["install", "-g", package])
         .output()
         .map_err(|e| format!("failed to run npm: {e}"))?;

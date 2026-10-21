@@ -169,7 +169,7 @@ export default function SettingsPage() {
         <Section
           title="Elevation helper"
           icon={ShieldCheck}
-          description="Round-trips a harmless Ping through the real OS elevation prompt (pkexec on Linux) to confirm the manifest → helper → result pipeline works before any module relies on it for real system changes."
+          description="Round-trips a harmless Ping through the real OS elevation prompt (pkexec on Linux, UAC on Windows) to confirm the manifest → helper → result pipeline works before any module relies on it for real system changes."
         >
           <Stack gap={4}>
             <div>

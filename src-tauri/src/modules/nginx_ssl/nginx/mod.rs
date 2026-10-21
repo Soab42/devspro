@@ -2,7 +2,6 @@ pub mod platform;
 pub mod render;
 
 use serde::Serialize;
-use std::process::Command;
 
 pub use platform::to_config_path;
 
@@ -37,7 +36,7 @@ pub(crate) fn package_manager() -> Option<String> {
 }
 
 fn nginx_version(bin: &str) -> Option<String> {
-    let output = Command::new(bin).arg("-v").output().ok()?;
+    let output = crate::modules::tools::command(bin).arg("-v").output().ok()?;
     let text = String::from_utf8_lossy(&output.stderr);
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -53,7 +52,7 @@ fn nginx_version(bin: &str) -> Option<String> {
 /// they report `conf/nginx.conf`, relative to a prefix nginx only computes at run time, so
 /// the raw value can't be opened or handed to `conf.d` discovery as-is.
 fn nginx_config_path(bin: &str) -> Option<String> {
-    let output = Command::new(bin).arg("-V").output().ok()?;
+    let output = crate::modules::tools::command(bin).arg("-V").output().ok()?;
     let text = String::from_utf8_lossy(&output.stderr);
     let reported = text
         .split_whitespace()
