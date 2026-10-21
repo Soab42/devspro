@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Device, DeviceKind, fmDevices } from "./api";
-import { Crumb, splitBreadcrumb, tildePath } from "./utils";
+import { Crumb, isUnder, isWindowsPath, joinPath, pathSep, splitBreadcrumb, tildePath } from "./utils";
 
 /** Drive accounts and network shares get their own sidebar group, under the disks and phones. */
 export const REMOTE_KINDS: ReadonlySet<DeviceKind> = new Set(["cloud", "network"]);
@@ -53,7 +53,7 @@ export function deviceAt(path: string, devices: Device[]): Device | null {
   let best: Device | null = null;
   for (const d of devices) {
     if (!d.path) continue;
-    const inside = path === d.path || path.startsWith(`${d.path}/`);
+    const inside = isUnder(path, d.path);
     if (inside && (!best?.path || d.path.length > best.path.length)) best = d;
   }
   return best;
@@ -70,17 +70,21 @@ export function breadcrumb(path: string, devices: Device[], titles: Readonly<Rec
   if (!device?.path) return splitBreadcrumb(path).map((c) => ({ ...c, label: titles[c.path] ?? c.label }));
   const crumbs: Crumb[] = [{ label: device.label, path: device.path }];
   let acc = device.path;
-  for (const part of path.slice(device.path.length).split("/").filter(Boolean)) {
-    acc += `/${part}`;
+  for (const part of path.slice(device.path.length).split(pathSep(path)).filter(Boolean)) {
+    acc = joinPath(acc, part);
     crumbs.push({ label: titles[acc] ?? part, path: acc });
   }
   return crumbs;
 }
 
-/** A path as the status line and file tabs show it: from the device's name on a device, `~`-relative elsewhere. */
+/**
+ * A path as the status line and file tabs show it: from the device's name on
+ * a device, `~`-relative elsewhere. On Windows every path is on a drive, home
+ * included, so a path under home stays `~`-relative there.
+ */
 export function friendlyPath(path: string, devices: Device[], titles: Readonly<Record<string, string>>, home: string): string {
-  if (!deviceAt(path, devices)) return tildePath(path, home);
+  if (!deviceAt(path, devices) || (isWindowsPath(path) && home && isUnder(path, home))) return tildePath(path, home);
   return breadcrumb(path, devices, titles)
     .map((c) => c.label)
-    .join("/");
+    .join(pathSep(path));
 }

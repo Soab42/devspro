@@ -21,6 +21,11 @@
 //! `git` answers the editor's gutter, blame and history from the real `git`,
 //! and `format` runs the project's own formatter on the unsaved buffer; both
 //! shell out through `process`, which `gvfs` shares for `gio`.
+//!
+//! On Windows the same commands answer from the shell instead (`windows`):
+//! the known folders, the Recycle Bin, `ShellExecuteW` for "Open", file
+//! owners from the security descriptor, and the drive letters as devices.
+//! GVfs and Google Drive's ID-named mounts do not exist there.
 
 pub mod devices;
 pub mod format;
@@ -28,11 +33,14 @@ pub mod git;
 pub mod gvfs;
 pub mod media;
 pub mod process;
+#[cfg(windows)]
+pub mod windows;
 
 use serde::Serialize;
 use std::fs;
 use crate::modules::fs_compat::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::process::Command;
 use std::time::UNIX_EPOCH;
 
@@ -73,16 +81,20 @@ pub struct Places {
     pub places: Vec<Place>,
 }
 
-fn home_dir() -> Result<PathBuf, String> {
-    std::env::var_os("HOME")
+/// The user's home folder: `$HOME`, or on Windows (where it is unset)
+/// `%USERPROFILE%`.
+pub(crate) fn home_dir() -> Result<PathBuf, String> {
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(var)
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .ok_or_else(|| "HOME is not set".to_string())
+        .ok_or_else(|| format!("{var} is not set"))
 }
 
 /// The XDG user directories, read from `~/.config/user-dirs.dirs` so a renamed
 /// or relocated Downloads folder is found where the user actually keeps it.
 /// Missing or unparseable entries fall back to the conventional names.
+#[cfg_attr(windows, allow(dead_code))]
 fn xdg_user_dir(home: &Path, key: &str, fallback: &str) -> PathBuf {
     let config = home.join(".config/user-dirs.dirs");
     if let Ok(text) = fs::read_to_string(config) {
@@ -93,6 +105,7 @@ fn xdg_user_dir(home: &Path, key: &str, fallback: &str) -> PathBuf {
     home.join(fallback)
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 fn parse_user_dir(text: &str, key: &str, home: &Path) -> Option<PathBuf> {
     let prefix = format!("XDG_{key}_DIR=");
     for line in text.lines() {
@@ -110,6 +123,33 @@ fn parse_user_dir(text: &str, key: &str, home: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Home, then the shell's own Desktop, Documents and the rest — wherever
+/// OneDrive or the user has moved them. No "Computer" entry: every drive
+/// letter, the system drive included, is listed with the devices.
+#[cfg(windows)]
+#[tauri::command(async)]
+pub fn fm_places() -> Result<Places, String> {
+    let home = home_dir()?;
+    let mut places = vec![Place {
+        label: "Home".into(),
+        path: home.to_string_lossy().into_owned(),
+        kind: "home".into(),
+    }];
+    for (id, kind) in windows::KNOWN_PLACES {
+        let Some(dir) = windows::known_folder(id).filter(|d| d.is_dir() && *d != home) else { continue };
+        places.push(Place {
+            label: dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            path: dir.to_string_lossy().into_owned(),
+            kind: (*kind).into(),
+        });
+    }
+    Ok(Places {
+        home: home.to_string_lossy().into_owned(),
+        places,
+    })
+}
+
+#[cfg(not(windows))]
 #[tauri::command(async)]
 pub fn fm_places() -> Result<Places, String> {
     let home = home_dir()?;
@@ -152,6 +192,20 @@ pub fn fm_places() -> Result<Places, String> {
     })
 }
 
+/// Windows hides by attribute rather than by a leading dot: `AppData`,
+/// `desktop.ini`, `$Recycle.Bin` and the rest Explorer leaves out.
+#[cfg(windows)]
+fn hidden_attribute(meta: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    meta.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
+}
+
+#[cfg(not(windows))]
+fn hidden_attribute(_meta: &fs::Metadata) -> bool {
+    false
+}
+
 fn entry_from(path: &Path) -> Option<FileEntry> {
     let name = path.file_name()?.to_string_lossy().into_owned();
     // symlink_metadata so a dangling link still lists (as a symlink), and so
@@ -168,7 +222,7 @@ fn entry_from(path: &Path) -> Option<FileEntry> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     Some(FileEntry {
-        is_hidden: name.starts_with('.'),
+        is_hidden: name.starts_with('.') || hidden_attribute(&lmeta),
         name,
         path: path.to_string_lossy().into_owned(),
         is_dir: meta.is_dir(),
@@ -305,6 +359,7 @@ fn symbolic_mode(mode: u32) -> String {
 /// Resolves a uid or gid through `/etc/passwd` or `/etc/group`. Falls back to
 /// the number itself: LDAP-backed accounts do not appear there and the id is
 /// still more useful than nothing.
+#[cfg_attr(windows, allow(dead_code))]
 fn name_for_id(table: &str, id: u32) -> String {
     let wanted = id.to_string();
     fs::read_to_string(table)
@@ -393,14 +448,28 @@ pub fn fm_stat_detail(path: String) -> Result<FileDetail, String> {
         .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    let (owner, group) = owner_and_group(Path::new(&path), &meta);
     Ok(FileDetail {
         mime: mime_for(&entry.name, entry.is_dir),
         mode_symbolic: symbolic_mode(meta.mode()),
-        owner: name_for_id("/etc/passwd", meta.uid()),
-        group: name_for_id("/etc/group", meta.gid()),
+        owner,
+        group,
         created,
         entry,
     })
+}
+
+#[cfg(not(windows))]
+fn owner_and_group(_path: &Path, meta: &fs::Metadata) -> (String, String) {
+    (name_for_id("/etc/passwd", meta.uid()), name_for_id("/etc/group", meta.gid()))
+}
+
+/// Windows files have an owning account but no group worth showing (the
+/// "primary group" is a POSIX-compatibility leftover), so the group is empty
+/// and the page shows the owner alone.
+#[cfg(windows)]
+fn owner_and_group(path: &Path, _meta: &fs::Metadata) -> (String, String) {
+    (windows::owner_of(path).unwrap_or_else(|| "Unknown".into()), String::new())
 }
 
 /// What the Properties dialog adds for a folder: how much is underneath it.
@@ -480,16 +549,22 @@ const KNOWN_EDITORS: &[(&str, &str, &str)] = &[
     ("gnome-text-editor", "Text Editor", "gnome-text-editor"),
 ];
 
+/// The OS's own editor, after the rest: Notepad, always in System32.
+#[cfg(windows)]
+const SYSTEM_EDITORS: &[(&str, &str, &str)] = &[("notepad", "Notepad", "notepad")];
+#[cfg(not(windows))]
+const SYSTEM_EDITORS: &[(&str, &str, &str)] = &[];
+
+/// Whether `bin` is installed: on `$PATH`, and on Windows under any of the
+/// `PATHEXT` extensions (`code` is `code.cmd` there).
 fn on_path(bin: &str, path_var: &str) -> bool {
-    std::env::split_paths(path_var).any(|dir| {
-        let candidate = dir.join(bin);
-        fs::metadata(&candidate).map(|m| m.is_file()).unwrap_or(false)
-    })
+    process::find_on_path(bin, path_var).is_some()
 }
 
 fn detect_editors(path_var: &str) -> Vec<EditorApp> {
     KNOWN_EDITORS
         .iter()
+        .chain(SYSTEM_EDITORS)
         .filter(|(_, _, bin)| on_path(bin, path_var))
         .map(|(id, label, command)| EditorApp {
             id: id.to_string(),
@@ -509,6 +584,7 @@ pub fn fm_editors() -> Vec<EditorApp> {
 /// its starting directory. `$TERMINAL` (when set) and the Debian alternative
 /// `x-terminal-emulator` go first; the latter takes no directory flag that is
 /// portable, so it is launched from the directory instead.
+#[cfg_attr(windows, allow(dead_code))]
 const KNOWN_TERMINALS: &[(&str, &[&str])] = &[
     ("gnome-terminal", &["--working-directory"]),
     ("konsole", &["--workdir"]),
@@ -529,6 +605,7 @@ const KNOWN_TERMINALS: &[(&str, &[&str])] = &[
 /// The argv that opens a system terminal in `dir`: the first installed
 /// candidate, with its directory flag when it has one. Pure, for the test;
 /// `fm_open_terminal` runs it from `dir` so flagless terminals still land there.
+#[cfg_attr(windows, allow(dead_code))]
 fn terminal_argv(dir: &str, path_var: &str, terminal_env: Option<&str>) -> Option<Vec<String>> {
     let preferred = terminal_env.map(str::trim).filter(|t| !t.is_empty());
     let mut candidates: Vec<(&str, &[&str])> = Vec::new();
@@ -546,6 +623,19 @@ fn terminal_argv(dir: &str, path_var: &str, terminal_env: Option<&str>) -> Optio
     Some(argv)
 }
 
+/// Windows Terminal when it is installed; otherwise PowerShell (7, else the
+/// built-in 5.1) in a console of its own. The shell is started through
+/// `start`, which gives it a fresh console window: launched directly from
+/// this windowless app it would inherit no console and exit at once.
+#[cfg(windows)]
+fn windows_terminal_argv(dir: &str, path_var: &str) -> Vec<String> {
+    if on_path("wt", path_var) {
+        return vec!["wt".into(), "-d".into(), dir.into()];
+    }
+    let shell = if on_path("pwsh", path_var) { "pwsh" } else { "powershell" };
+    ["cmd", "/C", "start", "", "/D", dir, shell].iter().map(|s| s.to_string()).collect()
+}
+
 /// Opens the desktop's terminal emulator in a folder.
 #[tauri::command(async)]
 pub fn fm_open_terminal(dir: String) -> Result<(), String> {
@@ -553,9 +643,12 @@ pub fn fm_open_terminal(dir: String) -> Result<(), String> {
         return Err(format!("{dir} is not a directory"));
     }
     let path_var = std::env::var("PATH").unwrap_or_default();
+    #[cfg(windows)]
+    let argv = windows_terminal_argv(&dir, &path_var);
+    #[cfg(not(windows))]
     let argv = terminal_argv(&dir, &path_var, std::env::var("TERMINAL").ok().as_deref())
         .ok_or_else(|| "no terminal emulator found on PATH — set $TERMINAL to the one you use".to_string())?;
-    Command::new(&argv[0])
+    process::command(&argv[0])
         .args(&argv[1..])
         .current_dir(&dir)
         .stdin(std::process::Stdio::null())
@@ -583,6 +676,16 @@ fn ext_of(path: &Path) -> String {
     path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default()
 }
 
+/// `~/.cache/devspro/thumbs`; on Windows the local (non-roaming) app data
+/// folder, where caches belong there.
+fn thumb_cache_dir() -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).filter(|p| p.is_absolute()) {
+        return Ok(local.join("devspro").join("thumbs"));
+    }
+    Ok(home_dir()?.join(".cache/devspro/thumbs"))
+}
+
 /// Where rendered thumbnails live between runs: keyed by path, size and
 /// mtime, so an edited image gets a fresh one and an untouched one is free.
 fn thumb_cache_path(path: &Path, size: u32, meta: &fs::Metadata) -> Result<PathBuf, String> {
@@ -592,7 +695,7 @@ fn thumb_cache_path(path: &Path, size: u32, meta: &fs::Metadata) -> Result<PathB
     size.hash(&mut h);
     meta.len().hash(&mut h);
     meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs()).hash(&mut h);
-    let dir = home_dir()?.join(".cache/devspro/thumbs");
+    let dir = thumb_cache_dir()?;
     fs::create_dir_all(&dir).map_err(|e| format!("could not create thumbnail cache: {e}"))?;
     Ok(dir.join(format!("{:016x}.png", h.finish())))
 }
@@ -612,7 +715,7 @@ fn render_with(candidates: &[&[&str]], input: &Path, out: &Path, size: u32, path
                     .replace("{size}", &size.to_string())
             })
             .collect();
-        let ok = Command::new(argv[0])
+        let ok = process::command(argv[0])
             .args(&args)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -627,11 +730,17 @@ fn render_with(candidates: &[&[&str]], input: &Path, out: &Path, size: u32, path
     false
 }
 
+#[cfg(not(windows))]
 const IMAGE_THUMBNAILERS: &[&[&str]] = &[
     &["gdk-pixbuf-thumbnailer", "-s", "{size}", "{in}", "{out}"],
     &["convert", "{in}[0]", "-thumbnail", "{size}x{size}", "{out}"],
     &["magick", "{in}[0]", "-thumbnail", "{size}x{size}", "{out}"],
 ];
+
+/// ImageMagick's only. `convert` is left out on purpose: on Windows that
+/// name is System32's FAT-to-NTFS disk converter, not ImageMagick.
+#[cfg(windows)]
+const IMAGE_THUMBNAILERS: &[&[&str]] = &[&["magick", "{in}[0]", "-thumbnail", "{size}x{size}", "{out}"]];
 
 const VIDEO_THUMBNAILERS: &[&[&str]] = &[
     &["ffmpegthumbnailer", "-i", "{in}", "-o", "{out}", "-s", "{size}"],
@@ -705,6 +814,11 @@ fn checked_name(name: &str) -> Result<&str, String> {
     if name.contains('/') || name == "." || name == ".." {
         return Err("names cannot contain slashes".into());
     }
+    // Windows reserves more: a backslash is its separator, and these
+    // characters cannot appear in any name on its filesystems.
+    if cfg!(windows) && name.contains(['\\', ':', '*', '?', '"', '<', '>', '|']) {
+        return Err(r#"names cannot contain slashes or any of : * ? " < > |"#.into());
+    }
     Ok(name)
 }
 
@@ -747,7 +861,9 @@ pub fn fm_rename(path: String, name: String) -> Result<String, String> {
     if target == source {
         return Ok(path);
     }
-    if target.exists() {
+    // On Windows `a.txt` -> `A.txt` names the same file, which "exists".
+    let only_case = cfg!(windows) && target.to_string_lossy().to_lowercase() == source.to_string_lossy().to_lowercase();
+    if target.exists() && !only_case {
         return Err(format!("{} already exists", target.display()));
     }
     fs::rename(source, &target).map_err(|e| format!("could not rename: {e}"))?;
@@ -873,6 +989,7 @@ fn copy_tree(source: &Path, target: &Path) -> Result<(), String> {
 /// freedesktop trash spec, the minimum a desktop file manager needs to list
 /// and restore the item: the file under `files/`, and a `.trashinfo` beside it
 /// with the original path and deletion time.
+#[cfg_attr(windows, allow(dead_code))]
 pub(crate) fn trash_manually(path: &Path, home: &Path) -> Result<(), String> {
     let trash = home.join(".local/share/Trash");
     let files = trash.join("files");
@@ -906,8 +1023,17 @@ pub(crate) fn trash_manually(path: &Path, home: &Path) -> Result<(), String> {
     })
 }
 
+/// Moves one path to the Recycle Bin. Shared with the Cleaner, which must
+/// never delete for real by default — so a drive with no Recycle Bin is
+/// refused rather than emptied.
+#[cfg(windows)]
+pub fn move_to_trash(path: &Path) -> Result<(), String> {
+    windows::recycle(path)
+}
+
 /// Moves one path to the trash: `gio trash`, else the freedesktop layout by
 /// hand. Shared with the Cleaner, which must never delete for real by default.
+#[cfg(not(windows))]
 pub fn move_to_trash(path: &Path) -> Result<(), String> {
     let gio = Command::new("gio").arg("trash").arg(path).output();
     match gio {
@@ -935,7 +1061,8 @@ pub fn fm_trash(path: String) -> Result<String, String> {
         return Err("cannot trash the root".into());
     }
     move_to_trash(target)?;
-    Ok(format!("Moved {} to the trash", target.display()))
+    let bin = if cfg!(windows) { "Recycle Bin" } else { "trash" };
+    Ok(format!("Moved {} to the {bin}", target.display()))
 }
 
 fn regular_file(path: &str) -> Result<fs::Metadata, String> {
@@ -982,8 +1109,19 @@ pub fn fm_open(path: String) -> Result<(), String> {
     } else {
         path.clone()
     };
+    open_with_default_app(&target, &path)
+}
+
+/// What a double-click in Explorer does.
+#[cfg(windows)]
+fn open_with_default_app(target: &str, _path: &str) -> Result<(), String> {
+    windows::shell_open(target)
+}
+
+#[cfg(not(windows))]
+fn open_with_default_app(target: &str, path: &str) -> Result<(), String> {
     Command::new("xdg-open")
-        .arg(&target)
+        .arg(target)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
@@ -1029,7 +1167,8 @@ pub fn editor_argv(command: &str, path: &Path) -> Result<Vec<String>, String> {
 /// binary is reported by name rather than as a bare ENOENT.
 pub fn spawn_editor(command: &str, path: &Path) -> Result<(), String> {
     let argv = editor_argv(command, path)?;
-    Command::new(&argv[0])
+    // Through `process::command` so `code` finds `code.cmd` on Windows.
+    process::command(&argv[0])
         .args(&argv[1..])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -1099,6 +1238,7 @@ mod tests {
         assert!(err.contains("could not move"), "{err}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn copy_tree_copies_folders_files_and_links() {
         let dir = scratch();
@@ -1132,6 +1272,7 @@ mod tests {
         assert!(list_dir(&file).unwrap_err().contains("not a directory"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn symlinks_are_flagged_and_follow_their_target_kind() {
         let dir = scratch();
@@ -1249,6 +1390,45 @@ mod tests {
         fs::remove_dir_all(&dir).unwrap();
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_editors_and_terminals_are_found_by_their_launchers() {
+        let dir = scratch();
+        // VS Code puts a .cmd on PATH, Zed an .exe.
+        fs::write(dir.join("code.cmd"), "").unwrap();
+        fs::write(dir.join("zed.exe"), "").unwrap();
+        let path_var = dir.to_string_lossy().into_owned();
+        let editors = detect_editors(&path_var);
+        assert_eq!(editors.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), vec!["code", "zed"]);
+        assert_eq!(windows_terminal_argv(r"C:\work", &path_var), vec!["cmd", "/C", "start", "", "/D", r"C:\work", "powershell"]);
+        fs::write(dir.join("pwsh.exe"), "").unwrap();
+        assert_eq!(windows_terminal_argv(r"C:\work", &path_var).last().map(String::as_str), Some("pwsh"));
+        fs::write(dir.join("wt.exe"), "").unwrap();
+        assert_eq!(windows_terminal_argv(r"C:\work", &path_var), vec!["wt", "-d", r"C:\work"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_names_hidden_files_and_case_only_renames() {
+        let dir = scratch();
+        let d = dir.to_string_lossy().into_owned();
+        assert!(fm_create_file(d.clone(), "a:b".into()).unwrap_err().contains("cannot contain"));
+        assert!(fm_create_file(d.clone(), r"a\b".into()).unwrap_err().contains("cannot contain"));
+        let file = fm_create_file(d.clone(), "readme.md".into()).unwrap();
+        let renamed = fm_rename(file, "README.md".into()).unwrap();
+        assert!(renamed.ends_with("README.md"));
+        let names: Vec<_> = fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("README.md")]);
+        // `attrib +h` is how Windows hides a file; no leading dot needed.
+        let status = std::process::Command::new("attrib").arg("+h").arg(&renamed).status().unwrap();
+        assert!(status.success());
+        assert!(list_dir(&dir).unwrap()[0].is_hidden);
+        let _ = std::process::Command::new("attrib").arg("-h").arg(&renamed).status();
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
     #[test]
     fn editors_and_terminals_are_found_on_a_fake_path() {
         let dir = scratch();
@@ -1294,14 +1474,15 @@ mod tests {
         fs::write(dir.join("a.txt"), "x").unwrap();
         fs::create_dir(dir.join("sub")).unwrap();
         let d = dir.to_string_lossy().into_owned();
-        let beside = fm_copy(format!("{d}/a.txt"), d.clone()).unwrap();
-        assert!(beside.ends_with("/a copy.txt"));
-        let again = fm_copy(format!("{d}/a.txt"), d.clone()).unwrap();
-        assert!(again.ends_with("/a copy 2.txt"));
-        let into = fm_copy(format!("{d}/a.txt"), format!("{d}/sub")).unwrap();
-        assert!(into.ends_with("/sub/a.txt"));
-        assert!(fm_copy(format!("{d}/a.txt"), format!("{d}/sub")).is_err());
-        assert!(fm_copy(format!("{d}/sub"), format!("{d}/sub")).is_err());
+        let p = |rel: &str| dir.join(rel).to_string_lossy().into_owned();
+        let beside = fm_copy(p("a.txt"), d.clone()).unwrap();
+        assert!(Path::new(&beside).ends_with("a copy.txt"));
+        let again = fm_copy(p("a.txt"), d.clone()).unwrap();
+        assert!(Path::new(&again).ends_with("a copy 2.txt"));
+        let into = fm_copy(p("a.txt"), p("sub")).unwrap();
+        assert!(Path::new(&into).ends_with("sub/a.txt"));
+        assert!(fm_copy(p("a.txt"), p("sub")).is_err());
+        assert!(fm_copy(p("sub"), p("sub")).is_err());
         fs::remove_dir_all(&dir).unwrap();
     }
 }

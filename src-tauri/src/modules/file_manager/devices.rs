@@ -10,9 +10,18 @@
 //!
 //! Everything stays at user level: GVfs and UDisks2 decide (through polkit)
 //! what a desktop user may mount. Nothing here runs elevated.
+//!
+//! Windows has none of that: there the list is the drive letters, from
+//! `windows::drives`, and the `gio` parsing below goes unused.
 
-use super::gvfs::{gio, gvfs_root};
+// The gio parsing is Linux's alone; on Windows only its tests use it.
+#![cfg_attr(windows, allow(dead_code))]
+
+use super::gvfs::gio;
+#[cfg(not(windows))]
+use super::gvfs::gvfs_root;
 use serde::Serialize;
+#[cfg(not(windows))]
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
@@ -35,6 +44,9 @@ pub struct Device {
     /// What `fm_device_action("eject", …)` takes: eject the medium, or stop
     /// (power down) the drive so it can be unplugged safely.
     pub eject: Option<String>,
+    /// Bytes free, where it is cheap to know (Windows drive letters).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub free: Option<u64>,
 }
 
 const MOUNT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -204,6 +216,7 @@ fn devices_from(nodes: &[Node]) -> Vec<Found> {
                         mount: mount_target,
                         unmount: mount.filter(|m| m.flag("can_unmount")).and_then(|m| m.uri.as_ref()).map(|u| format!("uri:{u}")),
                         eject,
+                        free: None,
                     },
                     root,
                 });
@@ -219,6 +232,7 @@ fn devices_from(nodes: &[Node]) -> Vec<Found> {
                         mount: None,
                         unmount: node.flag("can_unmount").then(|| format!("uri:{uri}")),
                         eject: node.flag("can_eject").then(|| format!("uri:{uri}")),
+                        free: None,
                     },
                     root: Some(uri),
                 });
@@ -358,16 +372,23 @@ fn fallback_devices(mounts: &str, gvfs_dirs: &[String], gvfs: &Path) -> Vec<Devi
             continue;
         }
         let label = Path::new(&point).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| point.clone());
-        out.push(Device { id: point.clone(), label, kind: "usb".into(), path: Some(point), mount: None, unmount: None, eject: None });
+        out.push(Device { id: point.clone(), label, kind: "usb".into(), path: Some(point), mount: None, unmount: None, eject: None, free: None });
     }
     for name in gvfs_dirs {
         let (kind, label) = describe_gvfs_dir(name);
         let path = gvfs.join(name).to_string_lossy().into_owned();
-        out.push(Device { id: path.clone(), label, kind: kind.into(), path: Some(path), mount: None, unmount: None, eject: None });
+        out.push(Device { id: path.clone(), label, kind: kind.into(), path: Some(path), mount: None, unmount: None, eject: None, free: None });
     }
     out
 }
 
+#[cfg(windows)]
+#[tauri::command(async)]
+pub fn fm_devices() -> Vec<Device> {
+    super::windows::drives()
+}
+
+#[cfg(not(windows))]
 #[tauri::command(async)]
 pub fn fm_devices() -> Vec<Device> {
     match gio(&["mount", "-li"], LIST_TIMEOUT) {
@@ -394,7 +415,29 @@ pub fn fm_device_action(action: String, target: String) -> Result<String, String
     if location.is_empty() || location.starts_with('-') {
         return Err(format!("unknown device target {target}"));
     }
-    let args: Vec<String> = match (action.as_str(), how) {
+    device_action(&action, how, location, &target)
+}
+
+/// `drive:E` and `net:Z`, as `windows::drives` hands them out: eject a
+/// removable drive, disconnect a mapped share. Nothing on Windows needs
+/// mounting first.
+#[cfg(windows)]
+fn device_action(action: &str, how: &str, location: &str, target: &str) -> Result<String, String> {
+    let mut chars = location.chars();
+    let letter = match (chars.next(), chars.next()) {
+        (Some(c), None) if c.is_ascii_alphabetic() => c.to_ascii_uppercase(),
+        _ => return Err(format!("unknown device target {target}")),
+    };
+    match (action, how) {
+        ("eject", "drive") => super::windows::eject(letter).map(|()| "Safe to remove".into()),
+        ("unmount", "net") => super::windows::disconnect(letter).map(|()| "Disconnected".into()),
+        _ => Err(format!("cannot {action} {target}")),
+    }
+}
+
+#[cfg(not(windows))]
+fn device_action(action: &str, how: &str, location: &str, target: &str) -> Result<String, String> {
+    let args: Vec<String> = match (action, how) {
         ("mount", "device") => vec!["mount".into(), format!("--device={location}")],
         ("mount", "uri") => vec!["mount".into(), "--".into(), location.into()],
         ("unmount", "uri") => vec!["mount".into(), "--unmount".into(), "--".into(), location.into()],
@@ -403,7 +446,7 @@ pub fn fm_device_action(action: String, target: String) -> Result<String, String
         _ => return Err(format!("cannot {action} {target}")),
     };
     gio(&args, MOUNT_TIMEOUT)?;
-    Ok(match action.as_str() {
+    Ok(match action {
         "mount" => "Mounted".into(),
         "unmount" => "Unmounted".into(),
         _ => "Safe to remove".into(),

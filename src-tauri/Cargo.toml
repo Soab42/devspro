@@ -101,6 +101,15 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security",
     "Win32_Security_Authorization",
     "Wdk_System_Threading",
+    # The File Manager (src/modules/file_manager/windows.rs): known folders and
+    # the Recycle Bin (Shell, with Com to free what the shell allocates), file
+    # owners (Security), ejecting a stick (IO, Ioctl; Debug keeps an empty
+    # card reader from raising a dialog) and disconnecting a mapped drive (WNet).
+    "Win32_System_Com",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_NetworkManagement_WNet",
 ] }
 
 [workspace]
