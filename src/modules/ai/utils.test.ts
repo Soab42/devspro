@@ -14,6 +14,8 @@ const agent = (over: Partial<AgentStatus> = {}): AgentStatus => ({
   installed: true,
   path: "/usr/bin/claude",
   custom: false,
+  launch: ["claude"],
+  install_shell: ["sh", "-c"],
   ...over,
 });
 
@@ -44,8 +46,24 @@ describe("commands", () => {
     });
   });
 
+  it("runs a Windows .cmd shim through the launch prefix the backend resolved", () => {
+    const shim = "C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd";
+    expect(launchCommand(agent({ launch: ["cmd.exe", "/d", "/c", "call", shim] }), "C:\\code\\app", "--resume")).toEqual({
+      exec: { program: "cmd.exe", args: ["/d", "/c", "call", shim, "--resume"], cwd: "C:\\code\\app" },
+    });
+  });
+
   it("runs an installer through sh", () => {
-    expect(installCommand("npm i -g x")).toEqual({ exec: { program: "sh", args: ["-c", "npm i -g x"], cwd: null } });
+    expect(installCommand(["sh", "-c"], "npm i -g x")).toEqual({
+      exec: { program: "sh", args: ["-c", "npm i -g x"], cwd: null },
+    });
+  });
+
+  it("runs an installer through PowerShell on Windows", () => {
+    const ps = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"];
+    expect(installCommand(ps, "npm i -g x")).toEqual({
+      exec: { program: "powershell.exe", args: [...ps.slice(1), "npm i -g x"], cwd: null },
+    });
   });
 });
 
@@ -53,6 +71,7 @@ describe("titles and projects", () => {
   it("names a session after the agent and the project folder", () => {
     expect(sessionTitle("Codex CLI", "/home/me/devspro")).toBe("Codex CLI · devspro");
     expect(sessionTitle("Codex CLI", null)).toBe("Codex CLI · ~");
+    expect(sessionTitle("Codex CLI", "C:\\Users\\me\\devspro\\")).toBe("Codex CLI · devspro");
   });
 
   it("keeps recent projects unique, newest first and bounded", () => {

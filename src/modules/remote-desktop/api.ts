@@ -66,6 +66,8 @@ export interface RdpClient {
   id: string;
   label: string;
   path: string;
+  /** How the password reaches this client: its command line, or Windows Credential Manager. */
+  password_note: string;
 }
 
 export interface RdpLaunch {

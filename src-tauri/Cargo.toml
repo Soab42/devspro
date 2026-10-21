@@ -76,6 +76,9 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Threading",
     "Win32_System_Registry",
+    # Hands an RDP password to mstsc through Credential Manager rather than a
+    # command line (src/modules/remote_desktop/mstsc.rs).
+    "Win32_Security_Credentials",
     # The dashboard's system sources (src/modules/system/platform/windows.rs).
     # `Wdk_System_SystemInformation` is only for NtQuerySystemInformation, the one
     # documented way to read *per-core* CPU ticks — GetSystemTimes gives the
