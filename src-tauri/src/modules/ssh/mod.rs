@@ -99,15 +99,7 @@ pub fn openssh_program(tool: &str) -> String {
 /// Windows it is started without a console window, which a GUI app's child
 /// would otherwise flash up for every key listed.
 pub fn openssh_command(tool: &str) -> std::process::Command {
-    #[allow(unused_mut)]
-    let mut cmd = std::process::Command::new(openssh_program(tool));
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-    cmd
+    crate::modules::tools::command(openssh_program(tool))
 }
 
 /// Appended to a "failed to run ssh-keygen" error: on Windows the usual cause

@@ -117,14 +117,19 @@ export const installKeyOnHost = (
 export interface KeyPermissions {
   /** Permission bits, e.g. 0o664. */
   mode: number;
-  /** ssh will refuse it: you own it and group or others have access. */
+  /** ssh will refuse it: you own it and group or others have access (on
+   *  Windows: its ACL lets in someone besides you, SYSTEM and Administrators). */
   too_open: boolean;
+  /** Windows only: the accounts besides you the ACL lets at the key, an owner
+   *  that isn't you marked " (owner)". Absent on Unix, where `mode` says it. */
+  others?: string[];
 }
 
 export const keyPermissions = (path: string) =>
   invoke<KeyPermissions>("ssh_key_permissions", { path });
 
-/** `chmod 600`. Rejects a file you don't own, with what to run instead. */
+/** `chmod 600` (on Windows, an ACL granting only you). Rejects a file you
+ *  don't own, with what to run instead. */
 export const restrictKey = (path: string) =>
   invoke<void>("ssh_key_restrict", { path });
 
@@ -275,9 +280,11 @@ export interface HostSample {
   mem_available_kb: number;
   swap_total_kb: number;
   swap_free_kb: number;
-  load1: number;
+  /** null for this machine on Windows, which keeps no load average. */
+  load1: number | null;
   uptime_seconds: number;
-  users: number;
+  /** null for this machine on Windows. */
+  users: number | null;
   rx_bytes: number;
   tx_bytes: number;
   disks: { mount: string; total_kb: number; used_kb: number; percent: number }[];

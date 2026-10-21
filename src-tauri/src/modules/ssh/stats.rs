@@ -143,7 +143,7 @@ pub fn parse_sample(output: &str) -> HostSample {
 
 #[cfg(not(windows))]
 fn run_local() -> Result<String, String> {
-    let out = std::process::Command::new("sh")
+    let out = crate::modules::tools::command("sh")
         .arg("-c")
         .arg(STATS_SCRIPT)
         .output()

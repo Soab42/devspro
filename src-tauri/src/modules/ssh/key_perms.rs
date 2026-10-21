@@ -491,7 +491,6 @@ mod acl_tests {
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::*;
-    use std::os::windows::process::CommandExt;
 
     fn temp_key() -> PathBuf {
         let path = std::env::temp_dir().join(format!("devspro-key-perms-{}", uuid::Uuid::new_v4()));
@@ -509,10 +508,9 @@ mod windows_tests {
         restrict(&path).unwrap();
         assert_eq!(check(&path).unwrap(), KeyPermissions { mode: 0, too_open: false, others: vec![] });
 
-        let granted = std::process::Command::new("icacls")
+        let granted = crate::modules::tools::command("icacls")
             .arg(&path)
             .args(["/grant", "*S-1-1-0:(R)"])
-            .creation_flags(0x0800_0000)
             .output()
             .unwrap();
         assert!(granted.status.success());

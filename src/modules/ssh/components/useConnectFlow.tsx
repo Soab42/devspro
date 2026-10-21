@@ -119,11 +119,19 @@ export function useConnectFlow() {
       // A missing or unreadable key is ssh's to report, in the terminal.
       const perms = await keyPermissions(path).catch(() => null);
       if (!perms?.too_open) return true;
+      // Windows names the accounts its ACL lets in; there is no mode to show.
+      const others = perms.others ?? [];
       const ok = await confirmAction(
-        <span>
-          <Mono>{path}</Mono> can be read by other users (mode {perms.mode.toString(8)}), so ssh will refuse it.
-          Restrict it to you (chmod 600) and connect?
-        </span>,
+        others.length > 0 ? (
+          <span>
+            <Mono>{path}</Mono> is open to {others.join(", ")}, so ssh will refuse it. Restrict it to you and connect?
+          </span>
+        ) : (
+          <span>
+            <Mono>{path}</Mono> can be read by other users (mode {perms.mode.toString(8)}), so ssh will refuse it.
+            Restrict it to you (chmod 600) and connect?
+          </span>
+        ),
         { title: "Private key is too open", confirmLabel: "Restrict and connect" },
       );
       if (!ok) return false;
