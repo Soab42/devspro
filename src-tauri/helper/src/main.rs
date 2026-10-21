@@ -54,6 +54,10 @@ enum Operation {
     AptClean,
     VacuumJournal { max_bytes: u64 },
     RemoveSnapRevision { name: String, revision: String },
+    ClearWindowsTemp,
+    ClearWindowsUpdateCache,
+    ClearDeliveryOptimizationCache,
+    RemoveSystemCrashDumps,
 }
 
 #[derive(Debug, Deserialize)]
@@ -832,6 +836,11 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
         Operation::AptClean => apt_clean(),
         Operation::VacuumJournal { max_bytes } => vacuum_journal(max_bytes),
         Operation::RemoveSnapRevision { name, revision } => remove_snap_revision(&name, &revision),
+        // No arguments: every path these touch is fixed inside `platform`.
+        Operation::ClearWindowsTemp => platform::clear_windows_temp(),
+        Operation::ClearWindowsUpdateCache => platform::clear_windows_update_cache(),
+        Operation::ClearDeliveryOptimizationCache => platform::clear_delivery_optimization_cache(),
+        Operation::RemoveSystemCrashDumps => platform::remove_system_crash_dumps(),
     }
 }
 
@@ -1215,5 +1224,20 @@ firefox 123.0    3836  latest/stable  mozilla**   -\n";
         assert!(matches!(manifest.operations[0], Operation::AptClean));
         assert!(matches!(manifest.operations[1], Operation::VacuumJournal { max_bytes: 209_715_200 }));
         assert!(matches!(&manifest.operations[2], Operation::RemoveSnapRevision { name, revision } if name == "core20" && revision == "2182"));
+    }
+
+    #[test]
+    fn windows_cleanup_operations_deserialize_and_carry_no_paths() {
+        let raw = r#"{"allowed_write_prefix":"","operations":[
+            {"type":"ClearWindowsTemp"},
+            {"type":"ClearWindowsUpdateCache"},
+            {"type":"ClearDeliveryOptimizationCache"},
+            {"type":"RemoveSystemCrashDumps"}
+        ]}"#;
+        let manifest: Manifest = serde_json::from_str(raw).unwrap();
+        assert!(matches!(manifest.operations[0], Operation::ClearWindowsTemp));
+        assert!(matches!(manifest.operations[1], Operation::ClearWindowsUpdateCache));
+        assert!(matches!(manifest.operations[2], Operation::ClearDeliveryOptimizationCache));
+        assert!(matches!(manifest.operations[3], Operation::RemoveSystemCrashDumps));
     }
 }

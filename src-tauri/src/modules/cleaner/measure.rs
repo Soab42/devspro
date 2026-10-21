@@ -250,6 +250,9 @@ mod tests {
         fs::remove_dir_all(&d).unwrap();
     }
 
+    // Windows: `fs_compat` reports every file with one link, so a hard link
+    // is counted twice there (see its module comment).
+    #[cfg(unix)]
     #[test]
     fn hard_links_count_once() {
         let d = scratch("hardlink");
@@ -267,7 +270,18 @@ mod tests {
         let d = scratch("symlink");
         let outside = scratch("symlink-outside");
         write(&outside.join("big"), 1_000_000);
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, d.join("link")).unwrap();
+        // A junction, Windows' directory link that needs no admin rights.
+        #[cfg(windows)]
+        assert!(std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(d.join("link"))
+            .arg(&outside)
+            .output()
+            .unwrap()
+            .status
+            .success());
         let u = disk_usage(&d, &Scan::detached());
         assert_eq!(u.entries, 2);
         assert!(u.bytes < 1_000_000);
@@ -281,6 +295,9 @@ mod tests {
         assert_eq!(u, DiskUsage::default());
     }
 
+    // Needs real inode numbers to tell the fake mount apart; Windows has none
+    // (and no mount points inside a drive's tree to stay out of).
+    #[cfg(unix)]
     #[test]
     fn stays_on_the_roots_filesystem() {
         let d = scratch("xdev");

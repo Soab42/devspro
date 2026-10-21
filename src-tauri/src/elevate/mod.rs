@@ -133,6 +133,19 @@ pub enum Operation {
     /// must match `[a-z0-9-]+`, `revision` is digits only, and the helper
     /// re-checks with `snap list --all` that the revision is disabled.
     RemoveSnapRevision { name: String, revision: String },
+    /// Cleaner, System tab, Windows: entries of `%SystemRoot%\Temp` untouched
+    /// for a day. Every path below is fixed inside the helper, never sent.
+    ClearWindowsTemp,
+    /// Cleaner, System tab, Windows: empties
+    /// `%SystemRoot%\SoftwareDistribution\Download`, stopping the Windows
+    /// Update service around it when it was running.
+    ClearWindowsUpdateCache,
+    /// Cleaner, System tab, Windows: `Delete-DeliveryOptimizationCache -Force`.
+    ClearDeliveryOptimizationCache,
+    /// Cleaner, System tab, Windows: `%SystemRoot%\MEMORY.DMP`, the contents of
+    /// `%SystemRoot%\Minidump` and of `%ProgramData%\Microsoft\Windows\WER`'s
+    /// ReportArchive and ReportQueue.
+    RemoveSystemCrashDumps,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
