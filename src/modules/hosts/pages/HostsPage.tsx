@@ -22,6 +22,9 @@ import { BookUser, Pencil, Plus, RefreshCw, Trash2 } from "../../../ui/icons";
 import HostsEntryForm from "../components/HostsEntryForm";
 import { HostsEntry, HostsView, missingSiteHosts, readHosts, removeHostsEntry } from "../api";
 
+/** Writes go through UAC on Windows rather than a password prompt. */
+const isWindows = typeof navigator !== "undefined" && /Win/.test(navigator.platform);
+
 type FormTarget = { kind: "new"; hostname?: string } | { kind: "edit"; entry: HostsEntry };
 
 export default function HostsPage() {
@@ -50,7 +53,8 @@ export default function HostsPage() {
     const ok = await confirmAction(
       <>
         <Mono variant="chip">{entry.hostnames.join(" ")}</Mono> will no longer resolve to{" "}
-        <Mono variant="chip">{entry.ip}</Mono>. You will be asked for your password.
+        <Mono variant="chip">{entry.ip}</Mono>.{" "}
+        {isWindows ? "Windows will ask you to allow the change." : "You will be asked for your password."}
       </>,
       { title: "Remove hosts entry?", confirmLabel: "Remove", danger: true },
     );
@@ -68,6 +72,7 @@ export default function HostsPage() {
   }
 
   const entries = hosts.data?.entries ?? [];
+  const hostsPath = hosts.data?.path ?? (isWindows ? "hosts" : "/etc/hosts");
   const missingDomains = missing.data ?? [];
 
   const columns: Column<HostsEntry>[] = [
@@ -144,8 +149,9 @@ export default function HostsPage() {
       status={statusOf(hosts)}
       description={
         <>
-          Entries in <Mono variant="chip">/etc/hosts</Mono>. Changes are written through the
-          system password prompt; everything else in the file is left exactly as it was.
+          Entries in <Mono variant="chip">{hostsPath}</Mono>. Changes are written through the{" "}
+          {isWindows ? "Windows administrator (UAC) prompt" : "system password prompt"}; everything
+          else in the file is left exactly as it was.
         </>
       }
       actions={
@@ -211,7 +217,7 @@ export default function HostsPage() {
             rows={entries}
             rowKey={(e) => String(e.line_no)}
             loading={hosts.loading}
-            caption="Entries in /etc/hosts, in file order"
+            caption={`Entries in ${hostsPath}, in file order`}
           />
         </Section>
 

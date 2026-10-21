@@ -121,39 +121,117 @@ fn write_file_checked(allowed_prefix: &str, path: &str, contents: &str) -> OpRes
     }
 }
 
-const HOSTS_FILE: &str = "/etc/hosts";
+#[cfg(not(windows))]
+fn hosts_path() -> PathBuf {
+    PathBuf::from("/etc/hosts")
+}
 
-/// Replaces /etc/hosts wholesale. The path is fixed here rather than taken from
-/// the manifest, and the write is atomic (temp file + rename, mode preserved) so
-/// a crash mid-write cannot leave a truncated hosts file. Contents without a
-/// `localhost` line are refused: nothing legitimate the app does removes it,
-/// and losing it breaks far more than the app.
+/// `<system dir>\drivers\etc\hosts`. The system directory comes from
+/// `GetSystemDirectoryW` rather than `%SystemRoot%`: this process runs elevated,
+/// so where it writes must not depend on an environment the caller could shape.
+#[cfg(windows)]
+fn hosts_path() -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetSystemDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    }
+
+    let mut buf = [0u16; 260];
+    // SAFETY: `buf` is a writable buffer of exactly the length passed in.
+    let len = unsafe { GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    let system_dir = if len > 0 && len < buf.len() {
+        PathBuf::from(OsString::from_wide(&buf[..len]))
+    } else {
+        PathBuf::from(r"C:\Windows\System32")
+    };
+    system_dir.join(r"drivers\etc\hosts")
+}
+
+/// Whether any uncommented line maps something to `localhost`.
+fn defines_localhost(contents: &str) -> bool {
+    contents
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or(""))
+        .any(|l| l.split_whitespace().skip(1).any(|h| h.eq_ignore_ascii_case("localhost")))
+}
+
+/// Contents without a `localhost` line are refused: nothing legitimate the app
+/// does removes it, and losing it breaks far more than the app.
+#[cfg(not(windows))]
+fn check_localhost(_path: &Path, contents: &str) -> Result<(), String> {
+    if defines_localhost(contents) {
+        Ok(())
+    } else {
+        Err("new hosts contents have no localhost entry — refusing to write".to_string())
+    }
+}
+
+/// Windows resolves localhost itself and ships a hosts file with the localhost
+/// lines commented out, so an entry cannot be required. What is refused instead
+/// is dropping one the file currently has.
+#[cfg(windows)]
+fn check_localhost(path: &Path, contents: &str) -> Result<(), String> {
+    let current = fs::read_to_string(path)
+        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    if defines_localhost(&current) && !defines_localhost(contents) {
+        return Err("new hosts contents drop the existing localhost entry — refusing to write".to_string());
+    }
+    Ok(())
+}
+
+/// Windows-only obstacles that would otherwise surface as a bare "Access is denied".
+#[cfg(windows)]
+fn check_writable(path: &Path) -> Result<(), String> {
+    match fs::metadata(path) {
+        Ok(meta) if meta.permissions().readonly() => Err(format!(
+            "{} is marked read-only (some tools do this to lock it) — clear \"Read-only\" in its Properties and try again",
+            path.display()
+        )),
+        _ => Ok(()),
+    }
+}
+
+#[cfg(not(windows))]
+fn check_writable(_path: &Path) -> Result<(), String> {
+    Ok(())
+}
+
+/// Replaces the hosts file wholesale. The path is fixed here rather than taken
+/// from the manifest, and the write is atomic (temp file + rename, mode
+/// preserved) so a crash mid-write cannot leave a truncated hosts file. See
+/// `check_localhost` for the per-OS localhost rule.
 fn write_hosts_file(contents: &str) -> OpResult {
-    let path = Path::new(HOSTS_FILE);
+    let path = hosts_path();
+    let shown = path.display();
     if !path.is_file() {
         return OpResult {
             success: false,
-            message: format!("{HOSTS_FILE} does not exist — refusing to create it"),
+            message: format!("{shown} does not exist — refusing to create it"),
         };
     }
-    let has_localhost = contents
-        .lines()
-        .map(|l| l.split('#').next().unwrap_or(""))
-        .any(|l| l.split_whitespace().skip(1).any(|h| h.eq_ignore_ascii_case("localhost")));
-    if !has_localhost {
-        return OpResult {
-            success: false,
-            message: "new hosts contents have no localhost entry — refusing to write".to_string(),
-        };
+    if let Err(message) = check_localhost(&path, contents).and_then(|()| check_writable(&path)) {
+        return OpResult { success: false, message };
     }
-    match atomic_write(path, contents) {
+    match atomic_write(&path, contents) {
         Ok(()) => OpResult {
             success: true,
-            message: format!("wrote {HOSTS_FILE}"),
+            message: format!("wrote {shown}"),
+        },
+        // ERROR_VIRUS_INFECTED: Microsoft Defender blocks hosts edits it deems a
+        // hijack (e.g. redirecting a well-known domain).
+        #[cfg(windows)]
+        Err(e) if e.raw_os_error() == Some(225) => OpResult {
+            success: false,
+            message: format!(
+                "Windows Security blocked the write to {shown} (it flags some hosts entries as a hijack) — allow it under Protection history and try again"
+            ),
         },
         Err(e) => OpResult {
             success: false,
-            message: format!("failed to write {HOSTS_FILE}: {e}"),
+            message: format!("failed to write {shown}: {e}"),
         },
     }
 }
@@ -181,6 +259,23 @@ fn remove_file_checked(allowed_prefix: &str, path: &str) -> OpResult {
     }
 }
 
+/// The line ending to write marked-block edits with. Windows files (the hosts
+/// file above all) are usually CRLF; `lines()` strips the `\r`, so without this
+/// a sync would quietly convert the whole file to LF.
+#[cfg(windows)]
+fn line_ending(original: &str) -> &'static str {
+    if original.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
+#[cfg(not(windows))]
+fn line_ending(_original: &str) -> &'static str {
+    "\n"
+}
+
 fn sync_marked_block(file_path: &str, marker_begin: &str, marker_end: &str, block_lines: &[String]) -> OpResult {
     let path = Path::new(file_path);
     let original = match fs::read_to_string(path) {
@@ -193,15 +288,16 @@ fn sync_marked_block(file_path: &str, marker_begin: &str, marker_end: &str, bloc
         }
     };
 
+    let nl = line_ending(&original);
     let mut new_block = String::new();
     new_block.push_str(marker_begin);
-    new_block.push('\n');
+    new_block.push_str(nl);
     for line in block_lines {
         new_block.push_str(line);
-        new_block.push('\n');
+        new_block.push_str(nl);
     }
     new_block.push_str(marker_end);
-    new_block.push('\n');
+    new_block.push_str(nl);
 
     let lines: Vec<&str> = original.lines().collect();
     let begin_idx = lines.iter().position(|l| l.trim() == marker_begin.trim());
@@ -212,21 +308,21 @@ fn sync_marked_block(file_path: &str, marker_begin: &str, marker_end: &str, bloc
             let mut out = String::new();
             for l in &lines[..b] {
                 out.push_str(l);
-                out.push('\n');
+                out.push_str(nl);
             }
             out.push_str(&new_block);
             for l in &lines[e + 1..] {
                 out.push_str(l);
-                out.push('\n');
+                out.push_str(nl);
             }
             out
         }
         _ => {
             let mut out = original.clone();
             if !out.ends_with('\n') {
-                out.push('\n');
+                out.push_str(nl);
             }
-            out.push('\n');
+            out.push_str(nl);
             out.push_str(&new_block);
             out
         }
@@ -256,6 +352,7 @@ fn remove_marked_block(file_path: &str, marker_begin: &str, marker_end: &str) ->
         }
     };
 
+    let nl = line_ending(&original);
     let lines: Vec<&str> = original.lines().collect();
     let begin_idx = lines.iter().position(|l| l.trim() == marker_begin.trim());
     let end_idx = lines.iter().position(|l| l.trim() == marker_end.trim());
@@ -273,11 +370,11 @@ fn remove_marked_block(file_path: &str, marker_begin: &str, marker_end: &str) ->
     let mut out = String::new();
     for l in lines.iter().take(b) {
         out.push_str(l);
-        out.push('\n');
+        out.push_str(nl);
     }
     for l in lines.iter().skip(e + 1) {
         out.push_str(l);
-        out.push('\n');
+        out.push_str(nl);
     }
 
     match atomic_write(path, &out) {
@@ -1010,6 +1107,16 @@ mod ops_tests {
         let r = service_control("stop", "--force");
         assert!(!r.success);
         assert!(r.message.contains("not a valid unit name"), "{}", r.message);
+    }
+
+    #[test]
+    fn localhost_only_counts_on_uncommented_lines() {
+        assert!(defines_localhost("127.0.0.1\tlocalhost\n"));
+        assert!(defines_localhost("::1 ip6-localhost LocalHost # v6\r\n"));
+        // The stock Windows hosts file mentions localhost only in comments.
+        let windows = "# localhost name resolution is handled within DNS itself.\r\n#\t127.0.0.1       localhost\r\n";
+        assert!(!defines_localhost(windows));
+        assert!(!defines_localhost("127.0.0.1 my-localhost\n"));
     }
 
     #[test]
