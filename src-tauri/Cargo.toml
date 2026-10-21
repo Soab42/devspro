@@ -65,7 +65,8 @@ gtk = "0.18"
 webkit2gtk = "2.0"
 
 # getuid(), to tell whether a private key is the user's own — the only kind
-# OpenSSH checks the mode of (see modules/ssh/key_perms.rs).
+# OpenSSH checks the mode of (see modules/ssh/key_perms.rs). Windows checks the
+# key's ACL instead, through windows-sys below.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
@@ -98,6 +99,8 @@ windows-sys = { version = "0.59", features = [
     # The Cleaner's Caches tab (src/modules/cleaner/caches): the user's SID names
     # their Recycle Bin folder on each drive, and NtQueryInformationProcess reads
     # another process's command line to tell an `npm install` from `npm run`.
+    # Security is also how SSH reads and tightens a private key's ACL, which is
+    # what Windows OpenSSH checks instead of mode bits (src/modules/ssh/key_perms.rs).
     "Win32_Security",
     "Win32_Security_Authorization",
     "Wdk_System_Threading",

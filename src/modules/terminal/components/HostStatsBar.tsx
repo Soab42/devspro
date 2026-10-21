@@ -83,7 +83,7 @@ export default function HostStatsBar({ session, sftpId }: { session: TerminalSes
         <Icon icon={Server} size="xs" />
         {stats.hostname || "host"}
       </span>
-      <span className={`term-stat term-stat-${cpu === null ? "good" : meterSeverity(cpu)}`} title={`CPU · load ${stats.load1.toFixed(2)}`}>
+      <span className={`term-stat term-stat-${cpu === null ? "good" : meterSeverity(cpu)}`} title={stats.load1 === null ? "CPU" : `CPU · load ${stats.load1.toFixed(2)}`}>
         <Icon icon={Cpu} size="xs" />
         {cpu === null ? "…" : `${Math.round(cpu)}%`}
       </span>
@@ -102,10 +102,13 @@ export default function HostStatsBar({ session, sftpId }: { session: TerminalSes
         <Icon icon={Clock3} size="xs" />
         {formatUptime(stats.uptimeSeconds)}
       </span>
-      <span className="term-stat" title="Logged-in sessions">
-        <Icon icon={Users} size="xs" />
-        {stats.users}
-      </span>
+      {/* Unknown for this machine on Windows; left out rather than shown as 0. */}
+      {stats.users !== null && (
+        <span className="term-stat" title="Logged-in sessions">
+          <Icon icon={Users} size="xs" />
+          {stats.users}
+        </span>
+      )}
       {stats.disks.slice(0, 6).map((d) => (
         <span key={d.mount} className={`term-stat term-stat-${meterSeverity(d.percent, 80, 92)}`} title={`${d.mount} · ${formatKb(d.used_kb)} of ${formatKb(d.total_kb)}`}>
           <Icon icon={HardDrive} size="xs" />
