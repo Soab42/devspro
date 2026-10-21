@@ -28,7 +28,8 @@ export interface AppDef {
   start: string | null;
   /** Flatpak kind: stopped with `flatpak kill`, started with `flatpak run`. */
   flatpak_id: string | null;
-  /** Service kind: a systemd unit. Starting and stopping it asks for the admin password. */
+  /** Service kind: a systemd unit (a service name on Windows). Starting and stopping it
+   *  asks for the admin password. */
   service: string | null;
 }
 
@@ -78,11 +79,21 @@ export interface WatchdogEvent {
   message: string | null;
 }
 
+/** What this OS can do, so the page leaves out what it can't. */
+export interface Support {
+  os: "linux" | "windows" | "macos" | string;
+  /** Flatpak apps exist (Linux). */
+  flatpak: boolean;
+  /** Swap can be pulled back into RAM. Not on Windows, which has no way to. */
+  reclaim_swap: boolean;
+}
+
 export interface MemorySnapshot {
   taken_at_ms: number;
   memory: MemoryInfo;
   apps: AppRow[];
   watchdog: WatchdogConfig;
+  support: Support;
 }
 
 export interface ActionResult {

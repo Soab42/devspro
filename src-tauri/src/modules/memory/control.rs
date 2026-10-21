@@ -9,14 +9,20 @@
 //! an arbitrary pid and `libc` isn't a direct dependency. What remains between
 //! that last read and the signal is the time to spawn `kill`; a pid would have
 //! to be freed and the whole pid space wrap around inside it.
+//!
+//! Windows has no signals. There SIGTERM's place is taken by WM_CLOSE to the process's
+//! windows and SIGKILL's by TerminateProcess (see `windows::deliver`), which checks the
+//! creation time on the very handle it then acts through — so the gap above doesn't
+//! exist there. The checks before it are the same.
 
 use super::catalog::{AppDef, AppKind};
 use super::procfs::{self, Proc};
 use super::protect::{self, Guard};
 use super::sample::{Entry, Sample, Target};
-use super::{ActionResult, AppState, ResetPreview, ResetRequest, ResetSummary, ResetTarget};
+use super::{ActionResult, AppState, ResetPreview, ResetRequest, ResetSummary, ResetTarget, SUPPORT};
 use crate::elevate::{self, OpResult, Operation, OperationManifest};
 use std::collections::{HashMap, HashSet};
+#[cfg(not(windows))]
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tauri::AppHandle;
@@ -37,6 +43,7 @@ enum Sig {
 }
 
 impl Sig {
+    #[cfg_attr(windows, allow(dead_code))]
     fn name(self) -> &'static str {
         match self {
             Sig::Term => "TERM",
@@ -112,7 +119,7 @@ struct Pass {
     failed: Vec<(Target, String)>,
 }
 
-enum SendError {
+pub(super) enum SendError {
     Gone,
     Failed(String),
 }
@@ -142,6 +149,16 @@ fn send(target: &Target, sig: Sig) -> Result<(), SendError> {
     if procfs::read_start_time(target.pid) != Some(target.start_time) {
         return Err(SendError::Gone);
     }
+    deliver(target, sig)
+}
+
+#[cfg(windows)]
+fn deliver(target: &Target, sig: Sig) -> Result<(), SendError> {
+    super::windows::deliver(target.pid, target.start_time, sig == Sig::Kill)
+}
+
+#[cfg(not(windows))]
+fn deliver(target: &Target, sig: Sig) -> Result<(), SendError> {
     let output = Command::new("kill")
         .args(["-s", sig.name(), &target.pid.to_string()])
         .stdin(Stdio::null())
@@ -171,6 +188,33 @@ fn label(t: &Target) -> String {
 fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
+
+/// What a stop reports once the polite request went out.
+#[cfg(not(windows))]
+fn asked_message(count: usize, name: &str) -> String {
+    format!(
+        "Sent SIGTERM to {} of {name}; anything still running in 5 s gets SIGKILL",
+        plural(count, "process", "processes")
+    )
+}
+
+#[cfg(windows)]
+fn asked_message(count: usize, name: &str) -> String {
+    format!(
+        "Asked {} of {name} to close; anything still running in 5 s is ended",
+        plural(count, "process", "processes")
+    )
+}
+
+/// How the reset's summary names the forced step.
+#[cfg(not(windows))]
+const KILL_FAILED: &str = "SIGKILL failed";
+#[cfg(windows)]
+const KILL_FAILED: &str = "ending it failed";
+#[cfg(not(windows))]
+const STILL_RUNNING: &str = "still running after SIGKILL";
+#[cfg(windows)]
+const STILL_RUNNING: &str = "still running after being ended";
 
 fn result(id: &str, ok: bool, message: impl Into<String>) -> ActionResult {
     ActionResult {
@@ -210,6 +254,12 @@ pub fn stop_entry(entry: &Entry) -> ActionResult {
     }
 }
 
+#[cfg(windows)]
+fn flatpak_kill(id: &str, name: &str, _flatpak_id: &str) -> ActionResult {
+    result(id, false, format!("{name} is a Flatpak app; Flatpak isn't available on Windows"))
+}
+
+#[cfg(not(windows))]
 fn flatpak_kill(id: &str, name: &str, flatpak_id: &str) -> ActionResult {
     match Command::new("flatpak").args(["kill", flatpak_id]).stdin(Stdio::null()).output() {
         Ok(out) if out.status.success() => result(id, true, format!("Stopped {name}")),
@@ -237,10 +287,7 @@ fn term_then_kill(id: &str, name: &str, targets: &[Target]) -> ActionResult {
         std::thread::sleep(STOP_GRACE);
         signal_pass(&sent, Sig::Kill, None);
     });
-    let mut message = format!(
-        "Sent SIGTERM to {} of {name}; anything still running in 5 s gets SIGKILL",
-        plural(pass.sent.len(), "process", "processes")
-    );
+    let mut message = asked_message(pass.sent.len(), name);
     if let Some((_, error)) = pass.failed.first() {
         message.push_str(&format!(" ({} could not be signalled: {error})", plural(pass.failed.len(), "process", "processes")));
     }
@@ -307,7 +354,9 @@ pub fn stop(app: &AppHandle, sample: &Sample, ids: &[String]) -> Vec<ActionResul
 }
 
 /// `~` or `~/…` at the very start, as the shell would — but with the home
-/// directory single-quoted, so a space in it can't split the command.
+/// directory single-quoted, so a space in it can't split the command. Not used on
+/// Windows, where `cmd` has `%USERPROFILE%` instead and a quote means something else.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn expand_tilde(command: &str, home: Option<&str>) -> String {
     let Some(home) = home else {
         return command.to_string();
@@ -327,6 +376,7 @@ pub fn expand_tilde(command: &str, home: Option<&str>) -> String {
 /// subreaper rather than of DevsPro — which matters: a DevsPro descendant is
 /// invisible to this module, so an app started here would otherwise be one
 /// the Stop button could never reach.
+#[cfg(not(windows))]
 fn spawn_detached(program: &str, args: &[&str]) -> Result<(), String> {
     let home = std::env::var_os("HOME");
     let mut command = Command::new("setsid");
@@ -376,14 +426,11 @@ pub fn start(app: &AppHandle, entry: &Entry) -> ActionResult {
     }
     let started = match def.kind {
         AppKind::Process => match &def.start {
-            Some(cmd) => {
-                let home = std::env::var("HOME").ok();
-                spawn_detached("sh", &["-c", &expand_tilde(cmd, home.as_deref())])
-            }
+            Some(cmd) => start_command(cmd),
             None => Err(format!("{} has no start command", row.name)),
         },
         AppKind::Flatpak => match &def.flatpak_id {
-            Some(flatpak_id) => spawn_detached("flatpak", &["run", flatpak_id]),
+            Some(flatpak_id) => start_flatpak(flatpak_id),
             None => Err(format!("{} has no Flatpak id", row.name)),
         },
         AppKind::Service => return start_service(app, def),
@@ -392,6 +439,27 @@ pub fn start(app: &AppHandle, entry: &Entry) -> ActionResult {
         Ok(()) => result(&row.id, true, format!("Starting {}", row.name)),
         Err(e) => result(&row.id, false, e),
     }
+}
+
+#[cfg(not(windows))]
+fn start_command(cmd: &str) -> Result<(), String> {
+    let home = std::env::var("HOME").ok();
+    spawn_detached("sh", &["-c", &expand_tilde(cmd, home.as_deref())])
+}
+
+#[cfg(windows)]
+fn start_command(cmd: &str) -> Result<(), String> {
+    super::windows::spawn_shell(cmd)
+}
+
+#[cfg(not(windows))]
+fn start_flatpak(flatpak_id: &str) -> Result<(), String> {
+    spawn_detached("flatpak", &["run", flatpak_id])
+}
+
+#[cfg(windows)]
+fn start_flatpak(_flatpak_id: &str) -> Result<(), String> {
+    Err("Flatpak isn't available on Windows".to_string())
 }
 
 fn start_service(app: &AppHandle, def: &AppDef) -> ActionResult {
@@ -413,13 +481,27 @@ fn start_service(app: &AppHandle, def: &AppDef) -> ActionResult {
 
 /// DropCaches, then ReclaimSwap last: the helper skips everything after a
 /// failed operation, and the swap guard is the step most likely to refuse.
+///
+/// Where swap can't be reclaimed (Windows) the helper isn't asked to; the second
+/// result says why instead, so a caller reading `[cache, swap]` still gets both.
 pub fn drop_caches(app: &AppHandle, reclaim_swap: bool) -> Result<Vec<OpResult>, String> {
     let mut operations = vec![Operation::DropCaches];
-    if reclaim_swap {
+    if reclaim_swap && SUPPORT.reclaim_swap {
         operations.push(Operation::ReclaimSwap);
     }
-    run_elevated(app, operations)
+    let mut results = run_elevated(app, operations)?;
+    if reclaim_swap && !SUPPORT.reclaim_swap {
+        results.push(OpResult {
+            success: false,
+            message: SWAP_UNSUPPORTED.to_string(),
+        });
+    }
+    Ok(results)
 }
+
+/// Why there's no Reclaim swap on Windows.
+const SWAP_UNSUPPORTED: &str = "not available on Windows: it has no way to move paged-out memory back into RAM \
+     on demand — each app's pages come back as the app uses them";
 
 fn truncate_chars(text: &str, max: usize) -> String {
     match text.char_indices().nth(max) {
@@ -529,13 +611,13 @@ pub fn reset(app: &AppHandle, catalog: &[AppDef], request: ResetRequest) -> Rese
                 std::thread::sleep(RESET_GRACE);
                 let kill = signal_pass(&term.sent, Sig::Kill, Some(uid));
                 for (t, error) in &kill.failed {
-                    failed.push(format!("{}: SIGKILL failed: {error}", label(t)));
+                    failed.push(format!("{}: {KILL_FAILED}: {error}", label(t)));
                 }
                 std::thread::sleep(KILL_SETTLE);
             }
             for t in &term.sent {
                 if is_alive(t) {
-                    failed.push(format!("{}: still running after SIGKILL", label(t)));
+                    failed.push(format!("{}: {STILL_RUNNING}", label(t)));
                 } else {
                     killed += 1;
                 }
@@ -553,7 +635,9 @@ pub fn reset(app: &AppHandle, catalog: &[AppDef], request: ResetRequest) -> Rese
         .collect();
     if request.drop_caches {
         operations.push(Operation::DropCaches);
-        operations.push(Operation::ReclaimSwap);
+        if SUPPORT.reclaim_swap {
+            operations.push(Operation::ReclaimSwap);
+        }
     }
     let admin = if operations.is_empty() {
         Vec::new()

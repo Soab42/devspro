@@ -10,8 +10,8 @@
 //! answer. Nor is anything protected (see `protect`).
 //!
 //! Each action is appended to `<app_data_dir>/memory-watchdog.log` as a JSON
-//! line, emitted as `memory://watchdog`, and announced with `notify-send` when
-//! it worked.
+//! line, emitted as `memory://watchdog`, and announced with `notify-send` (a
+//! toast on Windows) when it worked.
 
 use super::catalog::{self, AppKind};
 use super::control;
@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
@@ -142,9 +143,10 @@ fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-/// Starts the watchdog thread. Linux only; elsewhere there is nothing to read.
+/// Starts the watchdog thread. Linux and Windows only; elsewhere there is
+/// nothing to read.
 pub fn start(app: AppHandle) {
-    if cfg!(not(target_os = "linux")) {
+    if cfg!(not(any(target_os = "linux", windows))) {
         return;
     }
     let spawned = std::thread::Builder::new().name("memory-watchdog".to_string()).spawn(move || {
@@ -222,7 +224,16 @@ fn append_line(path: &Path, event: &WatchdogEvent) -> std::io::Result<()> {
     writeln!(file, "{line}")
 }
 
+#[cfg(windows)]
+fn notify(event: &WatchdogEvent) {
+    super::windows::notify(
+        &format!("DevsPro closed {}", event.app),
+        &format!("{} MB, RAM was {}%", event.ram_mb, event.ram_pct),
+    );
+}
+
 /// Best effort; a desktop without `notify-send` just doesn't get the toast.
+#[cfg(not(windows))]
 fn notify(event: &WatchdogEvent) {
     let child = Command::new("notify-send")
         .arg(format!("DevsPro closed {}", event.app))

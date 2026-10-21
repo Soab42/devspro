@@ -20,8 +20,8 @@ import {
   useResource,
 } from "../../../ui";
 import { Lock, MemoryStick, Pencil, Plus, Trash2 } from "../../../ui/icons";
-import { AppDef, AppKind, CATEGORIES, getApps, setApps } from "../api";
-import { AppErrors, cleanApp, KIND_LABEL, uniqueId, validateApp } from "../memory";
+import { AppDef, AppKind, CATEGORIES, getApps, setApps, Support } from "../api";
+import { AppErrors, cleanApp, FULL_SUPPORT, isWindows, KIND_LABEL, uniqueId, validateApp } from "../memory";
 
 const KIND_OPTIONS = (Object.keys(KIND_LABEL) as AppKind[]).map((kind) => ({
   value: kind,
@@ -53,9 +53,12 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * half-finished edit never reaches the backend.
  */
 export default function EditAppsModal({
+  support = FULL_SUPPORT,
   onSaved,
   onClose,
 }: {
+  /** Leaves out Flatpak where there is none, and names services as this OS does. */
+  support?: Support;
   onSaved: (count: number) => void;
   onClose: () => void;
 }) {
@@ -122,6 +125,7 @@ export default function EditAppsModal({
         }
       >
         <AppForm
+          support={support}
           app={editing.app}
           errors={showErrors ? validateApp(editing.app) : {}}
           onChange={(app) => setEditing({ ...editing, app })}
@@ -232,11 +236,13 @@ export default function EditAppsModal({
 }
 
 function AppForm({
+  support,
   app,
   errors,
   onChange,
   onSubmit,
 }: {
+  support: Support;
   app: AppDef;
   errors: AppErrors;
   onChange: (app: AppDef) => void;
@@ -252,6 +258,9 @@ function AppForm({
   const categories = (CATEGORIES as readonly string[]).includes(app.category)
     ? CATEGORIES
     : [...CATEGORIES, app.category];
+  const windows = isWindows(support);
+  // An entry that is already a Flatpak keeps the option, so its kind still shows.
+  const kinds = KIND_OPTIONS.filter((k) => k.value !== "flatpak" || support.flatpak || app.kind === "flatpak");
 
   return (
     <Form onSubmit={onSubmit}>
@@ -283,7 +292,7 @@ function AppForm({
             size="md"
             value={app.kind}
             onChange={(kind) => set("kind", kind)}
-            options={KIND_OPTIONS}
+            options={kinds}
           />
         </Field>
 
@@ -297,7 +306,7 @@ function AppForm({
           <TextInput
             id={ids.matcher}
             mono
-            placeholder="/opt/google/chrome/chrome"
+            placeholder={windows ? "\\Google\\Chrome\\Application\\chrome.exe" : "/opt/google/chrome/chrome"}
             value={app.matcher}
             invalid={Boolean(errors.matcher)}
             onChange={(e) => set("matcher", e.target.value)}
@@ -308,7 +317,7 @@ function AppForm({
           <Field
             label="Start command"
             htmlFor={ids.extra}
-            hint="Runs with sh. Leave it empty if the app can't be started from here."
+            hint={`Runs with ${windows ? "cmd" : "sh"}. Leave it empty if the app can't be started from here.`}
           >
             <TextInput
               id={ids.extra}
@@ -339,7 +348,7 @@ function AppForm({
         )}
         {app.kind === "service" && (
           <Field
-            label="systemd unit"
+            label={windows ? "Service name" : "systemd unit"}
             htmlFor={ids.extra}
             hint="Starting and stopping it asks for your admin password."
             error={errors.service}
@@ -348,7 +357,7 @@ function AppForm({
             <TextInput
               id={ids.extra}
               mono
-              placeholder="nginx"
+              placeholder={windows ? "MySQL80" : "nginx"}
               value={app.service ?? ""}
               invalid={Boolean(errors.service)}
               onChange={(e) => set("service", e.target.value)}

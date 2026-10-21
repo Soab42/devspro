@@ -27,3 +27,10 @@ pub use unix::*;
 mod windows;
 #[cfg(windows)]
 pub use windows::*;
+
+/// The Memory module's `ServiceControl`, `DropCaches` and `ReclaimSwap` on Windows. On
+/// Unix they are still the `systemctl` / `/proc/sys/vm` code in `main.rs`.
+#[cfg(windows)]
+mod windows_memory;
+#[cfg(windows)]
+pub use windows_memory::{drop_caches, reclaim_swap, service_control};

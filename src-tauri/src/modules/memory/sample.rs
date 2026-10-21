@@ -12,7 +12,9 @@ use super::catalog::{self, AppDef, AppKind};
 use super::procfs::{MemInfoKb, Proc, CLK_TCK, COMM_MAX};
 use super::protect::{self, Guard};
 use super::{AppRow, AppState, MemoryInfo};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+#[cfg(not(windows))]
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -115,6 +117,17 @@ pub struct Grouping {
     pub detected: Vec<(String, Vec<usize>)>,
 }
 
+/// How command lines and matchers are compared: as written on Linux, ignoring
+/// case on Windows, where paths and program names are case-insensitive and the
+/// same app shows up as `C:\Program Files\…` or `c:\program files\…`.
+fn fold(text: &str) -> Cow<'_, str> {
+    if cfg!(windows) {
+        Cow::Owned(text.to_lowercase())
+    } else {
+        Cow::Borrowed(text)
+    }
+}
+
 /// Catalog apps match processes of any user whose command line contains the
 /// matcher (killer semantics), a process matching two entries counting in
 /// both. Everything else that belongs to `my_uid`, is free, and is a live
@@ -124,14 +137,16 @@ pub fn group(procs: &[Proc], guards: &[Guard], catalog: &[AppDef], my_uid: Optio
         catalog: vec![(Vec::new(), Vec::new()); catalog.len()],
         detected: Vec::new(),
     };
+    let matchers: Vec<Cow<str>> = catalog.iter().map(|def| fold(&def.matcher)).collect();
     let mut detected_index: HashMap<&str, usize> = HashMap::new();
     for (i, p) in procs.iter().enumerate() {
         if !p.is_live_userspace() || guards[i] == Guard::Tree {
             continue;
         }
+        let cmdline = fold(&p.cmdline);
         let mut matched = false;
-        for (c, def) in catalog.iter().enumerate() {
-            if !def.matcher.is_empty() && p.cmdline.contains(&def.matcher) {
+        for (c, matcher) in matchers.iter().enumerate() {
+            if !matcher.is_empty() && cmdline.contains(matcher.as_ref()) {
                 matched = true;
                 if guards[i] == Guard::Free {
                     grouping.catalog[c].0.push(i);
@@ -363,7 +378,8 @@ impl Sampler {
 
 /// Which of the catalog's units are active, from one `systemctl is-active`
 /// call (it prints one line per unit, in order). Empty when systemd isn't
-/// there.
+/// there. On Windows the units are services, asked of the Service Control
+/// Manager.
 pub fn active_units(catalog: &[AppDef]) -> HashSet<String> {
     let units: Vec<&str> = catalog
         .iter()
@@ -371,13 +387,26 @@ pub fn active_units(catalog: &[AppDef]) -> HashSet<String> {
         .filter_map(|a| a.service.as_deref())
         .filter(|u| protect::valid_unit_name(u))
         .collect();
-    if units.is_empty() || cfg!(not(target_os = "linux")) {
+    if units.is_empty() {
+        return HashSet::new();
+    }
+    systemd_active(&units)
+}
+
+#[cfg(windows)]
+fn systemd_active(units: &[&str]) -> HashSet<String> {
+    super::windows::active_services(units)
+}
+
+#[cfg(not(windows))]
+fn systemd_active(units: &[&str]) -> HashSet<String> {
+    if cfg!(not(target_os = "linux")) {
         return HashSet::new();
     }
     let Ok(out) = Command::new("systemctl")
         .arg("is-active")
         .arg("--")
-        .args(&units)
+        .args(units)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -386,7 +415,7 @@ pub fn active_units(catalog: &[AppDef]) -> HashSet<String> {
     };
     String::from_utf8_lossy(&out.stdout)
         .lines()
-        .zip(&units)
+        .zip(units)
         .filter(|(state, _)| state.trim() == "active")
         .map(|(_, unit)| unit.to_string())
         .collect()
@@ -537,6 +566,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn detected_name_undoes_comm_truncation() {
         let mut p = proc(10, 1, "io.elementary.a", "io.elementary.appcenter -s");
         assert_eq!(detected_name(&p), "io.elementary.appcenter");
@@ -553,11 +583,11 @@ mod tests {
         let s = build(&mut sampler, machine(), &catalog, &[], t0);
         assert_eq!(s.entry("chrome").unwrap().row.cpu_pct, 0.0, "no baseline yet");
 
-        // 4 s later Chrome's two processes used 100 + 60 ticks: 160 ticks over
-        // 4 s at 100 ticks/s is 40 % of one core.
+        // 4 s later Chrome's two processes used 1 s + 0.6 s of CPU: 1.6 s over
+        // 4 s is 40 % of one core.
         let mut later = machine();
-        later.iter_mut().find(|p| p.pid == 8858).unwrap().ticks += 100;
-        later.iter_mut().find(|p| p.pid == 8977).unwrap().ticks += 60;
+        later.iter_mut().find(|p| p.pid == 8858).unwrap().ticks += CLK_TCK;
+        later.iter_mut().find(|p| p.pid == 8977).unwrap().ticks += CLK_TCK * 6 / 10;
         let s = build(&mut sampler, later, &catalog, &[], t0 + Duration::from_secs(4));
         assert_eq!(s.entry("chrome").unwrap().row.cpu_pct, 40.0);
 

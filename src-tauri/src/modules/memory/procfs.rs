@@ -7,19 +7,33 @@
 //! RSS comes from `VmRSS` in `status` (already read for the uid) rather than
 //! `statm` × page size: same kernel counter, already in kB, and it avoids
 //! guessing the page size, which isn't 4 KiB on every arm64 kernel.
+//!
+//! On Windows the readers at the bottom (`scan`, `read_proc`, `read_start_time`,
+//! `my_uid`, `read_meminfo`) and the two constants come from `super::windows` instead,
+//! filling the same `Proc` and `MemInfoKb`; the parsers stay, as plain functions.
+
+// The parsers are only called from the Linux readers (and the tests) on Windows.
+#![cfg_attr(windows, allow(dead_code))]
 
 use super::MemoryInfo;
+#[cfg(not(windows))]
 use std::fs;
+#[cfg(not(windows))]
 use std::sync::OnceLock;
+
+#[cfg(windows)]
+pub use super::windows::{my_uid, read_meminfo, read_proc, read_start_time, scan, CLK_TCK, COMM_MAX};
 
 /// Clock ticks per second for `utime`, `stime` and `starttime`. The kernel
 /// exports these in USER_HZ, which is 100 on every architecture Linux userspace
 /// runs on; `sysconf(_SC_CLK_TCK)` would say the same, and `libc` isn't a direct
 /// dependency of this crate.
+#[cfg(not(windows))]
 pub const CLK_TCK: u64 = 100;
 
 /// The kernel cuts `comm` to 15 bytes (TASK_COMM_LEN - 1), so
 /// `gnome-session-binary` shows up as `gnome-session-b`.
+#[cfg(not(windows))]
 pub const COMM_MAX: usize = 15;
 
 /// The fields of `/proc/<pid>/stat` this module uses.
@@ -133,6 +147,7 @@ impl Proc {
 }
 
 /// `None` when the process is gone (or vanished halfway through being read).
+#[cfg(not(windows))]
 pub fn read_proc(pid: u32) -> Option<Proc> {
     let stat = parse_stat(&fs::read_to_string(format!("/proc/{pid}/stat")).ok()?)?;
     let status = parse_status(&fs::read_to_string(format!("/proc/{pid}/status")).ok()?);
@@ -152,7 +167,8 @@ pub fn read_proc(pid: u32) -> Option<Proc> {
 }
 
 /// Every process visible in `/proc`, in pid order. Empty where there is no
-/// `/proc` (macOS, Windows).
+/// `/proc` (macOS).
+#[cfg(not(windows))]
 pub fn scan() -> Vec<Proc> {
     let Ok(entries) = fs::read_dir("/proc") else {
         return Vec::new();
@@ -166,12 +182,14 @@ pub fn scan() -> Vec<Proc> {
 }
 
 /// Just the start time — the identity re-read right before a signal.
+#[cfg(not(windows))]
 pub fn read_start_time(pid: u32) -> Option<u64> {
     parse_stat(&fs::read_to_string(format!("/proc/{pid}/stat")).ok()?).map(|s| s.start_time)
 }
 
-/// The real uid DevsPro runs as. `None` off Linux, which leaves the detected
+/// The real uid DevsPro runs as. `None` on macOS, which leaves the detected
 /// list and the full reset empty.
+#[cfg(not(windows))]
 pub fn my_uid() -> Option<u32> {
     static UID: OnceLock<Option<u32>> = OnceLock::new();
     *UID.get_or_init(|| fs::read_to_string("/proc/self/status").ok().and_then(|s| parse_status(&s).uid))
@@ -204,6 +222,7 @@ pub fn parse_meminfo(raw: &str) -> MemInfoKb {
     info
 }
 
+#[cfg(not(windows))]
 pub fn read_meminfo() -> MemInfoKb {
     parse_meminfo(&fs::read_to_string("/proc/meminfo").unwrap_or_default())
 }

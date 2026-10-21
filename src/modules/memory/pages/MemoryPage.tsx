@@ -37,6 +37,7 @@ import {
   setWatchdog,
   startApp,
   stopApps,
+  Support,
   WatchdogConfig,
   WatchdogEvent,
   watchdogLog,
@@ -49,7 +50,9 @@ import {
   canStop,
   formatCpu,
   formatMb,
+  FULL_SUPPORT,
   isRunning,
+  isWindows,
   processCount,
   STATE_LABEL,
   STATE_RANK,
@@ -115,6 +118,7 @@ export default function MemoryPage() {
 
   const rows = useMemo(() => snapshot.data?.apps ?? [], [snapshot.data]);
   const config = watchdog.data ?? snapshot.data?.watchdog ?? null;
+  const support = snapshot.data?.support ?? FULL_SUPPORT;
 
   const running = (category: string | null) =>
     rows.filter((r) => isRunning(r) && (category === null || r.category === category)).length;
@@ -252,10 +256,17 @@ export default function MemoryPage() {
   async function dropCache(reclaimSwap: boolean) {
     const ok = await confirmAction(
       <Stack gap={3}>
-        <p>
-          Frees the RAM Linux is using to cache files. Nothing is closed, though apps may be a
-          little slower while the cache fills up again.
-        </p>
+        {isWindows(support) ? (
+          <p>
+            Frees the RAM Windows keeps as standby cache: recently used files and programs. Nothing
+            is closed, though apps may be a little slower while the cache fills up again.
+          </p>
+        ) : (
+          <p>
+            Frees the RAM Linux is using to cache files. Nothing is closed, though apps may be a
+            little slower while the cache fills up again.
+          </p>
+        )}
         {reclaimSwap && (
           <p>
             Then moves what&apos;s in swap back into RAM. If there isn&apos;t enough free RAM for
@@ -405,6 +416,7 @@ export default function MemoryPage() {
         {snapshot.data && (
           <Summary
             memory={snapshot.data.memory}
+            support={support}
             config={config}
             dropping={dropping}
             onDropCache={(reclaimSwap) => void dropCache(reclaimSwap)}
@@ -464,6 +476,7 @@ export default function MemoryPage() {
 
       {dialog === "apps" && (
         <EditAppsModal
+          support={support}
           onClose={() => setDialog(null)}
           onSaved={(count) => {
             setDialog(null);
@@ -473,7 +486,11 @@ export default function MemoryPage() {
         />
       )}
       {dialog === "reset" && (
-        <ResetModal onClose={() => setDialog(null)} onFinished={() => void snapshot.refresh()} />
+        <ResetModal
+          support={support}
+          onClose={() => setDialog(null)}
+          onFinished={() => void snapshot.refresh()}
+        />
       )}
     </Page>
   );
@@ -481,15 +498,19 @@ export default function MemoryPage() {
 
 function Summary({
   memory,
+  support,
   config,
   dropping,
   onDropCache,
 }: {
   memory: MemoryInfo;
+  support: Support;
   config: WatchdogConfig | null;
   dropping: boolean;
   onDropCache: (reclaimSwap: boolean) => void;
 }) {
+  // Windows' swap is its page file, and the figure is an estimate (see the backend).
+  const swapLabel = isWindows(support) ? "Page file" : "Swap";
   return (
     <Section
       title="RAM"
@@ -505,15 +526,18 @@ function Summary({
           <Button size="sm" variant="secondary" icon={Eraser} disabled={dropping} onClick={() => onDropCache(false)}>
             Drop cache
           </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={dropping || memory.swap_used_mb === 0}
-            title={memory.swap_used_mb === 0 ? "Nothing is in swap" : undefined}
-            onClick={() => onDropCache(true)}
-          >
-            Reclaim swap
-          </Button>
+          {/* Windows has no way to pull paged-out memory back in on demand. */}
+          {support.reclaim_swap && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={dropping || memory.swap_used_mb === 0}
+              title={memory.swap_used_mb === 0 ? "Nothing is in swap" : undefined}
+              onClick={() => onDropCache(true)}
+            >
+              Reclaim swap
+            </Button>
+          )}
         </>
       }
     >
@@ -526,8 +550,8 @@ function Summary({
           </span>
           <span className="u-secondary u-tnum">
             {memory.swap_total_mb > 0
-              ? `Swap: ${formatMb(memory.swap_used_mb)} used of ${formatMb(memory.swap_total_mb)}`
-              : "No swap"}
+              ? `${swapLabel}: ${formatMb(memory.swap_used_mb)} used of ${formatMb(memory.swap_total_mb)}`
+              : `No ${swapLabel.toLowerCase()}`}
           </span>
         </Stack>
       </Stack>

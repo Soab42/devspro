@@ -5,6 +5,9 @@
 //! hasn't customised theirs.
 //!
 //! Also home to the auto-categorisation of detected apps (killer's `AUTO_CAT`).
+//!
+//! Windows gets a seed of its own — killer's paths, Flatpaks and systemd units
+//! mean nothing there — and refuses Flatpak entries, which it can't run.
 
 use super::protect::valid_unit_name;
 use rusqlite::Connection;
@@ -12,6 +15,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 pub const APPS_KEY: &str = "memory.apps";
+
+/// What a service's `service` field holds, as validation messages call it.
+#[cfg(not(windows))]
+const UNIT_NOUN: &str = "systemd unit name";
+#[cfg(windows)]
+const UNIT_NOUN: &str = "service name";
 
 pub const CATEGORIES: [&str; 7] = ["Browsers", "Communication", "Dev", "Creative", "Servers", "Background", "Other"];
 
@@ -43,8 +52,17 @@ pub struct AppDef {
     pub start: Option<String>,
     /// `Flatpak`: the application id.
     pub flatpak_id: Option<String>,
-    /// `Service`: the systemd unit.
+    /// `Service`: the systemd unit (on Windows, the service name).
     pub service: Option<String>,
+}
+
+/// A `Process` entry with nothing to start it by: it can still be stopped.
+#[cfg(windows)]
+fn stop_only(id: &str, name: &str, category: &str, matcher: &str) -> AppDef {
+    AppDef {
+        start: None,
+        ..process(id, name, category, matcher, "")
+    }
 }
 
 fn process(id: &str, name: &str, category: &str, matcher: &str, start: &str) -> AppDef {
@@ -62,6 +80,7 @@ fn process(id: &str, name: &str, category: &str, matcher: &str, start: &str) -> 
 
 /// killer's flatpak entries all match on the app id, except Teams, whose
 /// processes are named after the upstream project instead.
+#[cfg(not(windows))]
 fn flatpak(id: &str, name: &str, category: &str, matcher: &str, flatpak_id: &str) -> AppDef {
     AppDef {
         id: id.to_string(),
@@ -88,8 +107,41 @@ fn service(id: &str, name: &str, matcher: &str, unit: &str) -> AppDef {
     }
 }
 
+/// The Windows counterpart of killer's list: the same kinds of app, matched on
+/// their install folders (case doesn't matter on Windows). Only apps a bare name
+/// reliably starts — on PATH, or registered under App Paths, which `start` reads
+/// — get a start command; the rest can be stopped, and given one in the editor.
+/// The services are the names the MySQL and Apache Lounge installers register.
+#[cfg(windows)]
+pub fn seed() -> Vec<AppDef> {
+    vec![
+        process("chrome", "Chrome", "Browsers", r"\Google\Chrome\Application\chrome.exe", "chrome"),
+        process("edge", "Edge", "Browsers", r"\Microsoft\Edge\Application\msedge.exe", "msedge"),
+        process("firefox", "Firefox", "Browsers", r"\Mozilla Firefox\firefox.exe", "firefox"),
+        stop_only("teams", "Teams", "Communication", "ms-teams.exe"),
+        stop_only("discord", "Discord", "Communication", r"\Discord\app-"),
+        stop_only("slack", "Slack", "Communication", "slack.exe"),
+        stop_only("zoom", "Zoom", "Communication", r"\Zoom\bin\Zoom.exe"),
+        stop_only("telegram", "Telegram", "Communication", "Telegram.exe"),
+        process("thunderbird", "Thunderbird", "Communication", "thunderbird.exe", "thunderbird"),
+        process("vscode", "VS Code", "Dev", r"\Microsoft VS Code\Code.exe", "code"),
+        stop_only("postman", "Postman", "Dev", "Postman.exe"),
+        stop_only("obs-studio", "OBS Studio", "Creative", "obs64.exe"),
+        stop_only("gimp", "GIMP", "Creative", r"\bin\gimp-"),
+        process("vlc", "VLC", "Creative", "vlc.exe", "vlc"),
+        process("libreoffice", "LibreOffice", "Creative", "soffice", "soffice"),
+        service("apache", "Apache", "httpd.exe", "Apache2.4"),
+        stop_only("php-dev-server", "PHP Dev Server", "Servers", "php -S"),
+        service("mysql", "MySQL", "mysqld", "MySQL80"),
+        stop_only("dropbox", "Dropbox", "Background", "Dropbox.exe"),
+        stop_only("onedrive", "OneDrive", "Background", "OneDrive.exe"),
+        stop_only("claude-desktop", "Claude Desktop", "Background", r"\AnthropicClaude\"),
+    ]
+}
+
 /// killer's `APPS`, in its order. `start_glob` (Dropbox) needs no special case:
 /// the start command runs under `sh -c`, which expands the glob itself.
+#[cfg(not(windows))]
 pub fn seed() -> Vec<AppDef> {
     vec![
         process("chrome", "Chrome", "Browsers", "/opt/google/chrome/chrome", "/opt/google/chrome/chrome"),
@@ -204,6 +256,9 @@ pub fn validate(apps: Vec<AppDef>) -> Result<Vec<AppDef>, String> {
         let service = trimmed(app.service);
         match app.kind {
             AppKind::Process => {}
+            AppKind::Flatpak if cfg!(windows) => {
+                return Err(format!("{name}: Flatpak apps don't exist on Windows; make it a process or a service"))
+            }
             AppKind::Flatpak => match &flatpak_id {
                 None => return Err(format!("{name}: a Flatpak app needs its application id")),
                 Some(fid) if !valid_flatpak_id(fid) => {
@@ -212,7 +267,7 @@ pub fn validate(apps: Vec<AppDef>) -> Result<Vec<AppDef>, String> {
                 Some(_) => {}
             },
             AppKind::Service => match &service {
-                None => return Err(format!("{name}: a service needs its systemd unit name")),
+                None => return Err(format!("{name}: a service needs its {UNIT_NOUN}")),
                 Some(unit) if !valid_unit_name(unit) => {
                     return Err(format!(
                         "{name}: \"{unit}\" is not a unit name (letters, digits and @ . _ : - only, not starting with -)"
@@ -304,6 +359,18 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn the_windows_seed_passes_validation_and_has_no_flatpaks() {
+        let seed = seed();
+        assert_eq!(validate(seed.clone()).expect("seed must validate"), seed);
+        assert!(seed.iter().all(|a| a.kind != AppKind::Flatpak));
+        let services: Vec<_> = seed.iter().filter_map(|a| a.service.as_deref()).collect();
+        assert_eq!(services, ["Apache2.4", "MySQL80"]);
+        assert!(validate(vec![def("a", AppKind::Flatpak)]).unwrap_err().contains("don't exist on Windows"));
+    }
+
+    #[test]
+    #[cfg(not(windows))]
     fn the_seed_is_killers_list_and_passes_validation() {
         let seed = seed();
         assert_eq!(seed.len(), 24);
@@ -335,17 +402,9 @@ mod tests {
 
     #[test]
     fn requires_the_field_each_kind_needs() {
-        let mut app = def("a", AppKind::Flatpak);
-        app.flatpak_id = Some("  ".to_string());
-        assert!(validate(vec![app]).unwrap_err().contains("application id"));
-
-        let mut app = def("a", AppKind::Flatpak);
-        app.flatpak_id = Some("--user".to_string());
-        assert!(validate(vec![app]).is_err());
-
         let mut app = def("a", AppKind::Service);
         app.service = None;
-        assert!(validate(vec![app]).unwrap_err().contains("unit name"));
+        assert!(validate(vec![app]).unwrap_err().contains(UNIT_NOUN));
 
         let mut app = def("a", AppKind::Service);
         app.service = Some("nginx; reboot".to_string());
@@ -356,6 +415,18 @@ mod tests {
         app.start = Some("   ".to_string());
         let ok = validate(vec![app]).unwrap();
         assert_eq!(ok[0].start, None);
+    }
+
+    #[test]
+    #[cfg(not(windows))]
+    fn a_flatpak_needs_a_valid_application_id() {
+        let mut app = def("a", AppKind::Flatpak);
+        app.flatpak_id = Some("  ".to_string());
+        assert!(validate(vec![app]).unwrap_err().contains("application id"));
+
+        let mut app = def("a", AppKind::Flatpak);
+        app.flatpak_id = Some("--user".to_string());
+        assert!(validate(vec![app]).is_err());
     }
 
     #[test]

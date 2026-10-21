@@ -92,6 +92,13 @@ windows-sys = { version = "0.59", features = [
     # Maps a listening port's owning pid to a process name, without needing the
     # OpenProcess rights that reading another user's process would.
     "Win32_System_Diagnostics_ToolHelp",
+    # The Memory module (src/modules/memory/windows.rs): per-process RAM, owner and
+    # command line, service state, and ending processes.
+    "Win32_Security",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Services",
+    "Wdk_Foundation",
+    "Wdk_System_Threading",
 ] }
 
 [workspace]
