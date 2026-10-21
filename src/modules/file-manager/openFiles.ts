@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { getSetting, setSetting } from "../settings/api";
+import { isUnder } from "./utils";
 
 /**
  * The files open as tabs beside the folder view, editor-style: which ones, in
@@ -28,7 +29,6 @@ export const NO_OPEN_FILES: OpenFiles = { files: [], active: null, dirty: [] };
 
 export const OPEN_FILES_KEY = "fm.open-files";
 
-const isUnder = (path: string, root: string) => path === root || path.startsWith(`${root}/`);
 
 /** Brings `file` to the front, opening it beside the current tab if it is not open yet. */
 export function openTab(s: OpenFiles, file: OpenFile): OpenFiles {

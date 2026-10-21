@@ -8,6 +8,8 @@
 //! a GIO attribute. These helpers ask `gio` for the titles so a Drive folder
 //! reads the way it does on the web. Google Docs, Sheets and Slides are
 //! shortcuts there: no bytes to read, only a web address to open.
+//!
+//! GVfs is GNOME's; on Windows none of this is ever reached.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -35,8 +37,10 @@ pub fn gvfs_root() -> PathBuf {
 }
 
 /// Whether `path` is on a GVfs backend that names files by an opaque ID.
+/// Never on Windows: Google Drive for desktop there is a drive letter whose
+/// files carry their real names, so there are no titles to look up.
 pub fn names_by_id(path: &Path) -> bool {
-    names_by_id_under(path, &gvfs_root())
+    cfg!(not(windows)) && names_by_id_under(path, &gvfs_root())
 }
 
 fn names_by_id_under(path: &Path, root: &Path) -> bool {

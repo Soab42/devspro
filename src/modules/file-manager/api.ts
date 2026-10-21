@@ -117,6 +117,8 @@ export interface Device {
   unmount: string | null;
   /** Eject the medium or power the drive down for unplugging. */
   eject: string | null;
+  /** Bytes free, where the listing knows it (Windows drives). */
+  free?: number;
 }
 
 export const fmDevices = () => invoke<Device[]>("fm_devices");
@@ -138,7 +140,9 @@ export async function fmMediaUrl(path: string, version = 0): Promise<string> {
     mediaToken = null;
     throw e;
   });
-  const url = convertFileSrc(`${await mediaToken}${path}`, "fmfile");
+  // The token and the path meet at a slash: a Unix path brings its own, a
+  // Windows one (`C:\…`) needs one added.
+  const url = convertFileSrc(`${await mediaToken}${path.startsWith("/") ? "" : "/"}${path}`, "fmfile");
   return version ? `${url}?v=${version}` : url;
 }
 

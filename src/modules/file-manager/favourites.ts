@@ -16,7 +16,7 @@ export function parseFavourites(raw: string | null): Favourite[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((f): f is Favourite => typeof f === "object" && f !== null && typeof (f as Favourite).path === "string")
-      .map((f) => ({ path: f.path, label: typeof f.label === "string" && f.label ? f.label : baseName(f.path) || "/" }));
+      .map((f) => ({ path: f.path, label: typeof f.label === "string" && f.label ? f.label : baseName(f.path) || f.path }));
   } catch {
     return [];
   }
@@ -49,7 +49,7 @@ export function useFavourites() {
   const add = useCallback(
     (path: string) => {
       if (list.some((f) => f.path === path)) return;
-      save([...list, { path, label: baseName(path) || "/" }]);
+      save([...list, { path, label: baseName(path) || path }]);
     },
     [list, save],
   );
