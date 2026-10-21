@@ -25,3 +25,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Extra Cargo target dirs used for parallel builds (the app's own is src-tauri/target)
+/target-agents/
+/target-main/
+
+# Claude Code agent worktrees
+/.claude/worktrees/
