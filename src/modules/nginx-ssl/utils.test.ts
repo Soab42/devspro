@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   connectionOption,
   dbNameSlug,
+  joinFolder,
   plannedSteps,
   planSummary,
   slugForHostname,
@@ -52,6 +53,25 @@ describe("splitProjectFolder", () => {
     expect(splitProjectFolder("/home/me/code/shop/")).toEqual({ parentDir: "/home/me/code", name: "shop" });
     expect(splitProjectFolder("/shop")).toEqual({ parentDir: "/", name: "shop" });
     expect(splitProjectFolder("shop")).toEqual({ parentDir: "", name: "shop" });
+  });
+
+  it("splits Windows paths, keeping a drive root a root", () => {
+    expect(splitProjectFolder("C:\\Users\\me\\code\\shop")).toEqual({
+      parentDir: "C:\\Users\\me\\code",
+      name: "shop",
+    });
+    // `C:` alone is the current directory on drive C, not its root.
+    expect(splitProjectFolder("C:\\shop")).toEqual({ parentDir: "C:\\", name: "shop" });
+    expect(splitProjectFolder("D:\\shop\\")).toEqual({ parentDir: "D:\\", name: "shop" });
+  });
+});
+
+describe("joinFolder", () => {
+  it("joins with the separator the parent already uses", () => {
+    expect(joinFolder("/home/me/code/", "shop")).toBe("/home/me/code/shop");
+    expect(joinFolder("/", "shop")).toBe("/shop");
+    expect(joinFolder("C:\\Users\\me\\code", "shop")).toBe("C:\\Users\\me\\code\\shop");
+    expect(joinFolder("C:\\", "shop")).toBe("C:\\shop");
   });
 });
 

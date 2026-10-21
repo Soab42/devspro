@@ -463,7 +463,7 @@ pub fn databases_inspect_container(name: String) -> Result<ContainerCredentials,
     if name.is_empty() || name.starts_with('-') || name.chars().any(char::is_whitespace) {
         return Err(format!("'{name}' is not a usable container name"));
     }
-    let output = std::process::Command::new("docker")
+    let output = crate::modules::tools::command("docker")
         .args(["inspect", "--format", "{{json .Config.Env}}", &name])
         .output()
         .map_err(|e| format!("failed to run docker inspect: {e}"))?;

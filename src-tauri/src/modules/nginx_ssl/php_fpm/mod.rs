@@ -63,6 +63,12 @@ pub fn missing_version_hint(version: &str) -> String {
     platform::missing_version_hint(version)
 }
 
+/// The PHP command-line binary for running artisan, matching `version` when one is pinned.
+/// Always something to try: the bare `php` when nothing better is known.
+pub fn cli_binary(version: Option<&str>) -> String {
+    platform::cli_binary(version)
+}
+
 /// The `fastcgi_pass` for a site that didn't pin a version.
 pub fn require_target() -> Result<String, String> {
     detect().fastcgi_pass.ok_or_else(platform::install_hint)

@@ -145,7 +145,7 @@ export function DownloadsBar({ downloads, onReveal, onClear }: DownloadsBarProps
       <Icon icon={Download} size="sm" />
       <div className="browser-downloads-list">
         {downloads.map((d) => {
-          const name = d.path?.split("/").pop() ?? d.url;
+          const name = d.path?.split(/[\\/]/).pop() ?? d.url;
           const status = d.state === "started" ? "downloading…" : d.success ? "done" : "failed";
           return (
             <span key={d.url + (d.path ?? "")} className="browser-download">
