@@ -13,7 +13,7 @@ import {
 } from "../../../ui";
 import { Site } from "../../nginx-ssl/api";
 import { ScheduledTaskView, saveScheduledTask } from "../api";
-import { CRON_PRESETS, describeCron, presetForSchedule } from "../utils";
+import { CRON_PRESETS, ON_WINDOWS, describeCron, presetForSchedule } from "../utils";
 
 export default function TaskForm({
   task,
@@ -139,7 +139,7 @@ export default function TaskForm({
             <TextInput
               id="task-dir"
               mono
-              placeholder="/home/you/sites/myapp"
+              placeholder={ON_WINDOWS ? "C:\\Users\\you\\sites\\myapp" : "/home/you/sites/myapp"}
               value={workingDir}
               onChange={(e) => setWorkingDir(e.target.value)}
               className="u-flex-1"
@@ -157,7 +157,11 @@ export default function TaskForm({
         <Field
           label="Cron expression"
           htmlFor="task-schedule"
-          description="Minute, hour, day of month, month, weekday."
+          description={
+            ON_WINDOWS
+              ? "Minute, hour, day of month, month, weekday. Translated to Task Scheduler triggers; commands run with cmd."
+              : "Minute, hour, day of month, month, weekday."
+          }
           hint={described.text}
           error={described.valid ? undefined : "Invalid schedule"}
         >
@@ -175,7 +179,11 @@ export default function TaskForm({
           checked={enabled}
           onChange={setEnabled}
           label="Enabled"
-          description="Written to your crontab when saved. Disabled tasks are kept here but removed from cron."
+          description={
+            ON_WINDOWS
+              ? "Registered with Task Scheduler when saved. Disabled tasks stay registered but switched off."
+              : "Written to your crontab when saved. Disabled tasks are kept here but removed from cron."
+          }
         />
 
         {error && <Callout tone="danger">{error}</Callout>}
