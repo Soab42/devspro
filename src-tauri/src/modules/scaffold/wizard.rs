@@ -408,9 +408,19 @@ mod tests {
         assert_eq!(plan.php_version, None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn php_binary_falls_back_to_plain_php() {
         assert_eq!(php_binary(None), "php");
         assert_eq!(php_binary(Some("0.0-does-not-exist")), "php");
+    }
+
+    // Windows resolves to whichever installed php.exe it finds (Laragon, XAMPP,
+    // PATH), so the exact answer depends on the machine; what must hold is that a
+    // version that doesn't exist falls back to the same default as no version.
+    #[cfg(windows)]
+    #[test]
+    fn php_binary_with_an_unknown_version_falls_back_to_the_default() {
+        assert_eq!(php_binary(Some("0.0-does-not-exist")), php_binary(None));
     }
 }
