@@ -53,12 +53,17 @@ pub fn ssh_dir() -> Result<PathBuf, String> {
 /// creating it with default permissions would produce a confusing failure
 /// later rather than an error here.
 pub fn ensure_ssh_dir() -> Result<PathBuf, String> {
-    use std::os::unix::fs::PermissionsExt;
     let dir = ssh_dir()?;
     if !dir.is_dir() {
         std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create {}: {e}", dir.display()))?;
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
-            .map_err(|e| format!("failed to set permissions on {}: {e}", dir.display()))?;
+        // Windows has no mode bits; OpenSSH for Windows checks ACLs instead, and a
+        // fresh directory under the user's profile already inherits owner-only ones.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| format!("failed to set permissions on {}: {e}", dir.display()))?;
+        }
     }
     Ok(dir)
 }

@@ -4,6 +4,7 @@
 use super::super::Risk;
 use super::procs::Blocker;
 use std::fs;
+#[cfg(test)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -123,7 +124,7 @@ pub struct Host {
 impl Host {
     pub fn which(&self, name: &str) -> Option<PathBuf> {
         self.path.iter().map(|d| d.join(name)).find(|p| {
-            fs::metadata(p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
+            crate::modules::fs_compat::is_executable(p)
         })
     }
 

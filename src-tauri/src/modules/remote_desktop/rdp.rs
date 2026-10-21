@@ -58,10 +58,7 @@ struct ExitEvent {
 }
 
 fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
-        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        .unwrap_or(false)
+    crate::modules::fs_compat::is_executable(path)
 }
 
 fn find_on_path(name: &str, path_var: &str) -> Option<PathBuf> {

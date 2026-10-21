@@ -270,10 +270,7 @@ pub fn search_dirs(shell_path: Option<&str>, process_path: Option<&str>, extras:
 }
 
 fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
-        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-        .unwrap_or(false)
+    crate::modules::fs_compat::is_executable(path)
 }
 
 /// Resolves a command the way a shell would: a name is looked up along the

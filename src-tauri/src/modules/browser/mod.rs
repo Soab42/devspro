@@ -57,6 +57,9 @@
 
 pub mod credentials;
 mod focus;
+// Linux hosts each tab in the app window's GTK tree; elsewhere wry parents the
+// view to the native window directly (`build_as_child`), so there is no host.
+#[cfg(target_os = "linux")]
 mod host;
 
 use rusqlite::params;
@@ -67,9 +70,13 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use tauri::{AppHandle, Emitter, Manager, State, Url};
 use wry::dpi::{LogicalPosition, LogicalSize};
+#[cfg(target_os = "linux")]
 use gtk::prelude::*;
+#[cfg(target_os = "linux")]
 use webkit2gtk::WebViewExt;
-use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
+use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
+#[cfg(target_os = "linux")]
+use wry::{WebViewBuilderExtUnix, WebViewExtUnix};
 
 pub const TITLE_EVENT: &str = "browser:title";
 pub const LOAD_EVENT: &str = "browser:load";
@@ -508,12 +515,21 @@ fn browser_open_inner(
                 builder = builder.with_user_agent(ua);
             }
 
-            let fixed = host::container_for(&window)?;
+            #[cfg(target_os = "linux")]
+            let wv = {
+                let fixed = host::container_for(&window)?;
+                let wv = builder
+                    .build_gtk(&fixed)
+                    .map_err(|e| format!("could not create the browser view: {e}"))?;
+                host::place(&fixed, wv.webview().upcast_ref(), bounds.x, bounds.y, bounds.width, bounds.height);
+                wv.webview().show_all();
+                wv
+            };
+            // A native child window (WebView2 on Windows) positioned by `with_bounds`.
+            #[cfg(not(target_os = "linux"))]
             let wv = builder
-                .build_gtk(&fixed)
+                .build_as_child(&window)
                 .map_err(|e| format!("could not create the browser view: {e}"))?;
-            host::place(&fixed, wv.webview().upcast_ref(), bounds.x, bounds.y, bounds.width, bounds.height);
-            wv.webview().show_all();
             Ok::<WebView, String>(wv)
         })?;
         TABS.with(|tabs| tabs.borrow_mut().insert(id, webview));
@@ -549,13 +565,16 @@ pub fn browser_stop(app: AppHandle, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn browser_set_bounds(app: AppHandle, id: String, bounds: Bounds) -> Result<(), String> {
-    with_tab(&app, id, move |wv| {
+    #[cfg(target_os = "linux")]
+    return with_tab(&app, id, move |wv| {
         let widget = wv.webview();
         if let Some(fixed) = widget.parent().and_then(|p| p.downcast::<gtk::Fixed>().ok()) {
             host::place(&fixed, widget.upcast_ref(), bounds.x, bounds.y, bounds.width, bounds.height);
         }
         Ok(())
-    })
+    });
+    #[cfg(not(target_os = "linux"))]
+    return with_tab(&app, id, move |wv| wv.set_bounds(Rect::from(&bounds)));
 }
 
 #[tauri::command]
@@ -587,7 +606,17 @@ pub fn browser_focus(app: AppHandle, id: String) -> Result<(), String> {
 /// dialog. The frontend calls this on every click outside a page.
 #[tauri::command]
 pub fn browser_focus_parent(app: AppHandle, window: tauri::Window) -> Result<(), String> {
-    on_main(&app, move || focus::focus_app_window(&window))
+    on_main(&app, move || {
+        #[cfg(not(target_os = "linux"))]
+        TABS.with(|tabs| {
+            if let Ok(tabs) = tabs.try_borrow() {
+                if let Some(wv) = tabs.values().next() {
+                    let _ = wv.focus_parent();
+                }
+            }
+        });
+        focus::focus_app_window(&window)
+    })
 }
 
 /// Web Inspector for one tab. WebKitGTK opens it in its own window, docked or
@@ -654,10 +683,15 @@ pub fn browser_close(app: AppHandle, id: String) -> Result<(), String> {
                 // the WebKit view alive, and with it the page — audio kept
                 // playing and the remote inspector kept listing closed tabs.
                 // Closing the page itself ends it regardless of the widget.
-                let widget = wv.webview();
-                widget.stop_loading();
-                widget.try_close();
-                host::remove(widget.upcast_ref());
+                #[cfg(target_os = "linux")]
+                {
+                    let widget = wv.webview();
+                    widget.stop_loading();
+                    widget.try_close();
+                    host::remove(widget.upcast_ref());
+                }
+                // Elsewhere dropping the WebView tears down the native child.
+                drop(wv);
             }
         });
         Ok(())

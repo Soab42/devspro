@@ -8,6 +8,7 @@ pub mod databases;
 pub mod docker;
 pub mod env_diff;
 pub mod file_manager;
+pub mod fs_compat;
 pub mod hosts_file;
 pub mod http_client;
 pub mod logs;

@@ -4,7 +4,7 @@
 use super::{ScanProgress, PROGRESS_EVENT};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::os::unix::fs::MetadataExt;
+use crate::modules::fs_compat::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -193,6 +193,23 @@ fn disk_usage_with(path: &Path, scan: &Scan, dev_of: impl Fn(&fs::Metadata) -> u
 }
 
 /// Bytes available to an unprivileged user on the filesystem holding `path`.
+#[cfg(windows)]
+pub fn free_bytes(path: &Path) -> Result<u64, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut available: u64 = 0;
+    // SAFETY: `wide` is NUL-terminated and outlives the call; the two totals we
+    // don't need may be null.
+    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut available, std::ptr::null_mut(), std::ptr::null_mut()) };
+    if ok == 0 {
+        return Err(format!("GetDiskFreeSpaceExW {}: {}", path.display(), std::io::Error::last_os_error()));
+    }
+    Ok(available)
+}
+
+/// Bytes available to an unprivileged user on the filesystem holding `path`.
+#[cfg(unix)]
 pub fn free_bytes(path: &Path) -> Result<u64, String> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(|e| e.to_string())?;

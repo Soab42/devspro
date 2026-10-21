@@ -13,13 +13,24 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[cfg(unix)]
+fn current_uid() -> u32 {
+    // SAFETY: getuid has no failure mode and touches no memory.
+    unsafe { libc::getuid() }
+}
+
+/// GVfs is GNOME-only; off Unix the root simply never exists.
+#[cfg(not(unix))]
+fn current_uid() -> u32 {
+    0
+}
+
 /// Where gvfsd-fuse mounts its backends for this user.
 pub fn gvfs_root() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        // SAFETY: getuid has no failure mode and touches no memory.
-        .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() })))
+        .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", current_uid())))
         .join("gvfs")
 }
 

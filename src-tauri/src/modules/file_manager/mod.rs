@@ -31,7 +31,7 @@ pub mod process;
 
 use serde::Serialize;
 use std::fs;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use crate::modules::fs_compat::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::UNIX_EPOCH;
@@ -850,7 +850,20 @@ fn copy_tree(source: &Path, target: &Path) -> Result<(), String> {
         }
     } else if meta.file_type().is_symlink() {
         let link = fs::read_link(source).map_err(|e| format!("could not read link {}: {e}", source.display()))?;
-        std::os::unix::fs::symlink(link, target).map_err(|e| format!("could not create {}: {e}", target.display()))?;
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&link, target);
+        // Windows needs to know which kind of link it is making; the target
+        // may be relative, so resolve it against the source's folder to ask.
+        #[cfg(windows)]
+        let made = {
+            let resolved = source.parent().map(|p| p.join(&link)).unwrap_or_else(|| link.clone());
+            if resolved.is_dir() {
+                std::os::windows::fs::symlink_dir(&link, target)
+            } else {
+                std::os::windows::fs::symlink_file(&link, target)
+            }
+        };
+        made.map_err(|e| format!("could not create {}: {e}", target.display()))?;
     } else {
         fs::copy(source, target).map_err(|e| format!("could not copy {}: {e}", source.display()))?;
     }

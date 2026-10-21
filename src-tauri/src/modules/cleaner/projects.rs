@@ -9,7 +9,7 @@ use crate::db::Db;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
-use std::os::unix::fs::MetadataExt;
+use crate::modules::fs_compat::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, State};
