@@ -11,11 +11,13 @@
 //! No elevation: spawning/killing a process under the user's own account needs
 //! no privilege escalation, same reasoning as the Docker module.
 
+mod platform;
+
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
@@ -276,11 +278,15 @@ pub fn workers_delete(
     Ok(())
 }
 
-/// Sends SIGTERM and waits up to ~2s for the process to exit — conceptually the
+/// Asks the process to stop and waits up to ~2s for it to exit — conceptually the
 /// same grace period `docker stop` gives a container by default. If it's still
 /// running after that it's left alone rather than force-killed; escalating to
 /// SIGKILL after a timeout would be a reasonable follow-up but isn't built for
 /// v1.
+///
+/// What "asks" means is the one part that differs per OS, and it's `platform`'s job:
+/// SIGTERM on Unix, and on Windows a `taskkill` that escalates, since nothing there can
+/// ask a console process to wind down. See `platform::request_stop`.
 fn stop_running(state: &WorkersState, id: &str) -> Result<bool, String> {
     let mut map = state.0.lock().map_err(|e| e.to_string())?;
     let Some(child) = map.get_mut(id) else {
@@ -291,11 +297,7 @@ fn stop_running(state: &WorkersState, id: &str) -> Result<bool, String> {
         return Ok(false);
     }
 
-    let pid = child.id();
-    Command::new("kill")
-        .args(["-15", &pid.to_string()])
-        .output()
-        .map_err(|e| format!("failed to send SIGTERM: {e}"))?;
+    platform::request_stop(child)?;
 
     let mut exited = false;
     for _ in 0..20 {
@@ -321,9 +323,7 @@ fn spawn_worker(app: &AppHandle, state: &WorkersState, worker: &Worker) -> Resul
         .map_err(|e| format!("failed to open log file: {e}"))?;
     let stderr_file = log_file.try_clone().map_err(|e| e.to_string())?;
 
-    let child = Command::new("sh")
-        .arg("-c")
-        .arg(&worker.command)
+    let child = platform::shell_command(&worker.command)
         .current_dir(&worker.working_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log_file))
@@ -456,11 +456,28 @@ mod tests {
         assert_eq!(command, "php artisan queue:work");
     }
 
-    /// Exercises the same spawn/redirect-to-file/tail/SIGTERM primitives
-    /// `spawn_worker`, `workers_logs`, and `stop_running` use, minus the
-    /// `AppHandle` plumbing (which needs a running Tauri app). Spawns a real
-    /// `while true; do echo tick; sleep 1; done` child, confirms its output
-    /// lands in the log file, then confirms a graceful stop actually reaps it.
+    /// A command that prints a line roughly once a second and never finishes on its own,
+    /// written in whichever shell `platform::shell_command` hands it to. `ping` stands in
+    /// for `sleep` on Windows because `timeout` needs a real console and this child is
+    /// spawned without one.
+    fn endless_ticking_command() -> &'static str {
+        if cfg!(windows) {
+            // Step 0 makes the range never advance, so the loop runs forever.
+            r"for /L %i in (1,0,2) do @(echo tick & ping -n 2 127.0.0.1 >nul)"
+        } else {
+            "while true; do echo tick; sleep 1; done"
+        }
+    }
+
+    /// Exercises the same spawn/redirect-to-file/tail/stop primitives `spawn_worker`,
+    /// `workers_logs`, and `stop_running` use, minus the `AppHandle` plumbing (which
+    /// needs a running Tauri app). Spawns a real child through the platform's own shell,
+    /// confirms its output lands in the log file, then confirms stopping it reaps it.
+    ///
+    /// Deliberately goes through `platform::shell_command` rather than hardcoding a
+    /// shell: this is the one test that proves the spawn and stop halves fit together on
+    /// whichever OS it runs on, and hardcoding `sh -c` here is what made it fail on
+    /// Windows while claiming the module worked.
     #[test]
     fn smoke_test_spawns_tails_and_stops_a_real_process() {
         let dir = std::env::temp_dir().join(format!("devsuite-workers-smoke-{}", uuid::Uuid::new_v4()));
@@ -474,9 +491,7 @@ mod tests {
             .unwrap();
         let stderr_file = log_file.try_clone().unwrap();
 
-        let child = Command::new("sh")
-            .arg("-c")
-            .arg("while true; do echo tick; sleep 1; done")
+        let child = platform::shell_command(endless_ticking_command())
             .current_dir(&dir)
             .stdin(Stdio::null())
             .stdout(Stdio::from(log_file))
@@ -496,7 +511,7 @@ mod tests {
         assert!(tail_lines(&content, 2).contains("tick"));
 
         let exited = stop_running(&state, &id).unwrap();
-        assert!(exited, "expected SIGTERM to stop the process within the grace window");
+        assert!(exited, "expected the stop request to reap the process within the grace window");
         assert!(!running_ids(&state).unwrap().contains(&id));
 
         let _ = std::fs::remove_dir_all(&dir);

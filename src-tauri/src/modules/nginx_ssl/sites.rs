@@ -186,18 +186,19 @@ fn backend_target(backend: &Backend) -> Result<nginx::render::BackendTarget, Str
     match backend {
         Backend::Port { port } => Ok(nginx::render::BackendTarget::Proxy { port: *port }),
         Backend::Laravel { project_path, php_version } => {
-            let php_fpm_socket = match php_version {
-                // The user explicitly pinned a version — if it's no longer running,
-                // that's a hard error rather than silently falling back to whatever
-                // else happens to be up: a site that looks fine but is quietly
-                // running under the wrong PHP version is worse than one that fails
-                // to reload at all.
-                Some(version) => php_fpm::socket_for_version(version).ok_or_else(|| {
+            let fastcgi_pass = match php_version {
+                // The user explicitly pinned a version — if it can't be used, that's a hard
+                // error rather than silently falling back to whatever else happens to be
+                // available: a site that looks fine but is quietly running under the wrong
+                // PHP version is worse than one that fails to reload at all. Why it can't
+                // be used differs per OS, so the explanation comes from `php_fpm`.
+                Some(version) => php_fpm::target_for_version(version).ok_or_else(|| {
                     format!(
-                        "this site is pinned to PHP {version}, but it's not currently running (no live socket in /run/php) — start php{version}-fpm, or change the site's PHP version"
+                        "this site is pinned to PHP {version}. {}",
+                        php_fpm::missing_version_hint(version)
                     )
                 })?,
-                None => php_fpm::require_socket()?,
+                None => php_fpm::require_target()?,
             };
             let public_root = PathBuf::from(project_path)
                 .join("public")
@@ -205,7 +206,7 @@ fn backend_target(backend: &Backend) -> Result<nginx::render::BackendTarget, Str
                 .to_string();
             Ok(nginx::render::BackendTarget::Laravel {
                 public_root,
-                php_fpm_socket,
+                fastcgi_pass,
             })
         }
     }
@@ -279,14 +280,11 @@ pub fn nginx_ssl_add_site(
             }
             match &php_version {
                 Some(version) => {
-                    php_fpm::socket_for_version(version).ok_or_else(|| {
-                        format!(
-                            "PHP {version} is not currently running (no live socket in /run/php) — install/start php{version}-fpm, or leave the version unset to use the system default"
-                        )
-                    })?;
+                    php_fpm::target_for_version(version)
+                        .ok_or_else(|| php_fpm::missing_version_hint(version))?;
                 }
                 None => {
-                    php_fpm::require_socket()?;
+                    php_fpm::require_target()?;
                 }
             }
             Backend::Laravel { project_path, php_version }
@@ -333,15 +331,9 @@ pub fn nginx_ssl_add_site(
             project_path: project_path.clone(),
         });
     }
-    operations.extend([
-        nginx::cleanup_legacy_include_block_op(&config_path),
-        nginx::include_op(&config_path, &sites_glob)?,
-        super::hosts::sync_op(&hostnames),
-        Operation::RunNginxTest {
-            binary_path: binary_path.clone(),
-        },
-        Operation::ReloadNginx { binary_path },
-    ]);
+    operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob)?);
+    operations.push(super::hosts::sync_op(&hostnames));
+    operations.extend(nginx::test_and_reload_ops(&binary_path));
 
     let manifest = OperationManifest {
         allowed_write_prefix: allowed_write_prefix(&app)?,
@@ -426,18 +418,14 @@ pub fn nginx_ssl_set_site_enabled(
         hostnames.push(site.hostname.clone());
     }
 
+    let mut operations = vec![file_op];
+    operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob)?);
+    operations.push(super::hosts::sync_op(&hostnames));
+    operations.extend(nginx::test_and_reload_ops(&binary_path));
+
     let manifest = OperationManifest {
         allowed_write_prefix: allowed_write_prefix(&app)?,
-        operations: vec![
-            file_op,
-            nginx::cleanup_legacy_include_block_op(&config_path),
-            nginx::include_op(&config_path, &sites_glob)?,
-            super::hosts::sync_op(&hostnames),
-            Operation::RunNginxTest {
-                binary_path: binary_path.clone(),
-            },
-            Operation::ReloadNginx { binary_path },
-        ],
+        operations,
     };
 
     let results = elevate::run(&app, manifest)?;
@@ -489,17 +477,15 @@ pub fn nginx_ssl_set_site_php_version(
         Operation::RemoveFile { path: conf_path }
     };
 
+    // No hosts resync here, unlike enable/disable: changing a Laravel site's PHP version
+    // doesn't change which hostnames exist.
+    let mut operations = vec![file_op];
+    operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob)?);
+    operations.extend(nginx::test_and_reload_ops(&binary_path));
+
     let manifest = OperationManifest {
         allowed_write_prefix: allowed_write_prefix(&app)?,
-        operations: vec![
-            file_op,
-            nginx::cleanup_legacy_include_block_op(&config_path),
-            nginx::include_op(&config_path, &sites_glob)?,
-            Operation::RunNginxTest {
-                binary_path: binary_path.clone(),
-            },
-            Operation::ReloadNginx { binary_path },
-        ],
+        operations,
     };
 
     let results = elevate::run(&app, manifest)?;
@@ -559,18 +545,14 @@ pub fn nginx_ssl_remove_site(app: AppHandle, db: State<crate::db::Db>, id: Strin
     };
     hostnames.retain(|h| h != &site.hostname);
 
+    let mut operations = vec![Operation::RemoveFile { path: conf_path }];
+    operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob)?);
+    operations.push(super::hosts::sync_op(&hostnames));
+    operations.extend(nginx::test_and_reload_ops(&binary_path));
+
     let manifest = OperationManifest {
         allowed_write_prefix: allowed_write_prefix(&app)?,
-        operations: vec![
-            Operation::RemoveFile { path: conf_path },
-            nginx::cleanup_legacy_include_block_op(&config_path),
-            nginx::include_op(&config_path, &sites_glob)?,
-            super::hosts::sync_op(&hostnames),
-            Operation::RunNginxTest {
-                binary_path: binary_path.clone(),
-            },
-            Operation::ReloadNginx { binary_path },
-        ],
+        operations,
     };
 
     let results = elevate::run(&app, manifest)?;

@@ -20,11 +20,7 @@ pub struct DockerDetection {
 }
 
 pub fn detect() -> DockerDetection {
-    let binary_found = Command::new("which")
-        .arg("docker")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let binary_found = crate::modules::tools::is_available("docker");
     if !binary_found {
         return DockerDetection {
             found: false,

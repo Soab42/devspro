@@ -1,6 +1,8 @@
 // Deliberately has zero dependency on the main app crate — this binary is the one thing
 // that runs elevated, so it stays small and independently auditable. Its manifest schema
 // is a plain copy of `elevate::Operation` in the main crate, kept in sync by hand.
+mod platform;
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
@@ -25,8 +27,20 @@ enum Operation {
         marker_end: String,
     },
     EnsureNginxConfDInclude { conf_d_dir: String, sites_glob: String },
-    RunNginxTest { binary_path: String },
-    ReloadNginx { binary_path: String },
+    EnsureIncludeInHttpBlock {
+        config_path: String,
+        marker_begin: String,
+        marker_end: String,
+        include_line: String,
+    },
+    RunNginxTest {
+        binary_path: String,
+        prefix: Option<String>,
+    },
+    ReloadNginx {
+        binary_path: String,
+        prefix: Option<String>,
+    },
     InstallRootCa {
         cert_path: String,
         nss_db_paths: Vec<String>,
@@ -54,6 +68,14 @@ fn is_within_prefix(prefix: &str, path: &str) -> bool {
     Path::new(path).starts_with(Path::new(prefix))
 }
 
+/// Writes via a scratch file in the same directory and renames over the target, so a
+/// reader never sees a half-written `/etc/hosts` or nginx.conf.
+///
+/// The scratch name is unique per *process*, not per call — which is sound only because a
+/// manifest's operations are applied strictly one at a time (see `main`), and each helper
+/// invocation is its own process. Two concurrent calls within one process would stage
+/// through the same path and rename over each other; the tests below have to give every
+/// case its own directory for exactly that reason.
 fn atomic_write(path: &Path, contents: &str) -> io::Result<()> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     let tmp_path = dir.join(format!(".devsuite-tmp-{}", std::process::id()));
@@ -248,8 +270,103 @@ fn ensure_nginx_confd_include(conf_d_dir: &str, sites_glob: &str) -> OpResult {
     }
 }
 
-fn run_nginx_test(binary_path: &str) -> OpResult {
-    match Command::new(binary_path).arg("-t").output() {
+/// Splices one marker-wrapped `include` line in immediately after the line that opens
+/// `http{}`, replacing the block in place if it's already there.
+///
+/// Where it goes is the whole reason this exists rather than reusing `sync_marked_block`:
+/// that one appends to the end of the file when the markers are absent, which for
+/// nginx.conf means *after* `http{}` closes — where an `include` of `server{}` blocks is a
+/// syntax error. `sites` on Linux avoids the problem entirely by dropping a file into
+/// `conf.d`, but the stock Windows nginx has no such directory and includes nothing.
+///
+/// Finding `http{}` by scanning for the opening line is enough for a real nginx.conf: the
+/// directive is `http` followed by `{`, at most one per file, and never inside a comment
+/// in any distribution's shipped config. A file with no `http` block at all is reported as
+/// an error rather than guessed at, since inserting anywhere else would produce a config
+/// that fails `nginx -t` with a message pointing at our own line.
+fn ensure_include_in_http_block(
+    config_path: &str,
+    marker_begin: &str,
+    marker_end: &str,
+    include_line: &str,
+) -> OpResult {
+    let path = Path::new(config_path);
+    let original = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            return OpResult {
+                success: false,
+                message: format!("could not read {config_path}: {e}"),
+            }
+        }
+    };
+
+    let block = format!("{marker_begin}\n{include_line}\n{marker_end}\n");
+    let lines: Vec<&str> = original.lines().collect();
+    let begin_idx = lines.iter().position(|l| l.trim() == marker_begin.trim());
+    let end_idx = lines.iter().position(|l| l.trim() == marker_end.trim());
+
+    let (before, after) = match (begin_idx, end_idx) {
+        // Already present — replace exactly the marked span, leaving it where it is.
+        (Some(b), Some(e)) if e >= b => (&lines[..b], &lines[e + 1..]),
+        _ => match lines.iter().position(is_http_block_opening) {
+            Some(http) => (&lines[..=http], &lines[http + 1..]),
+            None => {
+                return OpResult {
+                    success: false,
+                    message: format!(
+                        "{config_path} has no `http {{` block to add the include to — this nginx \
+                         configuration doesn't use the standard layout, so automatic site setup \
+                         isn't supported for it"
+                    ),
+                }
+            }
+        },
+    };
+
+    let mut out = String::new();
+    for line in before {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push_str(&block);
+    for line in after {
+        out.push_str(line);
+        out.push('\n');
+    }
+
+    match atomic_write(path, &out) {
+        Ok(()) => OpResult {
+            success: true,
+            message: format!("ensured DevsPro include inside http{{}} in {config_path}"),
+        },
+        Err(e) => OpResult {
+            success: false,
+            message: format!("failed to write {config_path}: {e}"),
+        },
+    }
+}
+
+/// The line that opens nginx's `http` block: the bare directive, then `{` either on the
+/// same line or (legally, if unusually) alone on the next one. A commented-out `http {`
+/// must not count, or the include lands inside a comment and silently does nothing.
+fn is_http_block_opening(line: &&str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.starts_with('#') {
+        return false;
+    }
+    let without_brace = trimmed.strip_suffix('{').unwrap_or(trimmed).trim_end();
+    without_brace == "http"
+}
+
+/// `prefix` is nginx's `-p`, and is `None` on Unix — see `Operation::RunNginxTest` in the
+/// main crate for why Windows cannot leave it out.
+fn run_nginx_test(binary_path: &str, prefix: Option<&str>) -> OpResult {
+    let mut command = Command::new(binary_path);
+    if let Some(prefix) = prefix {
+        command.args(["-p", prefix]);
+    }
+    match command.arg("-t").output() {
         Ok(out) => {
             let combined = format!(
                 "{}{}",
@@ -265,188 +382,6 @@ fn run_nginx_test(binary_path: &str) -> OpResult {
             success: false,
             message: format!("failed to run `{binary_path} -t`: {e}"),
         },
-    }
-}
-
-fn reload_nginx(binary_path: &str) -> OpResult {
-    if let Ok(out) = Command::new("systemctl").args(["reload", "nginx"]).output() {
-        if out.status.success() {
-            return OpResult {
-                success: true,
-                message: "reloaded via `systemctl reload nginx`".to_string(),
-            };
-        }
-    }
-    match Command::new(binary_path).args(["-s", "reload"]).output() {
-        Ok(out) => {
-            let combined = format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            );
-            let message = if combined.trim().is_empty() {
-                format!("reloaded via `{binary_path} -s reload`")
-            } else {
-                combined.trim().to_string()
-            };
-            OpResult {
-                success: out.status.success(),
-                message,
-            }
-        }
-        Err(e) => OpResult {
-            success: false,
-            message: format!("failed to reload nginx: {e}"),
-        },
-    }
-}
-
-fn install_root_ca(allowed_prefix: &str, cert_path: &str, nss_db_paths: &[String]) -> OpResult {
-    if !is_within_prefix(allowed_prefix, cert_path) {
-        return OpResult {
-            success: false,
-            message: format!("{cert_path} is outside the allowed prefix — refusing to install"),
-        };
-    }
-
-    let dest = "/usr/local/share/ca-certificates/devsuite-root-ca.crt";
-    if let Err(e) = fs::copy(cert_path, dest) {
-        return OpResult {
-            success: false,
-            message: format!("failed to copy CA cert to {dest}: {e}"),
-        };
-    }
-
-    let (os_store_ok, mut message) = match Command::new("update-ca-certificates").output() {
-        Ok(out) if out.status.success() => (true, "installed into OS trust store".to_string()),
-        Ok(out) => (
-            false,
-            format!(
-                "update-ca-certificates failed: {}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            ),
-        ),
-        Err(e) => (false, format!("failed to run update-ca-certificates: {e}")),
-    };
-
-    for nss_db in nss_db_paths {
-        match Command::new("certutil")
-            .args(["-d", nss_db, "-A", "-t", "C,,", "-n", "DevSuite Local CA", "-i", cert_path])
-            .output()
-        {
-            Ok(out) if out.status.success() => message.push_str(&format!("; imported into {nss_db}")),
-            Ok(out) => message.push_str(&format!(
-                "; NSS import into {nss_db} failed: {}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            )),
-            Err(_) => message.push_str(
-                "; certutil not found, skipped NSS import (install libnss3-tools for Firefox/Chrome trust)",
-            ),
-        }
-    }
-
-    OpResult {
-        success: os_store_ok,
-        message,
-    }
-}
-
-fn install_package(manager: &str, packages: &[String]) -> OpResult {
-    if packages.is_empty() {
-        return OpResult {
-            success: false,
-            message: "no packages specified".to_string(),
-        };
-    }
-    let mut command = match manager {
-        "apt" => {
-            let mut c = Command::new("apt-get");
-            c.env("DEBIAN_FRONTEND", "noninteractive");
-            c.arg("install").arg("-y");
-            c
-        }
-        "dnf" => {
-            let mut c = Command::new("dnf");
-            c.arg("install").arg("-y");
-            c
-        }
-        "pacman" => {
-            let mut c = Command::new("pacman");
-            c.arg("-S").arg("--noconfirm");
-            c
-        }
-        other => {
-            return OpResult {
-                success: false,
-                message: format!("unsupported package manager: {other}"),
-            }
-        }
-    };
-    command.args(packages);
-
-    match command.output() {
-        Ok(out) => {
-            let combined = format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            );
-            let message = if out.status.success() {
-                format!("installed {} via {manager}", packages.join(", "))
-            } else {
-                combined.trim().to_string()
-            };
-            OpResult {
-                success: out.status.success(),
-                message,
-            }
-        }
-        Err(e) => OpResult {
-            success: false,
-            message: format!("failed to run {manager}: {e}"),
-        },
-    }
-}
-
-fn fix_laravel_permissions(project_path: &str) -> OpResult {
-    let targets = [
-        format!("{project_path}/storage"),
-        format!("{project_path}/bootstrap/cache"),
-    ];
-    let mut messages = Vec::new();
-    let mut ok = true;
-
-    for dir in &targets {
-        if !Path::new(dir).is_dir() {
-            messages.push(format!("{dir} does not exist, skipped"));
-            continue;
-        }
-        let chgrp = Command::new("chgrp").args(["-R", "www-data", dir]).output();
-        let chmod = Command::new("chmod").args(["-R", "775", dir]).output();
-        let step_ok = matches!(&chgrp, Ok(o) if o.status.success()) && matches!(&chmod, Ok(o) if o.status.success());
-        if step_ok {
-            messages.push(format!("{dir}: group=www-data, mode=775"));
-        } else {
-            ok = false;
-            let chgrp_err = match chgrp {
-                Ok(o) if !o.status.success() => String::from_utf8_lossy(&o.stderr).trim().to_string(),
-                Err(e) => e.to_string(),
-                _ => String::new(),
-            };
-            let chmod_err = match chmod {
-                Ok(o) if !o.status.success() => String::from_utf8_lossy(&o.stderr).trim().to_string(),
-                Err(e) => e.to_string(),
-                _ => String::new(),
-            };
-            messages.push(format!("{dir}: failed ({chgrp_err}{chmod_err})"));
-        }
-    }
-
-    OpResult {
-        success: ok,
-        message: messages.join("; "),
     }
 }
 
@@ -472,13 +407,44 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
         Operation::EnsureNginxConfDInclude { conf_d_dir, sites_glob } => {
             ensure_nginx_confd_include(&conf_d_dir, &sites_glob)
         }
-        Operation::RunNginxTest { binary_path } => run_nginx_test(&binary_path),
-        Operation::ReloadNginx { binary_path } => reload_nginx(&binary_path),
-        Operation::InstallRootCa { cert_path, nss_db_paths } => {
-            install_root_ca(allowed_prefix, &cert_path, &nss_db_paths)
+        Operation::EnsureIncludeInHttpBlock {
+            config_path,
+            marker_begin,
+            marker_end,
+            include_line,
+        } => ensure_include_in_http_block(&config_path, &marker_begin, &marker_end, &include_line),
+        Operation::RunNginxTest { binary_path, prefix } => {
+            run_nginx_test(&binary_path, prefix.as_deref())
         }
-        Operation::InstallPackage { manager, packages } => install_package(&manager, &packages),
-        Operation::FixLaravelPermissions { project_path } => fix_laravel_permissions(&project_path),
+        Operation::ReloadNginx { binary_path, prefix } => {
+            platform::reload_nginx(&binary_path, prefix.as_deref())
+        }
+        // The prefix check stays here, not in `platform`: it is the security boundary this
+        // binary exists to enforce, and it is the same on every OS. Only what "install into
+        // the trust store" means is platform-specific.
+        Operation::InstallRootCa { cert_path, nss_db_paths } => {
+            if !is_within_prefix(allowed_prefix, &cert_path) {
+                OpResult {
+                    success: false,
+                    message: format!("{cert_path} is outside the allowed prefix — refusing to install"),
+                }
+            } else {
+                platform::install_root_ca(&cert_path, &nss_db_paths)
+            }
+        }
+        Operation::InstallPackage { manager, packages } => {
+            if packages.is_empty() {
+                OpResult {
+                    success: false,
+                    message: "no packages specified".to_string(),
+                }
+            } else {
+                platform::install_package(&manager, &packages)
+            }
+        }
+        Operation::FixLaravelPermissions { project_path } => {
+            platform::fix_laravel_permissions(&project_path)
+        }
     }
 }
 
@@ -538,4 +504,194 @@ fn main() {
     // operation from the result file. A non-zero exit here is reserved for the
     // helper itself failing to run (unreadable manifest, unwritable result file),
     // which platform::launch_helper treats as "the elevated call itself failed."
+}
+
+/// Everything covered here is the part of this binary that edits files while running as
+/// root. It had no tests at all before the Windows port needed a third block-editing
+/// function alongside the two that already existed — which is exactly the wrong number of
+/// similar-looking functions to leave unguarded in the one component that can overwrite
+/// `/etc/hosts` and the user's real nginx.conf.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A seeded file in a directory of its own.
+    ///
+    /// The directory matters: `atomic_write` names its scratch file after the process id
+    /// alone, so every test in this binary would otherwise stage through the same
+    /// `.devsuite-tmp-<pid>` path and rename it over each other's target — tests failing
+    /// with another test's contents. That is safe in the helper itself, which applies a
+    /// manifest's operations strictly one at a time in a process of its own, but it is not
+    /// safe for a parallel test runner.
+    struct TempDirFile {
+        dir: PathBuf,
+        file: PathBuf,
+    }
+
+    impl TempDirFile {
+        fn with(contents: &str) -> Self {
+            static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let seq = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!("ldm-helper-test-{}-{seq}", std::process::id()));
+            fs::create_dir_all(&dir).expect("failed to create test dir");
+            let file = dir.join("target.conf");
+            fs::write(&file, contents).expect("failed to seed test file");
+            TempDirFile { dir, file }
+        }
+
+        fn path(&self) -> &str {
+            self.file.to_str().expect("temp path is not valid UTF-8")
+        }
+
+        fn read(&self) -> String {
+            fs::read_to_string(&self.file).expect("failed to read test file")
+        }
+    }
+
+    impl Drop for TempDirFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    const BEGIN: &str = "# >>> devsuite >>>";
+    const END: &str = "# <<< devsuite <<<";
+
+    // --- the allowed-prefix guard -------------------------------------------------
+
+    #[test]
+    fn prefix_guard_admits_only_paths_under_the_declared_prefix() {
+        assert!(is_within_prefix("/home/me/.local/share/DevsPro", "/home/me/.local/share/DevsPro/nginx/sites/a.conf"));
+        assert!(!is_within_prefix("/home/me/.local/share/DevsPro", "/etc/passwd"));
+        // A neighbouring directory that merely shares a name prefix is still outside.
+        assert!(!is_within_prefix("/home/me/DevsPro", "/home/me/DevsPro-evil/x.conf"));
+    }
+
+    #[test]
+    fn prefix_guard_rejects_traversal_and_an_empty_prefix() {
+        // Traversal is refused on the raw string, before any canonicalisation could be
+        // fooled by a symlink under the prefix.
+        assert!(!is_within_prefix("/home/me/DevsPro", "/home/me/DevsPro/../../../etc/passwd"));
+        // An empty prefix would otherwise match every path — `Ping` and
+        // `FixLaravelPermissions` legitimately send one, so this must never be
+        // interpreted as "anywhere".
+        assert!(!is_within_prefix("", "/anything"));
+    }
+
+    // --- SyncMarkedBlock ---------------------------------------------------------
+
+    #[test]
+    fn sync_replaces_an_existing_block_in_place_and_leaves_the_rest_alone() {
+        let file = TempDirFile::with(&format!(
+            "127.0.0.1 localhost\n{BEGIN}\n127.0.0.1 old.test\n{END}\n# trailing comment\n"
+        ));
+        let result = sync_marked_block(
+            file.path(),
+            BEGIN,
+            END,
+            &["127.0.0.1 new.test".to_string()],
+        );
+        assert!(result.success, "{}", result.message);
+        assert_eq!(
+            file.read(),
+            format!("127.0.0.1 localhost\n{BEGIN}\n127.0.0.1 new.test\n{END}\n# trailing comment\n")
+        );
+    }
+
+    #[test]
+    fn sync_appends_the_block_when_the_markers_are_absent() {
+        let file = TempDirFile::with("127.0.0.1 localhost\n");
+        let result = sync_marked_block(file.path(), BEGIN, END, &["127.0.0.1 a.test".to_string()]);
+        assert!(result.success, "{}", result.message);
+        assert_eq!(
+            file.read(),
+            format!("127.0.0.1 localhost\n\n{BEGIN}\n127.0.0.1 a.test\n{END}\n")
+        );
+    }
+
+    /// An empty set of hostnames is the normal state after removing the last site, and it
+    /// has to leave an empty block behind rather than deleting the markers — the next add
+    /// finds and replaces them instead of appending a second copy.
+    #[test]
+    fn sync_with_no_lines_keeps_an_empty_marked_block() {
+        let file = TempDirFile::with(&format!("127.0.0.1 localhost\n{BEGIN}\n127.0.0.1 a.test\n{END}\n"));
+        let result = sync_marked_block(file.path(), BEGIN, END, &[]);
+        assert!(result.success, "{}", result.message);
+        assert_eq!(file.read(), format!("127.0.0.1 localhost\n{BEGIN}\n{END}\n"));
+    }
+
+    // --- RemoveMarkedBlock -------------------------------------------------------
+
+    #[test]
+    fn remove_takes_the_markers_with_it() {
+        let file = TempDirFile::with(&format!("before\n{BEGIN}\ninclude x;\n{END}\nafter\n"));
+        let result = remove_marked_block(file.path(), BEGIN, END);
+        assert!(result.success, "{}", result.message);
+        assert_eq!(file.read(), "before\nafter\n");
+    }
+
+    /// Called unconditionally on every add and remove, so the no-block case is the common
+    /// one and must be a successful no-op rather than an error that aborts the manifest.
+    #[test]
+    fn remove_is_a_successful_no_op_when_there_is_no_block() {
+        let file = TempDirFile::with("http {\n}\n");
+        let result = remove_marked_block(file.path(), BEGIN, END);
+        assert!(result.success, "{}", result.message);
+        assert_eq!(file.read(), "http {\n}\n");
+    }
+
+    // --- EnsureIncludeInHttpBlock ------------------------------------------------
+
+    #[test]
+    fn include_goes_immediately_inside_the_http_block() {
+        let file = TempDirFile::with("events {\n}\n\nhttp {\n    include mime.types;\n}\n");
+        let result = ensure_include_in_http_block(file.path(), BEGIN, END, "include sites/*.conf;");
+        assert!(result.success, "{}", result.message);
+        assert_eq!(
+            file.read(),
+            format!("events {{\n}}\n\nhttp {{\n{BEGIN}\ninclude sites/*.conf;\n{END}\n    include mime.types;\n}}\n")
+        );
+    }
+
+    /// Re-applied on every add, enable and remove, so running it repeatedly has to be
+    /// indistinguishable from running it once.
+    #[test]
+    fn include_is_idempotent_and_updates_in_place() {
+        let file = TempDirFile::with("http {\n    include mime.types;\n}\n");
+        for line in ["include first/*.conf;", "include first/*.conf;", "include second/*.conf;"] {
+            let result = ensure_include_in_http_block(file.path(), BEGIN, END, line);
+            assert!(result.success, "{}", result.message);
+        }
+        assert_eq!(
+            file.read(),
+            format!("http {{\n{BEGIN}\ninclude second/*.conf;\n{END}\n    include mime.types;\n}}\n")
+        );
+        assert_eq!(file.read().matches(BEGIN).count(), 1, "exactly one block, never stacked");
+    }
+
+    /// The failure this whole operation exists to avoid: appended at the end of the file
+    /// the include lands after `http{}` closes, where nginx rejects a `server{}` block. So
+    /// a config with no `http{}` must be refused, not appended to.
+    #[test]
+    fn include_refuses_a_config_with_no_http_block() {
+        let file = TempDirFile::with("events {\n    worker_connections 1024;\n}\n");
+        let result = ensure_include_in_http_block(file.path(), BEGIN, END, "include sites/*.conf;");
+        assert!(!result.success);
+        assert!(result.message.contains("no `http {` block"), "{}", result.message);
+        assert_eq!(file.read(), "events {\n    worker_connections 1024;\n}\n", "left untouched");
+    }
+
+    #[test]
+    fn http_block_opening_ignores_comments_and_lookalikes() {
+        assert!(is_http_block_opening(&"http {"));
+        assert!(is_http_block_opening(&"  http{"));
+        // `{` on its own line is legal nginx, and the marker still belongs after `http`.
+        assert!(is_http_block_opening(&"http"));
+        // A commented-out block would swallow the include into the comment.
+        assert!(!is_http_block_opening(&"# http {"));
+        // Other blocks and directives that merely start with the same letters.
+        assert!(!is_http_block_opening(&"https {"));
+        assert!(!is_http_block_opening(&"http2 on;"));
+        assert!(!is_http_block_opening(&"    server {"));
+    }
 }

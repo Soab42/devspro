@@ -47,8 +47,34 @@ pub enum Operation {
     /// that's the exact bug this replaces. The destination filename is fixed by
     /// the helper itself, not caller-controlled.
     EnsureNginxConfDInclude { conf_d_dir: String, sites_glob: String },
-    RunNginxTest { binary_path: String },
-    ReloadNginx { binary_path: String },
+    /// Windows counterpart of `EnsureNginxConfDInclude`. The stock Windows nginx has no
+    /// `conf.d` convention at all — nothing in its shipped nginx.conf includes such a
+    /// directory, and none exists — so there is no drop-in location to write into.
+    /// Instead one marker-wrapped `include` line goes *inside* `http{}`. Inserting
+    /// inside the block is the entire point: appended at the end of the file it would
+    /// land after `http{}`'s closing brace, where an include of `server{}` blocks is a
+    /// syntax error — precisely the bug `cleanup_legacy_include_block_op` exists to undo
+    /// on Linux. The helper decides nothing here beyond where to splice the block in.
+    EnsureIncludeInHttpBlock {
+        config_path: String,
+        marker_begin: String,
+        marker_end: String,
+        include_line: String,
+    },
+    /// `prefix` is nginx's `-p`: `None` everywhere it can be left to nginx itself, and
+    /// set on Windows, where it is not optional. The Windows builds are configured with
+    /// an empty `--prefix=` and a *relative* `--conf-path=conf/nginx.conf`, which nginx
+    /// then resolves against the current working directory rather than against its own
+    /// executable — so `nginx -t` run from anywhere but the install directory looks for
+    /// the config under the wrong root and reports the whole configuration broken.
+    RunNginxTest {
+        binary_path: String,
+        prefix: Option<String>,
+    },
+    ReloadNginx {
+        binary_path: String,
+        prefix: Option<String>,
+    },
     /// Linux only: `manager` is one of "apt", "dnf", "pacman" — whichever
     /// `nginx::linux_package_manager()` detected on this machine. macOS/Windows
     /// never build this op (brew must not run as root; Windows has no such step).
@@ -59,10 +85,16 @@ pub enum Operation {
     /// Laravel can log/cache anything. Scoped to exactly those two subdirectories
     /// of a path the user picked via the native folder dialog, not touched
     /// otherwise.
+    ///
+    /// Nothing to do on Windows, where `php-cgi.exe` runs as the desktop user who
+    /// already owns the project folder — the helper reports that rather than inventing
+    /// an ACL change nobody asked for.
     FixLaravelPermissions { project_path: String },
     /// Installs the root CA into the OS trust store and, if `nss_db_path` is given,
     /// also imports it into that NSS database (Firefox/Chrome-on-Linux don't read
-    /// the OS store).
+    /// the OS store). `nss_db_paths` is always empty on Windows: the OS store there is
+    /// what Chrome and Edge read, and the `certutil` on PATH is Microsoft's own tool of
+    /// that name, not NSS's.
     InstallRootCa {
         cert_path: String,
         /// One `sql:<dir>` entry per NSS database to import into — the shared

@@ -46,6 +46,22 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Threading",
     "Win32_System_Registry",
+    # The dashboard's system sources (src/modules/system/platform/windows.rs).
+    # `Wdk_System_SystemInformation` is only for NtQuerySystemInformation, the one
+    # documented way to read *per-core* CPU ticks — GetSystemTimes gives the
+    # aggregate alone. Its result struct lives under Win32_System_WindowsProgramming.
+    "Win32_System_SystemInformation",
+    "Win32_System_WindowsProgramming",
+    "Wdk_System_SystemInformation",
+    "Win32_Storage_FileSystem",
+    # MIB_IF_ROW2's fields are typed from the Ndis namespace, so GetIfTable2 needs
+    # both of these to compile, not just IpHelper. IpHelper also carries
+    # GetExtendedTcpTable, which is how src/modules/processes lists listening ports.
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    # Maps a listening port's owning pid to a process name, without needing the
+    # OpenProcess rights that reading another user's process would.
+    "Win32_System_Diagnostics_ToolHelp",
 ] }
 
 [workspace]

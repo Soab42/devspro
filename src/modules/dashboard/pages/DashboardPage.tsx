@@ -209,6 +209,12 @@ function KpiRow({
     (sum, n) => sum + n.rx_bytes_per_sec + n.tx_bytes_per_sec,
     0,
   );
+  // Windows has no load average, so the clause is dropped entirely there rather than
+  // padded out with a zero that would read as an idle machine.
+  const cpuSub =
+    cpu.load_avg_1 === null
+      ? `${cpu.core_count} cores`
+      : `${cpu.core_count} cores · load ${cpu.load_avg_1.toFixed(2)}`;
 
   return (
     <div className="dash-kpis">
@@ -217,7 +223,7 @@ function KpiRow({
         label="CPU"
         value={`${Math.round(cpu.usage_percent)}%`}
         severity={meterSeverity(cpu.usage_percent)}
-        sub={`${cpu.core_count} cores · load ${cpu.load_avg_1.toFixed(2)}`}
+        sub={cpuSub}
         history={cpuHistory}
         bounded
       />
@@ -325,6 +331,11 @@ function CpuCard({ snapshot }: { snapshot: SystemSnapshot }) {
 
 function SystemCard({ snapshot }: { snapshot: SystemSnapshot }) {
   const { cpu } = snapshot;
+  // All three arrive together or not at all, so anything short of a full set renders as
+  // the same em dash the other unavailable fields here use.
+  const loadAvg = [cpu.load_avg_1, cpu.load_avg_5, cpu.load_avg_15].filter(
+    (value): value is number => value !== null,
+  );
   return (
     <Card title="System" icon={Server}>
       <div className="dash-stats">
@@ -333,7 +344,9 @@ function SystemCard({ snapshot }: { snapshot: SystemSnapshot }) {
         <Stat label="Kernel" value={snapshot.kernel_version || "—"} mono />
         <Stat
           label="Load avg"
-          value={`${cpu.load_avg_1.toFixed(2)} / ${cpu.load_avg_5.toFixed(2)} / ${cpu.load_avg_15.toFixed(2)}`}
+          value={
+            loadAvg.length === 3 ? loadAvg.map((value) => value.toFixed(2)).join(" / ") : "—"
+          }
           sub="1m / 5m / 15m"
         />
       </div>

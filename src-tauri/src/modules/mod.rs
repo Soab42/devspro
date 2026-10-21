@@ -9,5 +9,6 @@ pub mod processes;
 pub mod scaffold;
 pub mod settings;
 pub mod system;
+pub mod tools;
 pub mod tunnel;
 pub mod workers;

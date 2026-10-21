@@ -5,7 +5,7 @@ export interface NginxDetection {
   binary_path: string | null;
   version: string | null;
   config_path: string | null;
-  linux_package_manager: string | null;
+  package_manager: string | null;
 }
 
 export interface CaStatus {
@@ -30,13 +30,18 @@ export interface Site {
 
 export interface PhpFpmDetection {
   found: boolean;
-  socket_path: string | null;
+  /** What nginx is given as its `fastcgi_pass`: `unix:<socket>` on Linux and macOS, a
+   *  `host:port` on Windows, where PHP runs as `php-cgi.exe` over a loopback port. */
+  fastcgi_pass: string | null;
   version: string | null;
+  /** What to tell the user when nothing usable was found. Comes from the backend because
+   *  the right advice is `apt install php8.3-fpm` on one OS and "install PHP" on another. */
+  install_hint: string;
 }
 
 export interface PhpFpmVersion {
   version: string;
-  socket_path: string;
+  fastcgi_pass: string;
 }
 
 export const detectNginx = () => invoke<NginxDetection>("nginx_ssl_detect_nginx");

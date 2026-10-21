@@ -19,6 +19,17 @@ sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file \
 sudo dnf group install "C Development Tools and Libraries"
 ```
 
+Windows needs the MSVC toolchain and WebView2 instead:
+
+```powershell
+winget install Rustlang.Rustup
+winget install Microsoft.VisualStudio.2022.BuildTools  # with the C++ workload
+```
+
+WebView2 ships with Windows 11 and with any recent Edge, so there is normally
+nothing to install for it. Everything else Tauri needs on Linux — WebKitGTK and
+friends — has no Windows counterpart to install.
+
 Then:
 
 ```sh
@@ -51,8 +62,10 @@ which takes appreciably longer.
 npm run check
 ```
 
-That's typecheck → frontend tests → Rust tests (148 tests). Run it before every
-commit. The individual pieces, when you want a faster loop:
+That's typecheck → frontend tests → Rust tests, about 190 assertions' worth in
+total, and the Rust half covers the whole workspace so the elevated helper's own
+tests run too. Run it before every commit. The individual pieces, when you want a
+faster loop:
 
 | Command | |
 | --- | --- |
@@ -100,6 +113,7 @@ comment* in the same commit — don't work around it.
 | `src/modules/<name>/` | One feature: `api.ts` (invoke wrappers), `pages/`, `components/`. |
 | `src/app/` | Shell, routing, module registry, theme, confirm dialog. |
 | `src-tauri/src/modules/<name>/` | That feature's Rust half. |
+| `src-tauri/src/modules/<name>/platform/` | The per-OS half of it. See below. |
 | `src-tauri/helper/` | The privileged helper. Keep it small. |
 
 Adding a module is one entry in `src/app/ModuleRegistry.ts` plus a folder — the
@@ -108,6 +122,53 @@ sidebar and router both render off that array.
 Module pages should not have their own stylesheets; compose primitives instead.
 Two exceptions exist (the Dashboard grid and the Logs full-height layout) and a
 test asserts the list stays at exactly those two.
+
+### Anything OS-specific goes in a `platform/` module
+
+Whenever a module has to ask the operating system something, the OS-specific part
+lives in a `platform/` submodule with one file per target and a `mod.rs` that
+does nothing but `#[cfg]`-dispatch and document the contract:
+
+```
+src-tauri/src/modules/system/platform/
+    mod.rs        the contract, as a table: what each backend must provide
+    linux.rs      /proc, df, lspci
+    windows.rs    Win32 through windows-sys
+    macos.rs      sysctl, mach, vm_stat
+```
+
+`elevate`, `system`, `workers`, `processes`, `nginx_ssl::nginx`,
+`nginx_ssl::php_fpm`, `apps` and the helper itself are all laid out this way.
+Three rules keep it useful rather than ceremonial:
+
+- **The shared half does the thinking.** Rate maths, retries, assembling a
+  result: none of that belongs in a backend. A backend reads or writes one thing
+  and returns it.
+- **A backend never panics and never invents a number.** Return an empty vec, a
+  zero, or `None`. A `#[tauri::command]` that panics cannot unwind back across
+  the FFI boundary — it takes the whole app down, which is how the Dashboard used
+  to abort on Windows.
+- **Say what's different, and why, in the file that's different.** `windows.rs`
+  in `nginx` opens with three paragraphs on why Windows nginx needs `-p` and has
+  no `conf.d`; that's the file where someone will look for it.
+
+Where a platform can't do something, the honest move is to say so in the type —
+`load_avg()` returns `None` on Windows because there is no load average, rather
+than zeros that read as an idle machine.
+
+### Changing shared code without breaking the other platform
+
+You can only compile and test for the platform you're sitting on. Two habits
+carry most of the weight:
+
+- **Move code, don't retype it.** When splitting something per-OS, the existing
+  platform's code should move verbatim — then `git show HEAD:<file>` and a diff
+  proves nothing changed. Behaviour includes user-visible strings, so leave the
+  messages alone too.
+- **Pin the contract with a test.** Ordering and lists are what silently drift:
+  `nginx::platform::unix` asserts the operation order its `conf.d` approach
+  depends on, and `apps::platform::unix` writes out every apt package name in
+  full. Those run on Linux CI even when the change was made on Windows.
 
 ## Packaging
 

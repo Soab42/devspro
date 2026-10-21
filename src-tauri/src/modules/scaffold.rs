@@ -21,14 +21,6 @@ fn valid_project_name(name: &str) -> bool {
     ok_chars && !name.starts_with('-') && !name.starts_with('_')
 }
 
-fn which(bin: &str) -> bool {
-    Command::new("which")
-        .arg(bin)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
 #[tauri::command]
 pub fn scaffold_create_laravel_project(
     app: AppHandle,
@@ -61,19 +53,19 @@ pub fn scaffold_create_laravel_project(
     // Composer isn't in this app's Apps catalog (see modules/apps/mod.rs) — only
     // PHP itself is tracked there — so this can't point the user at an "install
     // from here" button yet, just a direct instruction.
-    if !which("composer") {
-        return Err(
-            "Composer was not found on this machine's PATH — install it first (see https://getcomposer.org/download/), then try again"
-                .to_string(),
-        );
-    }
+    // Resolved rather than merely checked for, because Composer ships as `composer.bat` on
+    // Windows and a bare `composer` is not something `Command` can start there — the check
+    // would pass and the run would fail. On Unix this is the same bare name as before.
+    let composer = crate::modules::tools::program("composer").ok_or(
+        "Composer was not found on this machine's PATH — install it first (see https://getcomposer.org/download/), then try again",
+    )?;
 
     // `composer create-project` over `laravel new`: it only needs Composer
     // itself, which is the one tool actually checked above. `laravel new`
     // requires the separate `laravel/installer` package to already be
     // globally required, which this app has no way to detect or install, so
     // it would fail unpredictably on a machine that only has Composer.
-    let output = Command::new("composer")
+    let output = Command::new(&composer)
         .args([
             "create-project",
             "laravel/laravel",

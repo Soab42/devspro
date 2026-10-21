@@ -23,13 +23,8 @@ fn detect() -> Result<Flavor, String> {
         return Ok(Flavor::Plugin);
     }
 
-    if let Ok(output) = Command::new("which").arg("docker-compose").output() {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(Flavor::Standalone(path));
-            }
-        }
+    if let Some(path) = crate::modules::tools::find("docker-compose") {
+        return Ok(Flavor::Standalone(path));
     }
 
     Err("neither `docker compose` (v2 plugin) nor `docker-compose` (standalone) was found".to_string())

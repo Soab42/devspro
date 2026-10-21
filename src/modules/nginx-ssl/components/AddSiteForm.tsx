@@ -58,6 +58,9 @@ export default function AddSiteForm({
     "idle" | "checking" | "ok" | "invalid"
   >("idle");
   const [phpFpmMissing, setPhpFpmMissing] = useState(false);
+  // Supplied by the backend rather than written here: what to install and how depends on
+  // the OS, which the frontend has no way to know.
+  const [phpHint, setPhpHint] = useState("");
   const [phpVersions, setPhpVersions] = useState<PhpFpmVersion[]>([]);
   const [phpVersion, setPhpVersion] = useState(SYSTEM_DEFAULT);
   const [conflict, setConflict] = useState(false);
@@ -80,6 +83,7 @@ export default function AddSiteForm({
     if (next === "laravel") {
       const [detection, versions] = await Promise.all([detectPhpFpm(), listPhpVersions()]);
       setPhpFpmMissing(!detection.found);
+      setPhpHint(detection.install_hint);
       setPhpVersions(versions);
     }
   }
@@ -263,12 +267,7 @@ export default function AddSiteForm({
           </Field>
         )}
 
-        {kind === "laravel" && phpFpmMissing && (
-          <Callout tone="warning">
-            PHP-FPM was not found — install it first, e.g.{" "}
-            <Mono variant="chip">sudo apt install php8.3-fpm</Mono>.
-          </Callout>
-        )}
+        {kind === "laravel" && phpFpmMissing && <Callout tone="warning">{phpHint}</Callout>}
 
         {error && <Callout tone="danger">{error}</Callout>}
 
