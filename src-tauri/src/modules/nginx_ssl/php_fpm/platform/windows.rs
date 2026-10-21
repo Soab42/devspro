@@ -95,6 +95,29 @@ pub fn missing_version_hint(version: &str) -> String {
     )
 }
 
+/// The PHP command-line binary to run artisan with. There are no `php8.3`-style names
+/// here; each install is a folder holding both `php-cgi.exe` and `php.exe`, so the CLI for
+/// a pinned version is the `php.exe` beside the `php-cgi.exe` serving it. Unpinned, `php`
+/// on PATH is what the user would get in a terminal; failing that, the newest install —
+/// Laragon and the zip downloads don't touch PATH, and a bare `php` would just fail.
+pub fn cli_binary(version: Option<&str>) -> String {
+    let mut installs = discover_installs();
+    let cli_of = |install: &Install| {
+        let php = install.cgi_binary.with_file_name("php.exe");
+        php.is_file().then(|| php.to_string_lossy().into_owned())
+    };
+    if let Some(version) = version.map(str::trim) {
+        if let Some(php) = installs.iter().find(|i| i.version == version).and_then(cli_of) {
+            return php;
+        }
+    }
+    if let Some(php) = crate::modules::tools::program("php") {
+        return php;
+    }
+    installs.sort_by_key(|install| std::cmp::Reverse(version_key(&install.version)));
+    installs.iter().find_map(cli_of).unwrap_or_else(|| "php".to_string())
+}
+
 // ---------------------------------------------------------------------------
 // Discovery
 // ---------------------------------------------------------------------------

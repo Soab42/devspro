@@ -12,6 +12,7 @@ import {
   TextInput,
 } from "../../../ui";
 import { FileUp } from "../../../ui/icons";
+import { examplePath } from "../../../app/platform";
 import { composeUpFile, composeValidate } from "../api";
 
 export default function LoadComposeModal({
@@ -104,7 +105,7 @@ export default function LoadComposeModal({
             <TextInput
               id="compose-path"
               mono
-              placeholder="/home/you/project/docker-compose.yml"
+              placeholder={examplePath("project", "docker-compose.yml")}
               value={path}
               onChange={(e) => setPath(e.target.value)}
             />

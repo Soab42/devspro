@@ -3,6 +3,7 @@ import { Button, Callout, Mono, Section, Stack, StatusPill } from "../../../ui";
 import { Download, RefreshCw, Server } from "../../../ui/icons";
 import type { Resource } from "../../../ui";
 import { installNginx, NginxDetection } from "../api";
+import { isWindows } from "../../../app/platform";
 
 export default function NginxTab({ nginx }: { nginx: Resource<NginxDetection> }) {
   const [busy, setBusy] = useState(false);
@@ -64,7 +65,9 @@ export default function NginxTab({ nginx }: { nginx: Resource<NginxDetection> })
             Not found on this machine.
             {detection?.package_manager
               ? ` Install it via ${detection.package_manager} below — this prompts for your admin password.`
-              : " Install it manually, then recheck — e.g. sudo apt install nginx on Debian/Ubuntu, or brew install nginx on macOS."}
+              : isWindows
+                ? " Install it manually, then recheck — unzip the Windows build from nginx.org/en/download.html to C:\\nginx, or add its folder to PATH."
+                : " Install it manually, then recheck — e.g. sudo apt install nginx on Debian/Ubuntu, or brew install nginx on macOS."}
           </p>
         )}
 

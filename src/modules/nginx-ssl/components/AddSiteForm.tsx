@@ -15,6 +15,7 @@ import {
   TextInput,
 } from "../../../ui";
 import { WandSparkles } from "../../../ui/icons";
+import { isWindows } from "../../../app/platform";
 import {
   addLaravelSite,
   addPortSite,
@@ -173,7 +174,7 @@ export default function AddSiteForm({
           required
           error={
             conflict
-              ? `${hostname} already resolves to something else in /etc/hosts, outside DevsPro's block.`
+              ? `${hostname} already resolves to something else in ${isWindows ? "the hosts file" : "/etc/hosts"}, outside DevsPro's block.`
               : undefined
           }
         >

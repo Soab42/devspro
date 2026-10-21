@@ -14,7 +14,6 @@ pub mod wizard;
 use super::nginx_ssl::{laravel, sites};
 use sites::Site;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tauri::{AppHandle, State};
 
 pub(crate) fn valid_project_name(name: &str) -> bool {
@@ -25,10 +24,6 @@ pub(crate) fn valid_project_name(name: &str) -> bool {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     ok_chars && !name.starts_with('-') && !name.starts_with('_')
-}
-
-pub(crate) fn which(bin: &str) -> bool {
-    crate::modules::tools::is_available(bin)
 }
 
 /// Runs `composer create-project laravel/laravel` into `<parent_dir>/<project_name>`
@@ -71,7 +66,7 @@ pub fn create_laravel_skeleton(parent_dir: &str, project_name: &str) -> Result<P
     // requires the separate `laravel/installer` package to already be
     // globally required, which this app has no way to detect or install, so
     // it would fail unpredictably on a machine that only has Composer.
-    let output = Command::new(&composer)
+    let output = crate::modules::tools::command(&composer)
         .args([
             "create-project",
             "laravel/laravel",
