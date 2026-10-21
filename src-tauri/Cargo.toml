@@ -113,6 +113,12 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Ioctl",
     "Win32_System_Diagnostics_Debug",
     "Win32_NetworkManagement_WNet",
+    # The Memory module (src/modules/memory/windows.rs): per-process RAM, owner and
+    # command line, service state, and ending processes (also uses Security and
+    # Wdk_System_Threading, listed above).
+    "Win32_System_ProcessStatus",
+    "Win32_System_Services",
+    "Wdk_Foundation",
 ] }
 
 [workspace]

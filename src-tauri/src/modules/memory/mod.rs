@@ -4,10 +4,16 @@
 //! reset. The watchdog now lives in DevsPro's backend, so it keeps working
 //! while the window sits in the tray.
 //!
-//! Linux only, like `processes` and `system`: everything is read from `/proc`.
-//! Elsewhere the snapshot comes back empty and every action says unsupported.
+//! Linux and Windows. On Linux everything is read from `/proc`; on Windows the same
+//! process and memory figures come from Win32 (`windows`), stopping is WM_CLOSE then
+//! TerminateProcess, services go through the Service Control Manager, and the cache
+//! that gets dropped is the standby list. Windows has no counterpart for Flatpak apps
+//! or for reclaiming swap, and says so (see `Support`). Elsewhere (macOS) the snapshot
+//! comes back empty and every action says unsupported.
 //!
 //! - `procfs`   — parsing `/proc/<pid>/{stat,status,cmdline}` and `/proc/meminfo`.
+//! - `windows`  — the Windows readers and actions standing in for `/proc`, `kill`,
+//!   `setsid`, `systemctl is-active` and `notify-send`.
 //! - `protect`  — what is never stopped: DevsPro's own tree, its ancestors, the
 //!   desktop session.
 //! - `catalog`  — the editable app list (`memory.apps`), its seed, auto-categories.
@@ -22,6 +28,8 @@ mod procfs;
 mod protect;
 mod sample;
 pub mod watchdog;
+#[cfg(windows)]
+mod windows;
 
 pub use catalog::{AppDef, AppKind};
 pub use watchdog::WatchdogConfig;
@@ -101,7 +109,26 @@ pub struct MemorySnapshot {
     pub memory: MemoryInfo,
     pub apps: Vec<AppRow>,
     pub watchdog: WatchdogConfig,
+    pub support: Support,
 }
+
+/// What this OS can do, so the page can leave out what it can't.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Support {
+    /// "linux", "windows" or "macos".
+    pub os: &'static str,
+    /// Flatpak apps exist here (`flatpak kill` / `flatpak run`).
+    pub flatpak: bool,
+    /// Swap can be pulled back into RAM. Not on Windows: nothing there pages a
+    /// process's memory back in short of the process touching it.
+    pub reclaim_swap: bool,
+}
+
+pub const SUPPORT: Support = Support {
+    os: std::env::consts::OS,
+    flatpak: cfg!(target_os = "linux"),
+    reclaim_swap: cfg!(target_os = "linux"),
+};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ActionResult {
@@ -196,11 +223,11 @@ impl MemoryState {
     }
 }
 
-fn ensure_linux() -> Result<(), String> {
-    if cfg!(target_os = "linux") {
+fn ensure_supported() -> Result<(), String> {
+    if cfg!(any(target_os = "linux", windows)) {
         Ok(())
     } else {
-        Err("the Memory module is only supported on Linux".to_string())
+        Err("the Memory module is only supported on Linux and Windows".to_string())
     }
 }
 
@@ -221,12 +248,13 @@ pub fn memory_snapshot(db: State<Db>, state: State<MemoryState>) -> Result<Memor
         memory: sample.memory.clone(),
         apps: sample.entries.iter().map(|e| e.row.clone()).collect(),
         watchdog,
+        support: SUPPORT,
     })
 }
 
 #[tauri::command(async)]
 pub fn memory_stop(app: AppHandle, db: State<Db>, state: State<MemoryState>, ids: Vec<String>) -> Result<Vec<ActionResult>, String> {
-    ensure_linux()?;
+    ensure_supported()?;
     let catalog = read_catalog(&db)?;
     let sample = state.sample(&catalog, FRESH);
     let results = control::stop(&app, &sample, &ids);
@@ -236,7 +264,7 @@ pub fn memory_stop(app: AppHandle, db: State<Db>, state: State<MemoryState>, ids
 
 #[tauri::command(async)]
 pub fn memory_start(app: AppHandle, db: State<Db>, state: State<MemoryState>, id: String) -> Result<ActionResult, String> {
-    ensure_linux()?;
+    ensure_supported()?;
     let catalog = read_catalog(&db)?;
     let sample = state.sample(&catalog, FRESH);
     let Some(entry) = sample.entry(&id) else {
@@ -287,13 +315,13 @@ pub fn memory_watchdog_log(app: AppHandle) -> Result<Vec<WatchdogEvent>, String>
 /// JS passes this as `{ reclaimSwap }`, Tauri's camelCase for argument names.
 #[tauri::command(async)]
 pub fn memory_drop_caches(app: AppHandle, reclaim_swap: bool) -> Result<Vec<OpResult>, String> {
-    ensure_linux()?;
+    ensure_supported()?;
     control::drop_caches(&app, reclaim_swap)
 }
 
 #[tauri::command(async)]
 pub fn memory_reset_preview(db: State<Db>, state: State<MemoryState>) -> Result<ResetPreview, String> {
-    ensure_linux()?;
+    ensure_supported()?;
     let catalog = read_catalog(&db)?;
     let sample = state.sample(&catalog, FRESH);
     Ok(control::reset_preview(&sample))
@@ -301,7 +329,7 @@ pub fn memory_reset_preview(db: State<Db>, state: State<MemoryState>) -> Result<
 
 #[tauri::command(async)]
 pub fn memory_reset(app: AppHandle, db: State<Db>, state: State<MemoryState>, request: ResetRequest) -> Result<ResetSummary, String> {
-    ensure_linux()?;
+    ensure_supported()?;
     let catalog = read_catalog(&db)?;
     let summary = control::reset(&app, &catalog, request);
     state.invalidate();
@@ -338,6 +366,10 @@ mod tests {
             serde_json::from_str(r#"{"processes":[[123,456789]],"services":["nginx"],"drop_caches":true}"#).unwrap();
         assert_eq!(request.processes, [(123, 456789)]);
         assert!(request.drop_caches);
+
+        let support = serde_json::to_value(SUPPORT).unwrap();
+        assert_eq!(support["os"], std::env::consts::OS);
+        assert!(support["flatpak"].is_boolean() && support["reclaim_swap"].is_boolean());
     }
 
     /// Smoke test against this machine's real `/proc`: two scans 1.5 s apart,

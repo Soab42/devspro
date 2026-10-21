@@ -113,16 +113,19 @@ pub enum Operation {
     },
     /// Memory module: `systemctl <action> -- <unit>`. The helper accepts only
     /// "start" or "stop", and only a unit name matching
-    /// `^[A-Za-z0-9@._:-]{1,128}$` that doesn't start with `-`.
+    /// `^[A-Za-z0-9@._:-]{1,128}$` that doesn't start with `-`. On Windows `unit` is a
+    /// service name, started or stopped through the Service Control Manager.
     ServiceControl { action: String, unit: String },
     /// Memory module: `sync`, then `3` into /proc/sys/vm/drop_caches (page
     /// cache, dentries and inodes). Only clean pages are dropped, hence the sync.
+    /// On Windows: flush the modified page list, then empty the standby list.
     DropCaches,
     /// Memory module: `swapoff -a && swapon -a`, pulling everything in swap
     /// back into RAM. Refused when what's in swap is more than 80 % of
     /// MemAvailable, since swapoff would then push the machine into the OOM
     /// killer; succeeds without doing anything when swap is empty. Put it last
     /// in a manifest: the helper skips everything after a failed operation.
+    /// Fails on Windows, which has no equivalent; the app doesn't send it there.
     ReclaimSwap,
     /// Cleaner, System tab: `apt-get clean`.
     AptClean,

@@ -553,28 +553,40 @@ fn service_control(action: &str, unit: &str) -> OpResult {
             message: format!("{unit:?} is not a valid unit name — refusing"),
         };
     }
-    match Command::new("systemctl").args([action, "--", unit]).output() {
-        Ok(out) if out.status.success() => OpResult {
-            success: true,
-            message: format!("{} {unit}", if action == "start" { "started" } else { "stopped" }),
-        },
-        Ok(out) => OpResult {
-            success: false,
-            message: format!(
-                "systemctl {action} {unit} failed: {}{}",
-                String::from_utf8_lossy(&out.stdout).trim(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            ),
-        },
-        Err(e) => OpResult {
-            success: false,
-            message: format!("failed to run systemctl: {e}"),
-        },
+    #[cfg(windows)]
+    {
+        platform::service_control(action, unit)
+    }
+    #[cfg(not(windows))]
+    {
+        match Command::new("systemctl").args([action, "--", unit]).output() {
+            Ok(out) if out.status.success() => OpResult {
+                success: true,
+                message: format!("{} {unit}", if action == "start" { "started" } else { "stopped" }),
+            },
+            Ok(out) => OpResult {
+                success: false,
+                message: format!(
+                    "systemctl {action} {unit} failed: {}{}",
+                    String::from_utf8_lossy(&out.stdout).trim(),
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ),
+            },
+            Err(e) => OpResult {
+                success: false,
+                message: format!("failed to run systemctl: {e}"),
+            },
+        }
     }
 }
 
+// Windows has its own; see `platform::windows_memory`.
+#[cfg(windows)]
+use platform::{drop_caches, reclaim_swap};
+
 /// `drop_caches` only frees clean pages, so `sync` first writes the dirty ones
 /// out. A failed sync is reported but doesn't stop the drop.
+#[cfg(not(windows))]
 fn drop_caches() -> OpResult {
     let synced = matches!(Command::new("sync").status(), Ok(s) if s.success());
     match fs::write("/proc/sys/vm/drop_caches", "3") {
@@ -595,6 +607,7 @@ fn drop_caches() -> OpResult {
 
 /// The `/proc/meminfo` figures the swap guard needs, in kB:
 /// (swap in use, MemAvailable).
+#[cfg_attr(windows, allow(dead_code))]
 fn swap_figures(meminfo: &str) -> (u64, u64) {
     let field = |name: &str| {
         meminfo
@@ -607,6 +620,7 @@ fn swap_figures(meminfo: &str) -> (u64, u64) {
 }
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(windows, allow(dead_code))]
 enum SwapPlan {
     /// Nothing in swap.
     Nothing,
@@ -619,6 +633,7 @@ enum SwapPlan {
 /// `swapoff` has to fit everything in swap into RAM, and the kernel will OOM-kill
 /// to make room rather than give up — so refuse when what's in swap is more
 /// than 80 % of MemAvailable.
+#[cfg_attr(windows, allow(dead_code))]
 fn plan_swap_reclaim(swap_used_kb: u64, mem_available_kb: u64) -> SwapPlan {
     if swap_used_kb == 0 {
         SwapPlan::Nothing
@@ -633,6 +648,7 @@ fn plan_swap_reclaim(swap_used_kb: u64, mem_available_kb: u64) -> SwapPlan {
     }
 }
 
+#[cfg(not(windows))]
 fn reclaim_swap() -> OpResult {
     let meminfo = match fs::read_to_string("/proc/meminfo") {
         Ok(s) => s,
