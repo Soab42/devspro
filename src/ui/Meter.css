@@ -72,6 +72,9 @@
   color: var(--color-text-muted);
 }
 
+/* `flex: 1` on the track is for the horizontal row; in this column container it
+   would size the track's height, and Chromium (WebView2) collapses it to 0. */
 .meter-compact .meter-track {
+  flex: none;
   height: 0.375rem;
 }
