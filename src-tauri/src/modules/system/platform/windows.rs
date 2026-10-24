@@ -5,13 +5,23 @@
 //! calls the Win32 APIs directly through `windows-sys`, which is already a dependency
 //! for the UAC elevation launcher (`elevate::platform::windows`).
 //!
-//! Two exceptions, both deliberate: GPUs come from `nvidia-smi` when it's installed
-//! (see `super::nvidia` — same tool, same flags as on Linux) and otherwise from the
-//! display-adapter registry class, because measuring a non-NVIDIA GPU would mean
-//! taking on WMI/COM for numbers the dashboard treats as optional anyway.
+//! One exception, deliberate: GPUs come from `nvidia-smi` when it's installed (see
+//! `super::nvidia` — same tool, same flags as on Linux, and the only source of a GPU
+//! temperature). Anything else is measured the way Task Manager does it: adapters
+//! from D3DKMT, usage and memory from the "GPU Engine"/"GPU Adapter Memory"
+//! performance counters, all built into Windows.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Duration;
 
+use windows_sys::Wdk::Graphics::Direct3D::{
+    D3DKMTCloseAdapter, D3DKMTEnumAdapters2, D3DKMTQueryAdapterInfo, D3DKMT_ADAPTERINFO,
+    D3DKMT_ADAPTERREGISTRYINFO, D3DKMT_ADAPTERTYPE, D3DKMT_CLOSEADAPTER,
+    D3DKMT_DRIVER_DESCRIPTION, D3DKMT_ENUMADAPTERS2, D3DKMT_QUERYADAPTERINFO,
+    D3DKMT_SEGMENTSIZEINFO, KMTQAITYPE_ADAPTERREGISTRYINFO, KMTQAITYPE_ADAPTERTYPE,
+    KMTQAITYPE_DRIVER_DESCRIPTION, KMTQAITYPE_GETSEGMENTSIZE, KMTQUERYADAPTERINFOTYPE,
+};
 use windows_sys::Wdk::System::SystemInformation::{
     NtQuerySystemInformation, SystemProcessorPerformanceInformation,
 };
@@ -22,6 +32,11 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
 use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
 use windows_sys::Win32::Storage::FileSystem::{
     GetDiskFreeSpaceExW, GetDriveTypeW, GetLogicalDriveStringsW, GetVolumeInformationW,
+};
+use windows_sys::Win32::System::Performance::{
+    PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW,
+    PdhOpenQueryW, PDH_CSTATUS_NEW_DATA, PDH_CSTATUS_VALID_DATA, PDH_FMT, PDH_FMT_COUNTERVALUE_ITEM_W,
+    PDH_FMT_DOUBLE, PDH_FMT_LARGE, PDH_MORE_DATA,
 };
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, REG_DWORD,
@@ -462,14 +477,341 @@ pub fn gpus() -> Vec<GpuInfo> {
             return gpus;
         }
     }
-    read_gpus_from_registry()
+    let Some(adapters) = hardware_adapters() else {
+        return read_gpus_from_registry();
+    };
+
+    let versions: HashMap<String, String> = read_gpus_from_registry()
+        .into_iter()
+        .filter_map(|gpu| Some((gpu.name, gpu.driver?)))
+        .collect();
+    let counters = {
+        let mut guard = GPU_COUNTERS.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.is_none() {
+            *guard = GpuCounters::open();
+        }
+        guard.as_ref().and_then(GpuCounters::sample)
+    };
+
+    adapters
+        .into_iter()
+        .map(|adapter| {
+            let memory_used = counters
+                .as_ref()
+                .and_then(|c| c.dedicated_bytes.get(&adapter.luid).copied());
+            let has_dedicated = adapter.dedicated_bytes > 0 && memory_used.is_some();
+            GpuInfo {
+                driver: versions.get(&adapter.name).cloned(),
+                // An adapter no process has a context on has no engine instances at
+                // all; once the counters are readable, that absence means idle.
+                usage_percent: counters
+                    .as_ref()
+                    .map(|c| c.usage.get(&adapter.luid).copied().unwrap_or(0.0) as f32),
+                memory_used_mb: has_dedicated.then(|| bytes_to_mb(memory_used.unwrap_or(0))),
+                memory_total_mb: has_dedicated.then(|| bytes_to_mb(adapter.dedicated_bytes)),
+                temperature: None,
+                name: adapter.name,
+            }
+        })
+        .collect()
 }
 
-/// Fallback for anything `nvidia-smi` can't see — integrated Intel/AMD graphics, or an
-/// NVIDIA card whose driver tools aren't installed. Names the adapter and its driver
-/// version, and leaves every measurement `None`: the registry knows what the hardware
-/// is, not what it's currently doing, and a faked 0% would read as an idle GPU rather
-/// than an unmeasurable one.
+fn bytes_to_mb(bytes: u64) -> f64 {
+    bytes as f64 / (1024.0 * 1024.0)
+}
+
+/// A physical GPU as the kernel graphics subsystem sees it. `luid` is what the
+/// performance counters name adapters by, so it is the join key between the two.
+struct Adapter {
+    luid: u64,
+    name: String,
+    dedicated_bytes: u64,
+}
+
+/// D3DKMT_ADAPTERTYPE bits (d3dkmthk.h): RenderSupported, SoftwareDevice,
+/// IndirectDisplayDevice.
+const ADAPTER_RENDER_SUPPORTED: u32 = 1 << 0;
+const ADAPTER_SOFTWARE_DEVICE: u32 = 1 << 2;
+const ADAPTER_INDIRECT_DISPLAY: u32 = 1 << 6;
+
+/// Whether an adapter is real GPU hardware worth a dashboard card. Drops Microsoft
+/// Basic Render Driver (software), and the virtual displays that tools like spacedesk
+/// or a remote-desktop session install (indirect display, or display-only with no
+/// render engine) — they show up as display adapters but have nothing to measure.
+fn is_hardware_gpu(adapter_type: u32) -> bool {
+    adapter_type & ADAPTER_RENDER_SUPPORTED != 0
+        && adapter_type & (ADAPTER_SOFTWARE_DEVICE | ADAPTER_INDIRECT_DISPLAY) == 0
+}
+
+/// Every hardware GPU, or `None` if D3DKMT itself is unavailable (the caller then
+/// falls back to the registry). An adapter whose type can't be read is kept rather
+/// than hidden.
+fn hardware_adapters() -> Option<Vec<Adapter>> {
+    let mut enumerate = D3DKMT_ENUMADAPTERS2 {
+        NumAdapters: 0,
+        pAdapters: std::ptr::null_mut(),
+    };
+    // SAFETY: a null pAdapters asks only for the count.
+    if unsafe { D3DKMTEnumAdapters2(&mut enumerate) } < 0 {
+        return None;
+    }
+    // SAFETY: D3DKMT_ADAPTERINFO is plain C data.
+    let mut infos: Vec<D3DKMT_ADAPTERINFO> =
+        vec![unsafe { std::mem::zeroed() }; enumerate.NumAdapters as usize];
+    enumerate.pAdapters = infos.as_mut_ptr();
+    // SAFETY: pAdapters points at NumAdapters writable entries.
+    if unsafe { D3DKMTEnumAdapters2(&mut enumerate) } < 0 {
+        return None;
+    }
+    infos.truncate(enumerate.NumAdapters as usize);
+
+    let adapters = infos
+        .iter()
+        .filter_map(|info| {
+            let adapter_type = query_adapter::<D3DKMT_ADAPTERTYPE>(
+                info.hAdapter,
+                KMTQAITYPE_ADAPTERTYPE,
+            )
+            // SAFETY: both union arms are the same u32.
+            .map(|t| unsafe { t.Anonymous.Value });
+            if adapter_type.is_some_and(|t| !is_hardware_gpu(t)) {
+                return None;
+            }
+            let name = query_adapter::<D3DKMT_DRIVER_DESCRIPTION>(
+                info.hAdapter,
+                KMTQAITYPE_DRIVER_DESCRIPTION,
+            )
+            .map(|d| from_wide_nul(&d.DriverDescription))
+            .filter(|name| !name.is_empty())
+            .or_else(|| {
+                query_adapter::<D3DKMT_ADAPTERREGISTRYINFO>(
+                    info.hAdapter,
+                    KMTQAITYPE_ADAPTERREGISTRYINFO,
+                )
+                .map(|r| from_wide_nul(&r.AdapterString))
+            })
+            .filter(|name| !name.is_empty())?;
+            let dedicated_bytes = query_adapter::<D3DKMT_SEGMENTSIZEINFO>(
+                info.hAdapter,
+                KMTQAITYPE_GETSEGMENTSIZE,
+            )
+            .map_or(0, |s| s.DedicatedVideoMemorySize);
+            Some(Adapter {
+                luid: luid_key(info.AdapterLuid.HighPart as u32, info.AdapterLuid.LowPart),
+                name,
+                dedicated_bytes,
+            })
+        })
+        .collect();
+
+    for info in &infos {
+        // SAFETY: each handle came from the enumeration above and is closed once.
+        unsafe {
+            D3DKMTCloseAdapter(&D3DKMT_CLOSEADAPTER {
+                hAdapter: info.hAdapter,
+            })
+        };
+    }
+    Some(adapters)
+}
+
+/// One `D3DKMTQueryAdapterInfo` call whose output is a `T`. Boxed because some of
+/// these (the driver description) are 8 KB.
+fn query_adapter<T>(adapter: u32, kind: KMTQUERYADAPTERINFOTYPE) -> Option<Box<T>> {
+    // SAFETY: every T used here is plain C data, valid when zeroed.
+    let mut out: Box<T> = Box::new(unsafe { std::mem::zeroed() });
+    let mut query = D3DKMT_QUERYADAPTERINFO {
+        hAdapter: adapter,
+        Type: kind,
+        pPrivateDriverData: (&mut *out as *mut T).cast(),
+        PrivateDriverDataSize: std::mem::size_of::<T>() as u32,
+    };
+    // SAFETY: the buffer is exactly the size declared, and outlives the call.
+    (unsafe { D3DKMTQueryAdapterInfo(&mut query) } >= 0).then_some(out)
+}
+
+fn luid_key(high: u32, low: u32) -> u64 {
+    (u64::from(high) << 32) | u64::from(low)
+}
+
+/// The adapter a counter instance belongs to, from the `luid_0x<high>_0x<low>` that
+/// every GPU counter instance name carries
+/// (`pid_1234_luid_0x00000000_0x0000D1A6_phys_0_eng_0_engtype_3D`).
+fn instance_luid(instance: &str) -> Option<u64> {
+    let rest = &instance[instance.find("luid_0x")? + "luid_0x".len()..];
+    let (high, rest) = rest.split_once("_0x")?;
+    let low = rest.get(..8)?;
+    Some(luid_key(
+        u32::from_str_radix(high, 16).ok()?,
+        u32::from_str_radix(low, 16).ok()?,
+    ))
+}
+
+/// Task Manager's GPU figure: per-engine utilization summed across the processes
+/// using that engine, then the busiest engine per adapter. Averaging the engines
+/// would show a GPU pegged on video decode as nearly idle.
+fn usage_by_adapter<'a>(samples: impl IntoIterator<Item = (&'a str, f64)>) -> HashMap<u64, f64> {
+    let mut per_engine: HashMap<(u64, &str), f64> = HashMap::new();
+    for (instance, value) in samples {
+        let Some(luid) = instance_luid(instance) else { continue };
+        let Some(engine) = instance.find("_phys_").map(|i| &instance[i..]) else { continue };
+        *per_engine.entry((luid, engine)).or_default() += value;
+    }
+    let mut per_adapter: HashMap<u64, f64> = HashMap::new();
+    for ((luid, _), value) in per_engine {
+        let busiest = per_adapter.entry(luid).or_default();
+        *busiest = busiest.max(value.clamp(0.0, 100.0));
+    }
+    per_adapter
+}
+
+/// The PDH query lives across polls: utilization is a rate, so each read is the
+/// change since the previous one, exactly like the CPU ticks.
+static GPU_COUNTERS: Mutex<Option<GpuCounters>> = Mutex::new(None);
+
+struct GpuCounters {
+    query: isize,
+    engine: isize,
+    memory: isize,
+}
+
+struct GpuCounterSample {
+    usage: HashMap<u64, f64>,
+    dedicated_bytes: HashMap<u64, u64>,
+}
+
+impl GpuCounters {
+    fn open() -> Option<Self> {
+        let mut query = 0;
+        // SAFETY: a null data source means live counters; `query` is an out-parameter.
+        if unsafe { PdhOpenQueryW(std::ptr::null(), 0, &mut query) } != ERROR_SUCCESS {
+            return None;
+        }
+        let add = |path: &str| {
+            let path = to_wide_nul(path);
+            let mut counter = 0;
+            // SAFETY: `path` is NUL-terminated and outlives the call.
+            let status = unsafe { PdhAddEnglishCounterW(query, path.as_ptr(), 0, &mut counter) };
+            (status == ERROR_SUCCESS).then_some(counter)
+        };
+        let (Some(engine), Some(memory)) = (
+            add(r"\GPU Engine(*)\Utilization Percentage"),
+            add(r"\GPU Adapter Memory(*)\Dedicated Usage"),
+        ) else {
+            // SAFETY: closing the query also frees any counter that was added.
+            unsafe { PdhCloseQuery(query) };
+            return None;
+        };
+        // Prime the rate counter, so the very first snapshot already has a usage
+        // instead of flashing "unavailable" until the next poll.
+        // SAFETY: a valid query handle.
+        unsafe { PdhCollectQueryData(query) };
+        std::thread::sleep(Duration::from_millis(100));
+        Some(Self { query, engine, memory })
+    }
+
+    fn sample(&self) -> Option<GpuCounterSample> {
+        // SAFETY: a valid query handle.
+        if unsafe { PdhCollectQueryData(self.query) } != ERROR_SUCCESS {
+            return None;
+        }
+        let usage = read_counter_array(self.engine, PDH_FMT_DOUBLE, |item| {
+            // SAFETY: requested as PDH_FMT_DOUBLE.
+            unsafe { item.FmtValue.Anonymous.doubleValue }
+        })?;
+        let usage = usage_by_adapter(usage.iter().map(|(name, value)| (name.as_str(), *value)));
+
+        let mut dedicated_bytes = HashMap::new();
+        for (instance, bytes) in read_counter_array(self.memory, PDH_FMT_LARGE, |item| {
+            // SAFETY: requested as PDH_FMT_LARGE.
+            unsafe { item.FmtValue.Anonymous.largeValue }
+        })
+        .unwrap_or_default()
+        {
+            if let Some(luid) = instance_luid(&instance) {
+                *dedicated_bytes.entry(luid).or_default() += bytes.max(0) as u64;
+            }
+        }
+        Some(GpuCounterSample { usage, dedicated_bytes })
+    }
+}
+
+impl Drop for GpuCounters {
+    fn drop(&mut self) {
+        // SAFETY: closed exactly once; this also frees the counters.
+        unsafe { PdhCloseQuery(self.query) };
+    }
+}
+
+/// Every instance of a wildcard counter as (instance name, value), skipping instances
+/// that have no valid reading yet (a process that started since the last collect).
+fn read_counter_array<V>(
+    counter: isize,
+    format: PDH_FMT,
+    value: impl Fn(&PDH_FMT_COUNTERVALUE_ITEM_W) -> V,
+) -> Option<Vec<(String, V)>> {
+    const ITEM_SIZE: usize = std::mem::size_of::<PDH_FMT_COUNTERVALUE_ITEM_W>();
+    // Instances come and go between the size query and the read, so grow and retry.
+    for _ in 0..4 {
+        let (mut size, mut count) = (0u32, 0u32);
+        // SAFETY: a null buffer asks only for the required size.
+        let status = unsafe {
+            PdhGetFormattedCounterArrayW(counter, format, &mut size, &mut count, std::ptr::null_mut())
+        };
+        if status != PDH_MORE_DATA {
+            // No instances at all is a valid, empty reading.
+            return (status == ERROR_SUCCESS).then(Vec::new);
+        }
+        // The buffer holds the items followed by their name strings; allocating it
+        // as items keeps it aligned for them.
+        // SAFETY: PDH_FMT_COUNTERVALUE_ITEM_W is plain C data.
+        let mut buffer: Vec<PDH_FMT_COUNTERVALUE_ITEM_W> =
+            vec![unsafe { std::mem::zeroed() }; (size as usize).div_ceil(ITEM_SIZE)];
+        // SAFETY: `buffer` is at least `size` bytes.
+        let status = unsafe {
+            PdhGetFormattedCounterArrayW(counter, format, &mut size, &mut count, buffer.as_mut_ptr())
+        };
+        if status == PDH_MORE_DATA {
+            continue;
+        }
+        if status != ERROR_SUCCESS {
+            return None;
+        }
+        return Some(
+            buffer[..count as usize]
+                .iter()
+                .filter(|item| {
+                    matches!(item.FmtValue.CStatus, PDH_CSTATUS_VALID_DATA | PDH_CSTATUS_NEW_DATA)
+                })
+                .map(|item| {
+                    // SAFETY: szName points into `buffer`, NUL-terminated by PDH.
+                    let name = unsafe { wide_ptr_to_string(item.szName) };
+                    (name, value(item))
+                })
+                .collect(),
+        );
+    }
+    None
+}
+
+/// # Safety
+/// `ptr` must be null or point at a NUL-terminated UTF-16 string.
+unsafe fn wide_ptr_to_string(ptr: *const u16) -> String {
+    if ptr.is_null() {
+        return String::new();
+    }
+    let mut len = 0;
+    while *ptr.add(len) != 0 {
+        len += 1;
+    }
+    String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
+}
+
+/// Fallback when D3DKMT is unavailable, and the source of driver versions (which
+/// D3DKMT doesn't report) otherwise. Names the adapter and its driver version, and
+/// leaves every measurement `None`: the registry knows what the hardware is, not what
+/// it's currently doing, and a faked 0% would read as an idle GPU rather than an
+/// unmeasurable one.
 fn read_gpus_from_registry() -> Vec<GpuInfo> {
     (0..MAX_DISPLAY_ADAPTERS)
         .filter_map(|index| {
@@ -672,6 +1014,50 @@ mod tests {
         for name in net_bytes().keys() {
             assert!(!name.is_empty(), "an interface with no name is a bad read");
         }
+        for gpu in gpus() {
+            assert!(!gpu.name.is_empty());
+            if let Some(usage) = gpu.usage_percent {
+                assert!((0.0..=100.0).contains(&usage), "got {usage}");
+            }
+        }
+    }
+
+    #[test]
+    fn reads_the_adapter_luid_from_a_counter_instance() {
+        assert_eq!(
+            instance_luid("pid_1234_luid_0x00000000_0x0000D1A6_phys_0_eng_0_engtype_3D"),
+            Some(0xD1A6)
+        );
+        assert_eq!(
+            instance_luid("luid_0x00000001_0x0000C3A1_phys_0"),
+            Some((1 << 32) | 0xC3A1)
+        );
+        assert_eq!(instance_luid("_Total"), None);
+        assert_eq!(instance_luid("luid_0xzz_0x0000C3A1_phys_0"), None);
+    }
+
+    /// Engines sum across processes, then the busiest engine is the adapter's figure.
+    #[test]
+    fn reports_the_busiest_engine_per_adapter() {
+        let usage = usage_by_adapter([
+            ("pid_1_luid_0x00000000_0x0000AAAA_phys_0_eng_0_engtype_3D", 20.0),
+            ("pid_2_luid_0x00000000_0x0000AAAA_phys_0_eng_0_engtype_3D", 15.0),
+            ("pid_1_luid_0x00000000_0x0000AAAA_phys_0_eng_3_engtype_VideoDecode", 30.0),
+            ("pid_3_luid_0x00000000_0x0000BBBB_phys_0_eng_0_engtype_3D", 70.0),
+            ("pid_4_luid_0x00000000_0x0000BBBB_phys_0_eng_0_engtype_3D", 60.0),
+        ]);
+        assert_eq!(usage[&0xAAAA], 35.0);
+        assert_eq!(usage[&0xBBBB], 100.0, "capped, as Task Manager does");
+    }
+
+    #[test]
+    fn keeps_only_render_capable_hardware_adapters() {
+        assert!(is_hardware_gpu(ADAPTER_RENDER_SUPPORTED | 0b10));
+        // Microsoft Basic Render Driver.
+        assert!(!is_hardware_gpu(ADAPTER_RENDER_SUPPORTED | ADAPTER_SOFTWARE_DEVICE));
+        // spacedesk / remote-desktop virtual displays.
+        assert!(!is_hardware_gpu(ADAPTER_RENDER_SUPPORTED | ADAPTER_INDIRECT_DISPLAY));
+        assert!(!is_hardware_gpu(0b10), "display-only, nothing to render with");
     }
 
     /// Pins the bit position `is_filter_interface` reads. Getting it wrong is silent and
