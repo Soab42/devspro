@@ -1,4 +1,4 @@
-import { DragEvent, HTMLAttributes, ReactNode, Ref, useMemo, useState } from "react";
+import { DragEvent, Fragment, HTMLAttributes, ReactNode, Ref, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronsUpDown } from "./icons";
 import { Icon } from "./Icon";
 import { Skeleton } from "./Feedback";
@@ -85,6 +85,13 @@ export interface DataTableProps<T> {
   scrollRef?: Ref<HTMLDivElement>;
   /** Handlers on that container — drag-to-scroll, wheel behaviour. */
   scrollProps?: HTMLAttributes<HTMLDivElement>;
+  /**
+   * Rows (by `rowKey`) showing a detail panel under them, full table width.
+   * The caller owns which are open — typically toggled from `onRowClick`.
+   */
+  expandedKeys?: ReadonlySet<string>;
+  /** The detail panel for an expanded row. */
+  renderExpanded?: (row: T) => ReactNode;
   className?: string;
 }
 
@@ -111,6 +118,8 @@ export function DataTable<T>({
   onReorder,
   scrollRef,
   scrollProps,
+  expandedKeys,
+  renderExpanded,
   className,
 }: DataTableProps<T>) {
   const [internalSort, setInternalSort] = useState<SortState | undefined>(defaultSort);
@@ -256,12 +265,17 @@ export function DataTable<T>({
           )}
 
           {!loading &&
-            sorted.map((row, index) => (
+            sorted.map((row, index) => {
+              const key = rowKey(row);
+              const expanded = Boolean(renderExpanded && expandedKeys?.has(key));
+              return (
+              <Fragment key={key}>
               <tr
-                key={rowKey(row)}
+                aria-expanded={renderExpanded ? expanded : undefined}
                 className={[
                   "dt-row",
                   onRowClick && "dt-row-clickable",
+                  expanded && "dt-row-expanded",
                   rowClassName?.(row),
                 ]
                   .filter(Boolean)
@@ -278,7 +292,16 @@ export function DataTable<T>({
                   </td>
                 ))}
               </tr>
-            ))}
+              {expanded && (
+                <tr className="dt-expanded-row">
+                  <td colSpan={columns.length} className="dt-expanded-cell">
+                    {renderExpanded?.(row)}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              );
+            })}
         </tbody>
       </table>
     </div>

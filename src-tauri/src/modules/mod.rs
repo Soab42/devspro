@@ -11,6 +11,7 @@ pub mod file_manager;
 pub mod fs_compat;
 pub mod hosts_file;
 pub mod http_client;
+pub mod laravel_log;
 pub mod logs;
 pub mod mailcatcher;
 pub mod memory;

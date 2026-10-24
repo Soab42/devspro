@@ -15,6 +15,8 @@ export interface StackProps {
   wrap?: boolean;
   align?: CSSProperties["alignItems"];
   justify?: CSSProperties["justifyContent"];
+  /** Take the rest of a flex-column parent, so a child can scroll inside it. */
+  fill?: boolean;
   className?: string;
 }
 
@@ -33,6 +35,7 @@ export function Stack({
   wrap = false,
   align,
   justify,
+  fill = false,
   className,
 }: StackProps) {
   const classes = [
@@ -40,6 +43,7 @@ export function Stack({
     `stack-${direction}`,
     `stack-gap-${gap}`,
     wrap && "stack-wrap",
+    fill && "stack-fill",
     className,
   ]
     .filter(Boolean)
