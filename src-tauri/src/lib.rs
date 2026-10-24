@@ -15,6 +15,7 @@ use modules::env_diff;
 use modules::file_manager;
 use modules::hosts_file;
 use modules::http_client;
+use modules::laravel_log;
 use modules::logs;
 use modules::mailcatcher;
 use modules::memory;
@@ -379,6 +380,7 @@ pub fn run() {
             scheduled::scheduled_set_enabled,
             scheduled::scheduled_run_now,
             scheduled::scheduled_logs,
+            laravel_log::laravel_log_errors,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

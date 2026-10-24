@@ -20,6 +20,8 @@ export default function LogsModal({
       fetchLogs={load}
       onClose={onClose}
       intervalMs={2000}
+      laravelTable
+      workingDir={worker.working_dir}
     />
   );
 }

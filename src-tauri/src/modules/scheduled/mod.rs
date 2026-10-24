@@ -21,6 +21,8 @@
 //! On Windows there is no cron; the same definitions are registered as Task
 //! Scheduler tasks under `\DevsPro\` instead — see `task_scheduler`.
 
+#[cfg(windows)]
+mod running;
 mod task_scheduler;
 
 use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveDateTime, TimeDelta, Timelike};
@@ -719,17 +721,34 @@ pub fn scheduled_save(
     };
 
     sync_schedule(&app, &conn).map_err(|e| format!("task saved, but {SCHEDULER} was not updated: {e}"))?;
+    if !enabled {
+        stop_runs(&id);
+    }
     Ok(to_view(&app, find(&conn, &id)?))
+}
+
+/// Ends the task's runs still in progress, after the sync so no new one starts
+/// meanwhile. Off means off: without this a long-running command keeps going
+/// after its task is disabled or deleted. Windows only so far — on Unix cron's
+/// runs aren't tracked either and still finish on their own.
+fn stop_runs(id: &str) {
+    #[cfg(windows)]
+    running::stop_runs(id);
+    #[cfg(not(windows))]
+    let _ = id;
 }
 
 #[tauri::command(async)]
 pub fn scheduled_delete(app: AppHandle, db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM scheduled_tasks WHERE id = ?1", [&id]).map_err(|e| e.to_string())?;
+    let synced = sync_schedule(&app, &conn).map_err(|e| format!("task deleted, but {SCHEDULER} was not updated: {e}"));
+    // Before the log goes: a run killed mid-write must not recreate it.
+    stop_runs(&id);
     if let Ok(path) = log_path(&app, &id) {
         let _ = std::fs::remove_file(path);
     }
-    sync_schedule(&app, &conn).map_err(|e| format!("task deleted, but {SCHEDULER} was not updated: {e}"))
+    synced
 }
 
 #[tauri::command(async)]
@@ -744,6 +763,9 @@ pub fn scheduled_set_enabled(
     conn.execute("UPDATE scheduled_tasks SET enabled = ?1 WHERE id = ?2", (enabled as i64, &id))
         .map_err(|e| e.to_string())?;
     sync_schedule(&app, &conn).map_err(|e| format!("setting saved, but {SCHEDULER} was not updated: {e}"))?;
+    if !enabled {
+        stop_runs(&id);
+    }
     Ok(to_view(&app, find(&conn, &id)?))
 }
 
@@ -769,13 +791,10 @@ pub fn scheduled_run_now(app: AppHandle, db: State<crate::db::Db>, id: String) -
         .map_err(|e| format!("failed to open log file: {e}"))?;
     // A header so a manual run is distinguishable from cron's in the log.
     let _ = writeln!(log_file, "--- manual run at {} ---", Local::now().format("%Y-%m-%d %H:%M:%S"));
-    let stderr_file = log_file.try_clone().map_err(|e| e.to_string())?;
 
-    let mut child = shell_command(&task.command)
+    let mut child = run_now_command(&task, &path, log_file)?
         .current_dir(&task.working_dir)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(log_file))
-        .stderr(Stdio::from(stderr_file))
         .spawn()
         .map_err(|e| format!("failed to start command: {e}"))?;
     // Reap the child in the background so it never lingers as a zombie.
@@ -785,22 +804,31 @@ pub fn scheduled_run_now(app: AppHandle, db: State<crate::db::Db>, id: String) -
     Ok(())
 }
 
+/// `sh -c` with both streams going to the log file.
 #[cfg(unix)]
-fn shell_command(command: &str) -> Command {
+fn run_now_command(task: &ScheduledTask, _log: &std::path::Path, log_file: std::fs::File) -> Result<Command, String> {
+    let stderr_file = log_file.try_clone().map_err(|e| e.to_string())?;
     let mut cmd = Command::new("sh");
-    cmd.arg("-c").arg(command);
-    cmd
+    cmd.arg("-c").arg(&task.command).stdout(Stdio::from(log_file)).stderr(Stdio::from(stderr_file));
+    Ok(cmd)
 }
 
-/// `raw_arg` so the command reaches cmd verbatim — Rust's own quoting would
-/// escape its inner quotes in a way cmd doesn't understand. No console
-/// window, matching the headless scheduled runs.
+/// The same `cmd` line Task Scheduler runs, redirect included, so the log
+/// path is on this run's command line too and disabling or deleting the task
+/// can find and stop it (see `running`). `raw_arg` so the line reaches cmd
+/// verbatim — Rust's own quoting would escape its inner quotes in a way cmd
+/// doesn't understand. No console window, matching the headless scheduled runs.
 #[cfg(windows)]
-fn shell_command(command: &str) -> Command {
+fn run_now_command(task: &ScheduledTask, log: &std::path::Path, log_file: std::fs::File) -> Result<Command, String> {
     use std::os::windows::process::CommandExt;
+    // cmd appends to the log itself; the header is already in.
+    drop(log_file);
     let mut cmd = Command::new("cmd");
-    cmd.raw_arg(format!("/d /s /c \"{command}\"")).creation_flags(0x0800_0000);
-    cmd
+    cmd.raw_arg(task_scheduler::cmd_arguments(task, &log.to_string_lossy()))
+        .creation_flags(0x0800_0000)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    Ok(cmd)
 }
 
 #[tauri::command(async)]

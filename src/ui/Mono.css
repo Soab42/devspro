@@ -69,6 +69,11 @@
   tab-size: 2;
 }
 
+.code-block-fill {
+  flex: 1;
+  min-height: 0;
+}
+
 .code-block-wrap {
   white-space: pre-wrap;
   word-break: break-word;

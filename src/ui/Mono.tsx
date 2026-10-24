@@ -108,6 +108,9 @@ export interface CodeBlockProps {
   /** Keeps the view pinned to the newest line — for log tails. */
   autoScrollBottom?: boolean;
   wrap?: boolean;
+  /** Take the rest of a flex-column parent and scroll inside it, instead of
+      capping at `maxHeight` — for a log that fills a dialog. */
+  fill?: boolean;
   className?: string;
 }
 
@@ -116,6 +119,7 @@ export function CodeBlock({
   maxHeight = "50vh",
   autoScrollBottom = false,
   wrap = true,
+  fill = false,
   className,
 }: CodeBlockProps) {
   const ref = useRef<HTMLPreElement>(null);
@@ -128,8 +132,8 @@ export function CodeBlock({
   return (
     <pre
       ref={ref}
-      className={`code-block${wrap ? " code-block-wrap" : ""}${className ? ` ${className}` : ""}`}
-      style={{ maxHeight }}
+      className={`code-block${wrap ? " code-block-wrap" : ""}${fill ? " code-block-fill" : ""}${className ? ` ${className}` : ""}`}
+      style={fill ? undefined : { maxHeight }}
     >
       {children}
     </pre>

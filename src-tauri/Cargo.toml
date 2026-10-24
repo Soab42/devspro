@@ -88,6 +88,11 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_WindowsProgramming",
     "Wdk_System_SystemInformation",
     "Win32_Storage_FileSystem",
+    # GPU usage and memory from the "GPU Engine"/"GPU Adapter Memory" performance
+    # counters (Performance), keyed by adapter LUIDs from D3DKMT (Direct3D) — the
+    # same sources Task Manager reads, for any vendor.
+    "Win32_System_Performance",
+    "Wdk_Graphics_Direct3D",
     # MIB_IF_ROW2's fields are typed from the Ndis namespace, so GetIfTable2 needs
     # both of these to compile, not just IpHelper. IpHelper also carries
     # GetExtendedTcpTable, which is how src/modules/processes lists listening ports.

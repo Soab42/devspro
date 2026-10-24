@@ -133,6 +133,12 @@
   padding: 0 var(--space-5) var(--space-5);
 }
 
+.modal-body-fill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 /* --------------------------------------------------------------- footer -- */
 .modal-footer-wrap {
   flex: 0 0 auto;

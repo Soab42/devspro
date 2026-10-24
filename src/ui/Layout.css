@@ -13,6 +13,11 @@
   align-items: center;
 }
 
+.stack-fill {
+  flex: 1;
+  min-height: 0;
+}
+
 .stack-wrap {
   flex-wrap: wrap;
 }

@@ -163,6 +163,19 @@
   cursor: pointer;
 }
 
+/* An open row and its panel read as one block: no rule between them. */
+.dt-row-expanded .dt-td {
+  background-color: var(--color-surface-2);
+  border-bottom-color: transparent;
+}
+
+.dt-expanded-cell {
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  background-color: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+  white-space: normal;
+}
+
 /* The column a row is identified by — gives the eye an anchor when scanning a
    wide table of otherwise uniform grey text. */
 .dt-strong {
