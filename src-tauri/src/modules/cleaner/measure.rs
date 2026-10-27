@@ -2,17 +2,20 @@
 //! handle that lets a long scan report progress and be cancelled.
 
 use super::{ScanProgress, PROGRESS_EVENT};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use crate::modules::fs_compat::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 /// Progress events are at most this far apart.
 const THROTTLE: Duration = Duration::from_millis(250);
+/// Threads a walk uses at most. Reading directories mostly waits on the
+/// kernel, so a walk keeps gaining past the core count, but not by much.
+const MAX_WALK_THREADS: usize = 16;
 
 type Sink = Box<dyn Fn(ScanProgress) + Send + Sync>;
 
@@ -139,6 +142,114 @@ impl Drop for Scan {
     }
 }
 
+/// Directories waiting to be read, and how many are being read right now.
+struct Queue<D> {
+    dirs: Vec<D>,
+    busy: usize,
+}
+
+struct Work<D> {
+    queue: Mutex<Queue<D>>,
+    ready: Condvar,
+}
+
+impl<D> Work<D> {
+    fn lock(&self) -> MutexGuard<'_, Queue<D>> {
+        self.queue.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The next directory to read, waiting while another thread may still add
+    /// some. None once the tree is done or the scan is cancelled.
+    fn next(&self, scan: &Scan) -> Option<D> {
+        let mut queue = self.lock();
+        loop {
+            if scan.is_cancelled() {
+                return None;
+            }
+            if let Some(dir) = queue.dirs.pop() {
+                queue.busy += 1;
+                return Some(dir);
+            }
+            if queue.busy == 0 {
+                return None;
+            }
+            queue = self.ready.wait(queue).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+}
+
+/// A directory being read. Dropping it queues what was found below and marks
+/// it done, on a panic too, so the other threads never wait on it forever.
+struct Taken<'a, D> {
+    work: &'a Work<D>,
+    subdirs: Vec<D>,
+}
+
+impl<D> Drop for Taken<'_, D> {
+    fn drop(&mut self) {
+        let mut queue = self.work.lock();
+        queue.busy -= 1;
+        let wake = !self.subdirs.is_empty() || queue.busy == 0;
+        queue.dirs.append(&mut self.subdirs);
+        drop(queue);
+        if wake {
+            self.work.ready.notify_all();
+        }
+    }
+}
+
+/// A directory's entries; an unreadable directory, or entry, is skipped.
+fn entries_of(dir: &Path) -> impl Iterator<Item = fs::DirEntry> {
+    fs::read_dir(dir).into_iter().flatten().flatten()
+}
+
+/// Reads the tree under the directory `root` on several threads. A directory
+/// is a `D`: its path, plus whatever the caller tracks with it. `visit` reads
+/// one directory's entries into its thread's own state and returns the
+/// subdirectories to read next, so it decides what to descend into (symlinks,
+/// other filesystems, skipped folders). Returns every thread's state, for the
+/// caller to merge, and the directories left unread: a cancelled scan stops
+/// taking new ones.
+pub fn walk_dirs<D: AsRef<Path> + Send, S: Send>(
+    root: D,
+    scan: &Scan,
+    init: impl Fn() -> S + Sync,
+    visit: impl Fn(&mut S, &D, &mut dyn Iterator<Item = fs::DirEntry>) -> Vec<D> + Sync,
+) -> (Vec<S>, Vec<D>) {
+    if scan.is_cancelled() {
+        return (Vec::new(), vec![root]);
+    }
+    // The root on this thread first: a flat folder needs no threads at all.
+    let mut first = init();
+    let dirs = visit(&mut first, &root, &mut entries_of(root.as_ref()));
+    if dirs.is_empty() {
+        return (vec![first], dirs);
+    }
+    let work = Work { queue: Mutex::new(Queue { dirs, busy: 0 }), ready: Condvar::new() };
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, MAX_WALK_THREADS);
+    let mut states = std::thread::scope(|s| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut state = init();
+                    while let Some(dir) = work.next(scan) {
+                        let mut taken = Taken { work: &work, subdirs: Vec::new() };
+                        taken.subdirs = visit(&mut state, &dir, &mut entries_of(dir.as_ref()));
+                    }
+                    state
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .map(|w| w.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+            .collect::<Vec<_>>()
+    });
+    states.push(first);
+    let unread = std::mem::take(&mut work.lock().dirs);
+    (states, unread)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DiskUsage {
     pub bytes: u64,
@@ -157,38 +268,64 @@ pub fn disk_usage(path: &Path, scan: &Scan) -> DiskUsage {
 
 /// `disk_usage` with the device lookup injectable, so the one-filesystem check
 /// can be tested without a second mount.
-fn disk_usage_with(path: &Path, scan: &Scan, dev_of: impl Fn(&fs::Metadata) -> u64) -> DiskUsage {
-    let mut usage = DiskUsage::default();
-    let Ok(root) = fs::symlink_metadata(path) else { return usage };
-    let dev = dev_of(&root);
-    let mut seen: HashSet<(u64, u64)> = HashSet::new();
-    let mut stack: Vec<(PathBuf, fs::Metadata)> = vec![(path.to_path_buf(), root)];
-
-    while let Some((dir_or_file, meta)) = stack.pop() {
-        if scan.is_cancelled() {
-            usage.truncated = true;
-            break;
-        }
-        if dev_of(&meta) != dev {
-            continue;
-        }
-        if meta.nlink() > 1 && !meta.is_dir() && !seen.insert((meta.dev(), meta.ino())) {
-            continue;
-        }
-        let size = meta.blocks() * 512;
-        usage.bytes += size;
-        usage.entries += 1;
-        scan.tick(1, size, &dir_or_file);
-
-        if meta.is_dir() {
-            let Ok(read) = fs::read_dir(&dir_or_file) else { continue };
-            for entry in read.flatten() {
-                if let Ok(m) = fs::symlink_metadata(entry.path()) {
-                    stack.push((entry.path(), m));
-                }
-            }
-        }
+fn disk_usage_with(path: &Path, scan: &Scan, dev_of: impl Fn(&fs::Metadata) -> u64 + Sync) -> DiskUsage {
+    if scan.is_cancelled() {
+        return DiskUsage { truncated: true, ..DiskUsage::default() };
     }
+    let Ok(root) = fs::symlink_metadata(path) else { return DiskUsage::default() };
+    let size = root.blocks() * 512;
+    scan.tick(1, size, path);
+    let mut usage = DiskUsage { bytes: size, entries: 1, truncated: false };
+    if !root.is_dir() {
+        return usage;
+    }
+    let dev = dev_of(&root);
+
+    /// One thread's share. Hard-linked files are kept by inode so each counts
+    /// once across all threads.
+    #[derive(Default)]
+    struct Tally {
+        bytes: u64,
+        entries: u64,
+        linked: HashMap<(u64, u64), u64>,
+    }
+    let (tallies, unread) = walk_dirs(path.to_path_buf(), scan, Tally::default, |tally, dir, list| {
+        let mut subdirs = Vec::new();
+        let (mut entries, mut bytes) = (0, 0);
+        for entry in list {
+            // Relative to the open directory: no path lookup, no symlink followed.
+            let Ok(meta) = entry.metadata() else { continue };
+            if dev_of(&meta) != dev {
+                continue;
+            }
+            let size = meta.blocks() * 512;
+            if meta.is_dir() {
+                subdirs.push(entry.path());
+            } else if meta.nlink() > 1 {
+                if tally.linked.insert((meta.dev(), meta.ino()), size).is_none() {
+                    entries += 1;
+                    bytes += size;
+                }
+                continue;
+            }
+            tally.entries += 1;
+            tally.bytes += size;
+            entries += 1;
+            bytes += size;
+        }
+        scan.tick(entries, bytes, dir);
+        subdirs
+    });
+
+    let mut linked: HashMap<(u64, u64), u64> = HashMap::new();
+    for tally in tallies {
+        usage.bytes += tally.bytes;
+        usage.entries += tally.entries;
+        linked.extend(tally.linked);
+    }
+    usage.bytes += linked.values().sum::<u64>();
+    usage.entries += linked.len() as u64;
+    usage.truncated = !unread.is_empty();
     usage
 }
 
@@ -287,6 +424,65 @@ mod tests {
         assert!(u.bytes < 1_000_000);
         fs::remove_dir_all(&d).unwrap();
         fs::remove_dir_all(&outside).unwrap();
+    }
+
+    // Windows: `fs_compat` reports every file with one link, so a hard link
+    // is counted twice there (see its module comment).
+    #[cfg(unix)]
+    #[test]
+    fn a_deep_tree_counts_every_entry_and_each_hard_link_once() {
+        let d = scratch("deep");
+        let mut expected_entries = 1;
+        for a in 0..5 {
+            for b in 0..5 {
+                let dir = d.join(format!("a{a}/b{b}"));
+                fs::create_dir_all(&dir).unwrap();
+                write(&dir.join("f"), 5_000);
+                expected_entries += 2;
+            }
+            expected_entries += 1;
+        }
+        // The same file under two folders different threads may read.
+        fs::hard_link(d.join("a0/b0/f"), d.join("a4/b4/g")).unwrap();
+        let mut expected_bytes = 0;
+        let mut stack = vec![d.clone()];
+        while let Some(p) = stack.pop() {
+            let m = fs::symlink_metadata(&p).unwrap();
+            if p != d.join("a4/b4/g") {
+                expected_bytes += m.blocks() * 512;
+            }
+            if m.is_dir() {
+                stack.extend(fs::read_dir(&p).unwrap().map(|e| e.unwrap().path()));
+            }
+        }
+        for _ in 0..5 {
+            let u = disk_usage(&d, &Scan::detached());
+            assert_eq!((u.entries, u.bytes, u.truncated), (expected_entries, expected_bytes, false));
+        }
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn a_walk_cancelled_partway_reports_it_is_incomplete() {
+        let d = scratch("walk-cancel");
+        for i in 0..50 {
+            fs::create_dir_all(d.join(format!("s{i}/t"))).unwrap();
+        }
+        let scan = Scan::detached();
+        let read = AtomicU64::new(0);
+        let (_, unread) = walk_dirs(d.clone(), &scan, || (), |_, _, list| {
+            if read.fetch_add(1, Ordering::Relaxed) == 3 {
+                scan.cancel();
+            }
+            list.map(|e| e.path()).filter(|p| p.is_dir()).collect()
+        });
+        assert!(!unread.is_empty());
+        assert!(read.load(Ordering::Relaxed) < 101, "stopped taking directories");
+        let (_, unread) = walk_dirs(d.clone(), &Scan::detached(), || (), |_, _, list| {
+            list.map(|e| e.path()).filter(|p| p.is_dir()).collect()
+        });
+        assert!(unread.is_empty());
+        fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]

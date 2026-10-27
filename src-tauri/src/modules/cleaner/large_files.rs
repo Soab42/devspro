@@ -3,7 +3,7 @@
 //! artifacts, the trash) are left out of the file scan.
 
 use super::guard::{check_removable, remove_path, within};
-use super::measure::{disk_usage, free_bytes};
+use super::measure::{disk_usage, free_bytes, walk_dirs};
 use super::{history, CleanOutcome, CleanerSettings, CleanerState, Scan};
 use crate::db::Db;
 use serde::{Deserialize, Serialize};
@@ -143,7 +143,8 @@ fn now_secs() -> i64 {
 
 /// Every file under `roots` with at least `min_bytes` on disk (and, with
 /// `older_than_days`, not modified since), largest first, at most 2000. Never
-/// follows a symlink or leaves a root's filesystem.
+/// follows a symlink or leaves a root's filesystem. A file hard-linked in more
+/// than one place is listed once, under the path that sorts first.
 fn find_large_files(
     roots: &[PathBuf],
     exclusions: &[PathBuf],
@@ -153,34 +154,29 @@ fn find_large_files(
     scan: &Scan,
 ) -> Vec<LargeFile> {
     let cutoff = older_than_days.map(|d| now_secs() - i64::from(d) * 86_400);
-    let mut found: Vec<LargeFile> = Vec::new();
-    let mut seen_paths: HashSet<PathBuf> = HashSet::new();
-    let mut seen_links: HashSet<(u64, u64)> = HashSet::new();
+    // A root inside another root is walked by that one.
+    let mut walked: Vec<&PathBuf> = roots.iter().filter(|r| !roots.iter().any(|o| o != *r && r.starts_with(o))).collect();
+    walked.sort();
+    walked.dedup();
+    // Each file with its inode when it has other hard links.
+    let mut found: Vec<(LargeFile, Option<(u64, u64)>)> = Vec::new();
 
-    for root in roots {
-        // A root inside another root is walked by that one.
-        if roots.iter().any(|o| o != root && root.starts_with(o)) {
-            continue;
-        }
+    for root in walked {
         let Ok(root_meta) = fs::symlink_metadata(root) else { continue };
         if !root_meta.is_dir() {
             continue;
         }
         let dev = root_meta.dev();
-        let mut stack = vec![root.clone()];
-        while let Some(dir) = stack.pop() {
-            if scan.is_cancelled() {
-                break;
-            }
-            let Ok(read) = fs::read_dir(&dir) else { continue };
-            for entry in read.flatten() {
-                let path = entry.path();
-                let Ok(meta) = fs::symlink_metadata(&path) else { continue };
-                let ft = meta.file_type();
-                if ft.is_symlink() {
-                    continue;
-                }
+        let (per_thread, _) = walk_dirs(root.clone(), scan, Vec::new, |found: &mut Vec<_>, dir, list| {
+            let mut subdirs = Vec::new();
+            let (mut files, mut bytes) = (0, 0);
+            for entry in list {
+                // From the directory listing itself, so symlinks and other
+                // non-files cost no stat.
+                let Ok(ft) = entry.file_type() else { continue };
                 if ft.is_dir() {
+                    let path = entry.path();
+                    let Ok(meta) = entry.metadata() else { continue };
                     let name = entry.file_name().to_string_lossy().into_owned();
                     let covered = meta.dev() != dev
                         || exclusions.iter().any(|e| within(&path, e))
@@ -188,38 +184,48 @@ fn find_large_files(
                         || is_project_artifact(&path, &name)
                         || os_owned(&path);
                     if !covered {
-                        stack.push(path);
+                        subdirs.push(path);
                     }
                     continue;
                 }
                 if !ft.is_file() {
                     continue;
                 }
-                let bytes = meta.blocks() * 512;
-                scan.tick(1, bytes, &path);
-                if bytes < min_bytes || cutoff.is_some_and(|c| meta.mtime() >= c) {
+                let Ok(meta) = entry.metadata() else { continue };
+                let size = meta.blocks() * 512;
+                files += 1;
+                bytes += size;
+                if size < min_bytes || cutoff.is_some_and(|c| meta.mtime() >= c) {
                     continue;
                 }
+                let path = entry.path();
                 if exclusions.iter().any(|e| within(&path, e)) || os_owned(&path) {
                     continue;
                 }
-                if meta.nlink() > 1 && !seen_links.insert((meta.dev(), meta.ino())) {
-                    continue;
-                }
-                if !seen_paths.insert(path.clone()) {
-                    continue;
-                }
                 let name = entry.file_name().to_string_lossy().into_owned();
-                found.push(LargeFile {
+                let file = LargeFile {
                     path: path.to_string_lossy().into_owned(),
-                    bytes,
+                    bytes: size,
                     modified: meta.mtime(),
                     accessed: meta.atime(),
                     kind: kind_of(&name).to_string(),
-                });
+                };
+                found.push((file, (meta.nlink() > 1).then(|| (meta.dev(), meta.ino()))));
             }
-        }
+            scan.tick(files, bytes, dir);
+            subdirs
+        });
+        found.extend(per_thread.into_iter().flatten());
     }
+
+    // Threads finish in any order: sort by path so the same link always wins.
+    found.sort_by(|a, b| a.0.path.cmp(&b.0.path));
+    let mut seen_links: HashSet<(u64, u64)> = HashSet::new();
+    let mut found: Vec<LargeFile> = found
+        .into_iter()
+        .filter(|(_, link)| link.is_none_or(|l| seen_links.insert(l)))
+        .map(|(file, _)| file)
+        .collect();
     found.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.path.cmp(&b.path)));
     found.truncate(MAX_RESULTS);
     found
@@ -498,6 +504,49 @@ mod tests {
         let mut got = names(&found, &root);
         got.sort();
         assert_eq!(got, vec!["keep/i.bin", "plain/target/g.bin", "plain/vendor/h.bin"]);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn deep_trees_are_walked_whole() {
+        let root = scratch("deep");
+        let mut expected = Vec::new();
+        for a in 0..6 {
+            for b in 0..6 {
+                let rel = format!("d{a}/e{b}/f{a}{b}.bin");
+                file(&root.join(&rel), 128);
+                expected.push(rel);
+            }
+        }
+        file(&root.join("d0/e0/small.bin"), 4);
+        let mut got = names(&find(&root, &[], 64 * 1024, None), &root);
+        got.sort();
+        expected.sort();
+        assert_eq!(got, expected);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    // Windows: `fs_compat` reports every file with one link, so a hard link
+    // is listed under both paths there (see its module comment).
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_linked_file_is_listed_once_under_its_first_path() {
+        let root = scratch("hardlinks");
+        file(&root.join("z/x/big.bin"), 128);
+        fs::create_dir_all(root.join("a/y")).unwrap();
+        fs::hard_link(root.join("z/x/big.bin"), root.join("a/y/same.bin")).unwrap();
+        for _ in 0..5 {
+            assert_eq!(names(&find(&root, &[], 64 * 1024, None), &root), vec!["a/y/same.bin"]);
+        }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_root_given_twice_is_walked_once() {
+        let root = scratch("twice");
+        file(&root.join("sub/a.bin"), 128);
+        let found = find_large_files(&[root.clone(), root.clone()], &[], &[], 64 * 1024, None, &Scan::detached());
+        assert_eq!(names(&found, &root), vec!["sub/a.bin"]);
         fs::remove_dir_all(&root).unwrap();
     }
 
