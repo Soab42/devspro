@@ -13,7 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Cursor, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
@@ -184,11 +184,6 @@ pub fn decode_reply<R: BufRead>(r: &mut R) -> Result<Resp, String> {
         }
         _ => Err(format!("unexpected RESP type byte {kind:?}")),
     }
-}
-
-/// Convenience for tests and for parsing a complete buffer.
-pub fn decode_bytes(bytes: &[u8]) -> Result<Resp, String> {
-    decode_reply(&mut Cursor::new(bytes))
 }
 
 /// Redis error replies are terse (`NOAUTH Authentication required.`); a
@@ -660,6 +655,11 @@ pub fn redis_peek_job(conn: RedisConn, queue: String, index: Option<i64>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    fn decode_bytes(bytes: &[u8]) -> Result<Resp, String> {
+        decode_reply(&mut Cursor::new(bytes))
+    }
 
     #[test]
     fn encodes_a_command_as_bulk_array() {

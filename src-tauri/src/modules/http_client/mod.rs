@@ -67,22 +67,6 @@ pub struct HttpRequestRecord {
 // Pure helpers
 // ---------------------------------------------------------------------------
 
-/// "Key: value" -> ("Key", "value"). Lines without a colon, or with an empty
-/// key, are `None` so a raw-headers textarea can drop them silently instead of
-/// failing the whole request on a stray blank line.
-pub fn parse_header_line(line: &str) -> Option<(String, String)> {
-    let (key, value) = line.split_once(':')?;
-    let key = key.trim();
-    if key.is_empty() {
-        return None;
-    }
-    Some((key.to_string(), value.trim().to_string()))
-}
-
-pub fn parse_header_lines(text: &str) -> Vec<(String, String)> {
-    text.lines().filter_map(parse_header_line).collect()
-}
-
 /// Header pairs from the UI, with blank keys dropped and everything trimmed.
 /// A trailing empty row is how the editor offers "add another", so it must not
 /// turn into a request error.
@@ -94,34 +78,6 @@ pub fn clean_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
             (!k.is_empty()).then(|| (k.to_string(), v.trim().to_string()))
         })
         .collect()
-}
-
-/// Whether a Content-Type names JSON — `application/json`, `application/
-/// problem+json`, `text/json; charset=utf-8` all count. Used for the same
-/// decision on both sides: the UI pretty-prints, and tests pin the rule.
-pub fn is_json_content_type(content_type: &str) -> bool {
-    let mime = content_type
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    mime == "application/json" || mime == "text/json" || mime.ends_with("+json")
-}
-
-/// Cheap "would pretty-printing help" check: real JSON is an object or array,
-/// and a scalar has nothing to indent. Not a validator — that is serde's job.
-pub fn looks_like_json(body: &str) -> bool {
-    let t = body.trim();
-    (t.starts_with('{') && t.ends_with('}')) || (t.starts_with('[') && t.ends_with(']'))
-}
-
-/// Pretty-prints JSON, or `None` if it does not parse. The result keeps key
-/// order (serde_json's default map is insertion-ordered only with the
-/// `preserve_order` feature, so the caller should expect sorted keys).
-pub fn pretty_json(body: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(body).ok()?;
-    serde_json::to_string_pretty(&value).ok()
 }
 
 /// Lossy-decodes at most `cap` bytes, never splitting a multi-byte character
@@ -370,27 +326,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn header_line_parsing_trims_and_splits_on_first_colon() {
-        assert_eq!(
-            parse_header_line("  Accept : application/json "),
-            Some(("Accept".into(), "application/json".into()))
-        );
-        assert_eq!(
-            parse_header_line("Authorization: Bearer a:b:c"),
-            Some(("Authorization".into(), "Bearer a:b:c".into()))
-        );
-        assert_eq!(parse_header_line("no colon here"), None);
-        assert_eq!(parse_header_line(": value"), None);
-        assert_eq!(parse_header_line(""), None);
-    }
-
-    #[test]
-    fn header_lines_skip_junk() {
-        let parsed = parse_header_lines("A: 1\n\ngarbage\nB:2\n");
-        assert_eq!(parsed, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
-    }
-
-    #[test]
     fn clean_headers_drops_blank_keys() {
         let raw = vec![
             (" X-One ".to_string(), " 1 ".to_string()),
@@ -401,32 +336,6 @@ mod tests {
             clean_headers(&raw),
             vec![("X-One".into(), "1".into()), ("X-Two".into(), "".into())]
         );
-    }
-
-    #[test]
-    fn json_content_type_detection() {
-        assert!(is_json_content_type("application/json"));
-        assert!(is_json_content_type("Application/JSON; charset=utf-8"));
-        assert!(is_json_content_type("application/problem+json"));
-        assert!(is_json_content_type("text/json"));
-        assert!(!is_json_content_type("text/html; charset=utf-8"));
-        assert!(!is_json_content_type("application/jsonp"));
-        assert!(!is_json_content_type(""));
-    }
-
-    #[test]
-    fn json_shape_detection() {
-        assert!(looks_like_json(" {\"a\":1} "));
-        assert!(looks_like_json("[1,2]"));
-        assert!(!looks_like_json("42"));
-        assert!(!looks_like_json("<html>"));
-        assert!(!looks_like_json(""));
-    }
-
-    #[test]
-    fn pretty_json_round_trips_and_rejects_junk() {
-        assert_eq!(pretty_json("{\"a\":[1,2]}").unwrap(), "{\n  \"a\": [\n    1,\n    2\n  ]\n}");
-        assert!(pretty_json("{nope").is_none());
     }
 
     #[test]
