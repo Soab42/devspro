@@ -29,16 +29,41 @@ fn pid_file(prefix: Option<&str>) -> Option<PathBuf> {
 /// foreground rather than daemonising, so a one-shot elevated helper launching it would
 /// leave an elevated orphan process behind with nothing supervising it. Telling the user
 /// to start nginx is the honest option until DevsPro manages that process properly.
+///
+/// The pid file is not trusted just for existing. Laragon leaves it empty for a moment
+/// when it switches from Apache to nginx, and a crash leaves a stale one; either way
+/// `nginx -s reload` fails with `invalid PID number ""` and would fail the whole manifest.
+/// So the pid is checked against the running processes, and when it doesn't name a live
+/// nginx the master is looked up directly and written back before reloading.
 pub fn reload_nginx(binary_path: &str, prefix: Option<&str>) -> OpResult {
     if let Some(pid_file) = pid_file(prefix) {
+        let not_running = || OpResult {
+            success: true,
+            message: format!(
+                "configuration is in place, but nginx is not running (no {}) — start nginx to serve it",
+                pid_file.display()
+            ),
+        };
         if !pid_file.exists() {
-            return OpResult {
-                success: true,
-                message: format!(
-                    "configuration is in place, but nginx is not running (no {}) — start nginx to serve it",
-                    pid_file.display()
-                ),
+            return not_running();
+        }
+        let processes = nginx_processes(binary_path);
+        let recorded = fs::read_to_string(&pid_file)
+            .ok()
+            .and_then(|text| text.trim().parse::<u32>().ok());
+        if !recorded.is_some_and(|pid| processes.iter().any(|p| p.pid == pid)) {
+            let Some(master) = master_pid(&processes) else {
+                return not_running();
             };
+            if let Err(e) = fs::write(&pid_file, format!("{master}\r\n")) {
+                return OpResult {
+                    success: false,
+                    message: format!(
+                        "nginx is running (PID {master}) but {} does not say so, and correcting it failed: {e}",
+                        pid_file.display()
+                    ),
+                };
+            }
         }
     }
 
@@ -67,6 +92,62 @@ pub fn reload_nginx(binary_path: &str, prefix: Option<&str>) -> OpResult {
             success: false,
             message: format!("failed to reload nginx: {e}"),
         },
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct NginxProcess {
+    pid: u32,
+    parent: u32,
+}
+
+/// Every running `nginx.exe` started from `binary_path` — another install's nginx is not
+/// the one this config belongs to. Read through CIM, which is what reports a process's
+/// parent and image path without adding a Win32 dependency to this crate.
+fn nginx_processes(binary_path: &str) -> Vec<NginxProcess> {
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-CimInstance Win32_Process -Filter \"Name='nginx.exe'\" | ForEach-Object { \"$($_.ProcessId)|$($_.ParentProcessId)|$($_.ExecutablePath)\" }",
+        ])
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    parse_nginx_processes(&String::from_utf8_lossy(&output.stdout), binary_path)
+}
+
+fn parse_nginx_processes(text: &str, binary_path: &str) -> Vec<NginxProcess> {
+    let wanted = binary_path.replace('/', "\\").to_ascii_lowercase();
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.trim().splitn(3, '|');
+            let pid = parts.next()?.parse().ok()?;
+            let parent = parts.next()?.parse().ok()?;
+            let path = parts.next()?.replace('/', "\\").to_ascii_lowercase();
+            (path == wanted).then_some(NginxProcess { pid, parent })
+        })
+        .collect()
+}
+
+/// The master is the one nginx whose parent is not itself an nginx — its workers' parent.
+fn master_pid(processes: &[NginxProcess]) -> Option<u32> {
+    processes
+        .iter()
+        .find(|p| !processes.iter().any(|other| other.pid == p.parent))
+        .map(|p| p.pid)
+}
+
+/// Never sent on Windows. `httpd -k restart` there only reaches an Apache installed as a
+/// service, and the usual dev installs (Laragon, XAMPP) run it as a plain process — which
+/// the app restarts itself, unelevated, so the new process is not an elevated orphan that
+/// Laragon's own Stop button can no longer end.
+pub fn reload_apache(_binary_path: &str, _pid_file: Option<&str>) -> OpResult {
+    OpResult {
+        success: false,
+        message: "Apache is restarted by DevsPro itself on Windows, not through the helper".to_string(),
     }
 }
 
@@ -406,6 +487,32 @@ pub fn remove_system_crash_dumps() -> OpResult {
         targets.extend(entries(&wer.join("ReportQueue")));
     }
     removal_result("crash dumps and reports", remove_entries(&targets))
+}
+
+#[cfg(test)]
+mod nginx_pid_tests {
+    use super::*;
+
+    const BIN: &str = r"C:\laragon\bin\nginx\nginx-1.22.0\nginx.exe";
+
+    #[test]
+    fn keeps_only_this_installs_processes() {
+        let text = "25316|6988|C:\\laragon\\bin\\nginx\\nginx-1.22.0\\nginx.exe\r\n\
+                    28668|25316|C:\\laragon\\bin\\nginx\\nginx-1.22.0\\nginx.exe\r\n\
+                    999|1|C:\\nginx\\nginx.exe\r\n";
+        assert_eq!(
+            parse_nginx_processes(text, BIN),
+            vec![NginxProcess { pid: 25316, parent: 6988 }, NginxProcess { pid: 28668, parent: 25316 }]
+        );
+    }
+
+    #[test]
+    fn the_master_is_the_workers_parent() {
+        // Exactly the pair Laragon's nginx runs as: master 25316, worker 28668.
+        let processes = vec![NginxProcess { pid: 28668, parent: 25316 }, NginxProcess { pid: 25316, parent: 6988 }];
+        assert_eq!(master_pid(&processes), Some(25316));
+        assert_eq!(master_pid(&[]), None);
+    }
 }
 
 #[cfg(test)]

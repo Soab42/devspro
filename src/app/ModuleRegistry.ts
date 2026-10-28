@@ -91,13 +91,13 @@ export const modules: ModuleDefinition[] = [
   },
   {
     id: "nginx-ssl",
-    label: "Nginx & SSL",
+    label: "Web Server & SSL",
     icon: Globe,
     group: "services",
     path: "/nginx-ssl",
     Component: lazy(() => import("../modules/nginx-ssl/pages/Dashboard")),
-    description: "Local sites, virtual hosts, PHP versions and trusted certificates.",
-    keywords: ["sites", "vhost", "https", "certificate", "ca", "php", "laravel", "tunnel"],
+    description: "Local sites on nginx or Apache, virtual hosts, PHP versions and trusted certificates.",
+    keywords: ["sites", "vhost", "https", "certificate", "ca", "php", "laravel", "tunnel", "nginx", "apache", "httpd"],
   },
   {
     id: "docker",

@@ -9,6 +9,24 @@ export interface NginxDetection {
   package_manager: string | null;
 }
 
+export interface ApacheDetection {
+  found: boolean;
+  /** `apachectl`/`apache2ctl` on Linux and macOS, `httpd.exe` on Windows. */
+  binary_path: string | null;
+  version: string | null;
+  config_path: string | null;
+  server_root: string | null;
+  pid_file: string | null;
+  /** Whether Apache's pid file exists right now. */
+  running: boolean;
+  package_manager: string | null;
+  /** What to tell the user when there is no install button to offer. */
+  install_hint: string;
+}
+
+/** Which web server DevsPro writes its sites for. One at a time — both want 80/443. */
+export type WebServer = "nginx" | "apache";
+
 export interface CaStatus {
   exists: boolean;
   not_after: string | null;
@@ -33,6 +51,8 @@ export interface SiteLimits {
   max_execution_time: number | null;
   max_input_vars: number | null;
   extra_nginx: string | null;
+  /** The same escape hatch for Apache — the two syntaxes have nothing in common. */
+  extra_apache: string | null;
 }
 
 export const EMPTY_LIMITS: SiteLimits = {
@@ -41,6 +61,7 @@ export const EMPTY_LIMITS: SiteLimits = {
   max_execution_time: null,
   max_input_vars: null,
   extra_nginx: null,
+  extra_apache: null,
 };
 
 export interface Site {
@@ -73,6 +94,15 @@ export interface PhpFpmVersion {
 
 export const detectNginx = () => invoke<NginxDetection>("nginx_ssl_detect_nginx");
 export const installNginx = () => invoke<string>("nginx_ssl_install_nginx");
+export const detectApache = () => invoke<ApacheDetection>("nginx_ssl_detect_apache");
+export const installApache = () => invoke<string>("nginx_ssl_install_apache");
+
+export const getWebServer = () => invoke<WebServer>("nginx_ssl_get_web_server");
+/**
+ * Moves every site to `server`: re-renders them in its syntax, tests and reloads it,
+ * and only then records the choice. Returns what the user should know afterwards.
+ */
+export const setWebServer = (server: WebServer) => invoke<string>("nginx_ssl_set_web_server", { server });
 
 export const caStatus = () => invoke<CaStatus>("nginx_ssl_ca_status");
 export const caEnsure = () => invoke<CaStatus>("nginx_ssl_ca_ensure");

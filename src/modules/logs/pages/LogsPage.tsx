@@ -117,7 +117,7 @@ export default function LogsPage() {
             size="md"
             icon={ScrollText}
             title="No log files yet"
-            description="Add a site under Nginx & SSL and generate some traffic first."
+            description="Add a site under Web Server & SSL and generate some traffic first."
           />
         </Section>
       ) : (

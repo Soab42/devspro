@@ -1,10 +1,12 @@
-//! Ties `ca`, `nginx`, `hosts`, and `ports` together into the add/remove/enable
-//! flows described in the plan: render the vhost and issue the cert unprivileged,
-//! then apply exactly one elevation manifest (write conf, ensure the nginx.conf
-//! include line, resync /etc/hosts, `nginx -t`, reload) per action.
+//! Ties `ca`, the active web server (`web_server` — nginx or Apache), `hosts`, and
+//! `ports` together into the add/remove/enable flows described in the plan: render the
+//! vhost and issue the cert unprivileged, then apply exactly one elevation manifest
+//! (write conf, ensure the server's include, resync /etc/hosts, config test, reload) per
+//! action.
 
 use super::limits::{self, SiteLimits};
-use super::{ca, laravel, nginx, php_fpm};
+use super::web_server::{self, Ready, WebServer};
+use super::{ca, laravel, nginx, php_fpm, port_conflict};
 use crate::elevate::{self, Operation, OperationManifest};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -181,22 +183,32 @@ fn allowed_write_prefix(app: &AppHandle) -> Result<String, String> {
     Ok(super::app_root_dir(app)?.to_string_lossy().to_string())
 }
 
-fn conf_path_string(app: &AppHandle, slug: &str) -> Result<String, String> {
-    Ok(super::nginx_sites_dir(app)?
-        .join(format!("{slug}.conf"))
-        .to_string_lossy()
-        .to_string())
+/// The web server the user picked, found on this machine and ready to drive.
+fn active_server(db: &crate::db::Db) -> Result<Ready, String> {
+    let server = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        web_server::active(&conn)
+    };
+    web_server::require(server)
 }
 
-fn require_nginx() -> Result<(String, String), String> {
-    let detection = nginx::detect();
-    let binary_path = detection
-        .binary_path
-        .ok_or_else(|| "nginx was not found on this machine — install it first (see the Nginx panel)".to_string())?;
-    let config_path = detection
-        .config_path
-        .ok_or_else(|| "could not determine nginx's main config path".to_string())?;
-    Ok((binary_path, config_path))
+/// Runs a manifest and turns the first failure into the message the user sees — with
+/// a port clash spelled out (see `port_conflict`) rather than left as the server's raw
+/// `bind()` error.
+fn apply(app: &AppHandle, server: &Ready, manifest: OperationManifest, context: &str) -> Result<(), String> {
+    let results = elevate::run(app, manifest)?;
+    if let Some(failed) = results.iter().find(|r| !r.success) {
+        return Err(format!("{context}: {}", port_conflict::explain(&failed.message, server.kind())));
+    }
+    Ok(())
+}
+
+/// The server's post-manifest step (restarting Apache on Windows). Its note, if any, is
+/// returned for the callers that have somewhere to show it.
+fn finish(server: &Ready) -> Result<Option<String>, String> {
+    server
+        .after_apply()
+        .map_err(|e| port_conflict::explain(&e, server.kind()))
 }
 
 fn backend_target(backend: &Backend) -> Result<nginx::render::BackendTarget, String> {
@@ -231,6 +243,7 @@ fn backend_target(backend: &Backend) -> Result<nginx::render::BackendTarget, Str
 
 fn render_conf_for(
     app: &AppHandle,
+    server: &Ready,
     hostname: &str,
     backend: &Backend,
     limits: &SiteLimits,
@@ -243,7 +256,7 @@ fn render_conf_for(
     let access_log = logs_dir.join(format!("{slug}.access.log"));
     let error_log = logs_dir.join(format!("{slug}.error.log"));
     let target = backend_target(backend)?;
-    Ok(nginx::render::render_site_conf(
+    Ok(server.render(
         hostname,
         &target,
         limits,
@@ -316,7 +329,7 @@ pub fn nginx_ssl_add_site(
         other => return Err(format!("unknown backend kind: {other}")),
     };
 
-    let (binary_path, config_path) = require_nginx()?;
+    let server = active_server(&db)?;
 
     {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -339,9 +352,8 @@ pub fn nginx_ssl_add_site(
     // A new site starts at system defaults; tuning is a follow-up edit rather than
     // another decision to make in the add form.
     let limits = SiteLimits::default();
-    let conf_contents = render_conf_for(&app, &hostname, &backend, &limits, &slug)?;
-    let conf_path = conf_path_string(&app, &slug)?;
-    let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
+    let conf_contents = render_conf_for(&app, &server, &hostname, &backend, &limits, &slug)?;
+    let conf_path = server.conf_path(&app, &slug)?;
 
     let mut hostnames = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -358,19 +370,15 @@ pub fn nginx_ssl_add_site(
             project_path: project_path.clone(),
         });
     }
-    operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob)?);
+    operations.extend(server.wire_in_ops(&app)?);
     operations.push(super::hosts::sync_op(&hostnames));
-    operations.extend(nginx::test_and_reload_ops(&binary_path));
+    operations.extend(server.test_and_reload_ops());
 
     let manifest = OperationManifest {
         allowed_write_prefix: allowed_write_prefix(&app)?,
         operations,
     };
-
-    let results = elevate::run(&app, manifest)?;
-    if let Some(failed) = results.iter().find(|r| !r.success) {
-        return Err(format!("failed to activate site: {}", failed.message));
-    }
+    apply(&app, &server, manifest, "failed to activate site")?;
 
     let site = Site {
         id: uuid::Uuid::new_v4().to_string(),
@@ -409,7 +417,11 @@ pub fn nginx_ssl_add_site(
         ),
     )
     .map_err(|e| e.to_string())?;
+    drop(conn);
 
+    // After the row is saved: the site's files are all in place by now, so a failed
+    // restart should leave it listed — fixable — rather than orphaned on disk.
+    finish(&server).map_err(|e| format!("the site was added, but {e}"))?;
     Ok(site)
 }
 
@@ -424,14 +436,13 @@ pub fn nginx_ssl_set_site_enabled(
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         find(&conn, &id)?
     };
-    let (binary_path, config_path) = require_nginx()?;
-    let conf_path = conf_path_string(&app, &site.slug)?;
-    let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
+    let server = active_server(&db)?;
+    let conf_path = server.conf_path(&app, &site.slug)?;
 
     let file_op = if enabled {
         Operation::WriteFile {
             path: conf_path,
-            contents: render_conf_for(&app, &site.hostname, &site.backend, &site.limits, &site.slug)?,
+            contents: render_conf_for(&app, &server, &site.hostname, &site.backend, &site.limits, &site.slug)?,
         }
     } else {
         Operation::RemoveFile { path: conf_path }
@@ -447,26 +458,25 @@ pub fn nginx_ssl_set_site_enabled(
     }
 
     let mut operations = vec![file_op];
-    operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob)?);
+    operations.extend(server.wire_in_ops(&app)?);
     operations.push(super::hosts::sync_op(&hostnames));
-    operations.extend(nginx::test_and_reload_ops(&binary_path));
+    operations.extend(server.test_and_reload_ops());
 
     let manifest = OperationManifest {
         allowed_write_prefix: allowed_write_prefix(&app)?,
         operations,
     };
+    apply(&app, &server, manifest, "failed to update site")?;
 
-    let results = elevate::run(&app, manifest)?;
-    if let Some(failed) = results.iter().find(|r| !r.success) {
-        return Err(format!("failed to update site: {}", failed.message));
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE nginx_ssl_sites SET enabled = ?1 WHERE id = ?2",
+            (enabled as i64, &id),
+        )
+        .map_err(|e| e.to_string())?;
     }
-
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE nginx_ssl_sites SET enabled = ?1 WHERE id = ?2",
-        (enabled as i64, &id),
-    )
-    .map_err(|e| e.to_string())?;
+    finish(&server)?;
     Ok(())
 }
 
@@ -492,14 +502,13 @@ pub fn nginx_ssl_set_site_php_version(
         php_version: php_version.clone(),
     };
 
-    let (binary_path, config_path) = require_nginx()?;
-    let conf_path = conf_path_string(&app, &site.slug)?;
-    let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
+    let server = active_server(&db)?;
+    let conf_path = server.conf_path(&app, &site.slug)?;
 
     let file_op = if site.enabled {
         Operation::WriteFile {
             path: conf_path,
-            contents: render_conf_for(&app, &site.hostname, &new_backend, &site.limits, &site.slug)?,
+            contents: render_conf_for(&app, &server, &site.hostname, &new_backend, &site.limits, &site.slug)?,
         }
     } else {
         Operation::RemoveFile { path: conf_path }
@@ -508,25 +517,24 @@ pub fn nginx_ssl_set_site_php_version(
     // No hosts resync here, unlike enable/disable: changing a Laravel site's PHP version
     // doesn't change which hostnames exist.
     let mut operations = vec![file_op];
-    operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob)?);
-    operations.extend(nginx::test_and_reload_ops(&binary_path));
+    operations.extend(server.wire_in_ops(&app)?);
+    operations.extend(server.test_and_reload_ops());
 
     let manifest = OperationManifest {
         allowed_write_prefix: allowed_write_prefix(&app)?,
         operations,
     };
+    apply(&app, &server, manifest, "failed to update site")?;
 
-    let results = elevate::run(&app, manifest)?;
-    if let Some(failed) = results.iter().find(|r| !r.success) {
-        return Err(format!("failed to update site: {}", failed.message));
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE nginx_ssl_sites SET php_version = ?1 WHERE id = ?2",
+            (&php_version, &id),
+        )
+        .map_err(|e| e.to_string())?;
     }
-
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE nginx_ssl_sites SET php_version = ?1 WHERE id = ?2",
-        (&php_version, &id),
-    )
-    .map_err(|e| e.to_string())?;
+    finish(&server)?;
     Ok(())
 }
 
@@ -565,49 +573,53 @@ pub fn nginx_ssl_set_site_limits(
         return Ok(());
     }
 
-    let (binary_path, config_path) = require_nginx()?;
-    let conf_path = conf_path_string(&app, &site.slug)?;
-    let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
+    let server = active_server(&db)?;
+    let conf_path = server.conf_path(&app, &site.slug)?;
     let allowed_write_prefix = allowed_write_prefix(&app)?;
 
-    let previous_conf = render_conf_for(&app, &site.hostname, &site.backend, &site.limits, &site.slug)?;
-    let next_conf = render_conf_for(&app, &site.hostname, &site.backend, &limits, &site.slug)?;
+    let previous_conf = render_conf_for(&app, &server, &site.hostname, &site.backend, &site.limits, &site.slug)?;
+    let next_conf = render_conf_for(&app, &server, &site.hostname, &site.backend, &limits, &site.slug)?;
 
-    // Built once up front so an unsupported nginx layout fails here, before any
-    // prompt, rather than inside the closure below.
-    nginx::wire_in_sites_ops(&config_path, &sites_glob)?;
-    let apply = |contents: String| {
+    let build = |contents: String| -> Result<OperationManifest, String> {
         let mut operations = vec![Operation::WriteFile {
             path: conf_path.clone(),
             contents,
         }];
-        operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob).expect("wire-in ops built above"));
-        operations.extend(nginx::test_and_reload_ops(&binary_path));
-        OperationManifest {
+        operations.extend(server.wire_in_ops(&app)?);
+        operations.extend(server.test_and_reload_ops());
+        Ok(OperationManifest {
             allowed_write_prefix: allowed_write_prefix.clone(),
             operations,
-        }
+        })
     };
+    // Both built up front so an unsupported server layout fails here, before any
+    // prompt, rather than halfway through a rollback.
+    let forward = build(next_conf)?;
+    let rollback = build(previous_conf)?;
 
-    let results = elevate::run(&app, apply(next_conf))?;
+    let label = server.label();
+    let results = elevate::run(&app, forward)?;
     if let Some(failed) = results.iter().find(|r| !r.success) {
-        let reason = failed.message.clone();
+        let reason = port_conflict::explain(&failed.message, server.kind());
         // Second prompt, but only on the failure path — and the alternative is
-        // leaving nginx holding a config it just rejected.
-        return match elevate::run(&app, apply(previous_conf)) {
-            Ok(_) => Err(format!("nginx rejected these settings, so they were not applied: {reason}")),
+        // leaving the server holding a config it just rejected.
+        return match elevate::run(&app, rollback) {
+            Ok(_) => Err(format!("{label} rejected these settings, so they were not applied: {reason}")),
             Err(rollback_err) => Err(format!(
-                "nginx rejected these settings: {reason}\n\nRestoring the previous config also failed: {rollback_err}. Fix the settings and save again, or disable and re-enable the site."
+                "{label} rejected these settings: {reason}\n\nRestoring the previous config also failed: {rollback_err}. Fix the settings and save again, or disable and re-enable the site."
             )),
         };
     }
 
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE nginx_ssl_sites SET limits = ?1 WHERE id = ?2",
-        (limits::to_column(&limits), &id),
-    )
-    .map_err(|e| e.to_string())?;
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE nginx_ssl_sites SET limits = ?1 WHERE id = ?2",
+            (limits::to_column(&limits), &id),
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    finish(&server)?;
     Ok(())
 }
 
@@ -652,30 +664,31 @@ pub fn nginx_ssl_reissue_site_cert(
         ));
     }
 
-    let (binary_path, config_path) = require_nginx()?;
-    let conf_path = conf_path_string(&app, &site.slug)?;
-    let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
-    let contents = render_conf_for(&app, &site.hostname, &site.backend, &site.limits, &site.slug)?;
+    let server = active_server(&db)?;
+    let conf_path = server.conf_path(&app, &site.slug)?;
+    let contents = render_conf_for(&app, &server, &site.hostname, &site.backend, &site.limits, &site.slug)?;
 
     let mut operations = vec![Operation::WriteFile {
         path: conf_path,
         contents,
     }];
-    operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob)?);
-    operations.extend(nginx::test_and_reload_ops(&binary_path));
+    operations.extend(server.wire_in_ops(&app)?);
+    operations.extend(server.test_and_reload_ops());
     let manifest = OperationManifest {
         allowed_write_prefix: allowed_write_prefix(&app)?,
         operations,
     };
+    apply(&app, &server, manifest, "the certificate was reissued, but the server rejected the config")?;
 
-    let results = elevate::run(&app, manifest)?;
-    if let Some(failed) = results.iter().find(|r| !r.success) {
-        return Err(failed.message.clone());
-    }
-    Ok(format!(
-        "Reissued the certificate for {} and reloaded nginx.",
-        site.hostname
-    ))
+    let message = format!(
+        "Reissued the certificate for {} and reloaded {}.",
+        site.hostname,
+        server.label()
+    );
+    Ok(match finish(&server)? {
+        Some(note) => format!("{message} {note}"),
+        None => message,
+    })
 }
 
 /// Standalone re-run of the storage/bootstrap-cache permission fix, for Laravel
@@ -711,9 +724,8 @@ pub fn nginx_ssl_remove_site(app: AppHandle, db: State<crate::db::Db>, id: Strin
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         find(&conn, &id)?
     };
-    let (binary_path, config_path) = require_nginx()?;
-    let conf_path = conf_path_string(&app, &site.slug)?;
-    let sites_glob = super::nginx_sites_dir(&app)?.join("*.conf").to_string_lossy().to_string();
+    let server = active_server(&db)?;
+    let conf_path = server.conf_path(&app, &site.slug)?;
 
     let mut hostnames = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -722,28 +734,102 @@ pub fn nginx_ssl_remove_site(app: AppHandle, db: State<crate::db::Db>, id: Strin
     hostnames.retain(|h| h != &site.hostname);
 
     let mut operations = vec![Operation::RemoveFile { path: conf_path }];
-    operations.extend(nginx::wire_in_sites_ops(&config_path, &sites_glob)?);
+    operations.extend(server.wire_in_ops(&app)?);
     operations.push(super::hosts::sync_op(&hostnames));
-    operations.extend(nginx::test_and_reload_ops(&binary_path));
+    operations.extend(server.test_and_reload_ops());
 
     let manifest = OperationManifest {
         allowed_write_prefix: allowed_write_prefix(&app)?,
         operations,
     };
-
-    let results = elevate::run(&app, manifest)?;
-    if let Some(failed) = results.iter().find(|r| !r.success) {
-        return Err(format!("failed to remove site: {}", failed.message));
-    }
+    apply(&app, &server, manifest, "failed to remove site")?;
 
     let certs_dir = super::certs_dir(&app)?;
     let _ = std::fs::remove_file(certs_dir.join(format!("{}.pem", site.hostname)));
     let _ = std::fs::remove_file(certs_dir.join(format!("{}-key.pem", site.hostname)));
 
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM nginx_ssl_sites WHERE id = ?1", [&id])
-        .map_err(|e| e.to_string())?;
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM nginx_ssl_sites WHERE id = ?1", [&id])
+            .map_err(|e| e.to_string())?;
+    }
+    finish(&server)?;
     Ok(())
+}
+
+/// Moves every site to the other web server: renders each enabled site's vhost in the
+/// new server's syntax, wires the new server in, tests and reloads it, and only then
+/// removes the old server's copies and records the choice. Nothing is switched unless
+/// the new server accepted the whole set.
+///
+/// The old server is left running — DevsPro did not start it and does not stop it — but
+/// while it holds ports 80/443 the new one cannot serve, so the result says so.
+#[tauri::command(async)]
+pub fn nginx_ssl_set_web_server(
+    app: AppHandle,
+    db: State<crate::db::Db>,
+    server: WebServer,
+) -> Result<String, String> {
+    let (current, sites) = {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        (web_server::active(&conn), list(&conn).map_err(|e| e.to_string())?)
+    };
+    let target = web_server::require(server)?;
+    let label = target.label();
+
+    let enabled: Vec<&Site> = sites.iter().filter(|s| s.enabled).collect();
+    if !enabled.is_empty() {
+        let mut operations = Vec::new();
+        for site in &enabled {
+            operations.push(Operation::WriteFile {
+                path: target.conf_path(&app, &site.slug)?,
+                contents: render_conf_for(&app, &target, &site.hostname, &site.backend, &site.limits, &site.slug)?,
+            });
+        }
+        operations.extend(target.wire_in_ops(&app)?);
+        operations.extend(target.test_and_reload_ops());
+        if current != server {
+            let old_dir = current.sites_dir(&app)?;
+            for site in &sites {
+                operations.push(Operation::RemoveFile {
+                    path: old_dir.join(format!("{}.conf", site.slug)).to_string_lossy().to_string(),
+                });
+            }
+        }
+        let manifest = OperationManifest {
+            allowed_write_prefix: allowed_write_prefix(&app)?,
+            operations,
+        };
+        apply(&app, &target, manifest, &format!("could not move the sites to {label}"))?;
+    }
+
+    {
+        let conn = db.0.lock().map_err(|e| e.to_string())?;
+        web_server::set_active(&conn, server)?;
+    }
+
+    let mut message = if enabled.is_empty() {
+        format!("New sites will be served by {label}.")
+    } else {
+        format!(
+            "{} site{} now served by {label}.",
+            enabled.len(),
+            if enabled.len() == 1 { " is" } else { "s are" }
+        )
+    };
+    if !enabled.is_empty() {
+        if let Some(note) = finish(&target)? {
+            message.push(' ');
+            message.push_str(&note);
+        }
+    }
+    if current != server {
+        message.push_str(&format!(
+            " If {} is still running it keeps ports 80 and 443 — stop it so {label} can serve them.",
+            current.label()
+        ));
+    }
+    Ok(message)
 }
 
 #[cfg(test)]

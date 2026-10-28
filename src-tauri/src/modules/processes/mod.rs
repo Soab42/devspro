@@ -31,6 +31,12 @@ pub fn processes_list_ports() -> Result<Vec<PortEntry>, String> {
     platform::list_listening_ports()
 }
 
+/// The same listing for other modules — `nginx_ssl::port_conflict` names whatever is
+/// holding a port a web server failed to bind.
+pub(crate) fn listening_ports() -> Result<Vec<PortEntry>, String> {
+    platform::list_listening_ports()
+}
+
 #[tauri::command(async)]
 pub fn processes_kill(pid: u32, force: bool) -> Result<String, String> {
     platform::kill(pid, force)

@@ -19,7 +19,7 @@ use modules::laravel_log;
 use modules::logs;
 use modules::mailcatcher;
 use modules::memory;
-use modules::nginx_ssl::{ca, laravel, nginx, php_fpm, ports, sites};
+use modules::nginx_ssl::{apache, ca, laravel, nginx, php_fpm, ports, sites, web_server};
 use modules::processes;
 use modules::redis;
 use modules::remote_desktop;
@@ -131,6 +131,10 @@ pub fn run() {
             auth::auth_logout,
             nginx::nginx_ssl_detect_nginx,
             nginx::nginx_ssl_install_nginx,
+            apache::nginx_ssl_detect_apache,
+            apache::nginx_ssl_install_apache,
+            web_server::nginx_ssl_get_web_server,
+            sites::nginx_ssl_set_web_server,
             ca::nginx_ssl_ca_status,
             ca::nginx_ssl_ca_ensure,
             ca::nginx_ssl_ca_install,

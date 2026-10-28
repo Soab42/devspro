@@ -20,7 +20,7 @@ export type { LucideIcon } from "lucide-react";
 export {
   /* ---- module / navigation ---- */
   LayoutDashboard, // Dashboard
-  Globe, // Nginx & SSL
+  Globe, // Web Server & SSL
   Container, // Docker
   Layers, // a compose stack (group of containers)
   FileUp, // load a compose file

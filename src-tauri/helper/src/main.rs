@@ -42,6 +42,15 @@ enum Operation {
         binary_path: String,
         prefix: Option<String>,
     },
+    EnsureApacheConfDInclude { conf_d_dir: String, include_path: String },
+    RunApacheTest {
+        binary_path: String,
+        server_root: Option<String>,
+    },
+    ReloadApache {
+        binary_path: String,
+        pid_file: Option<String>,
+    },
     InstallRootCa {
         cert_path: String,
         nss_db_paths: Vec<String>,
@@ -419,6 +428,67 @@ fn ensure_nginx_confd_include(conf_d_dir: &str, sites_glob: &str) -> OpResult {
         Err(e) => OpResult {
             success: false,
             message: format!("failed to write {}: {e}", dest.display()),
+        },
+    }
+}
+
+/// Apache's counterpart of `confd_include_line`. Apache unescapes `\\` and `\"` inside a
+/// quoted argument exactly as nginx does, so the same escaping keeps a path with a space
+/// or a quote one argument.
+fn apache_include_line(include_path: &str) -> String {
+    let escaped = include_path.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("Include \"{escaped}\"\n")
+}
+
+/// Writes exactly one file, `devspro.conf`, into the drop-in directory the distribution's
+/// Apache already includes (`conf.d` on RHEL/Fedora, `conf-enabled` on Debian/Ubuntu,
+/// `other` for macOS's bundled Apache). Like the nginx drop-in, the file name is fixed
+/// here rather than sent, and the main config is never touched.
+fn ensure_apache_confd_include(conf_d_dir: &str, include_path: &str) -> OpResult {
+    let dir = Path::new(conf_d_dir);
+    if !dir.is_dir() {
+        return OpResult {
+            success: false,
+            message: format!("{conf_d_dir} is not a directory"),
+        };
+    }
+    let dest = dir.join("devspro.conf");
+    match fs::write(&dest, apache_include_line(include_path)) {
+        Ok(()) => OpResult {
+            success: true,
+            message: format!("wrote {}", dest.display()),
+        },
+        Err(e) => OpResult {
+            success: false,
+            message: format!("failed to write {}: {e}", dest.display()),
+        },
+    }
+}
+
+/// `-t` on whatever the caller resolved as Apache's entry point: `apachectl`/`apache2ctl`
+/// on Unix, where the control script supplies the environment Debian's `apache2` cannot
+/// start without, and `httpd.exe` on Windows, with `-d` naming the install directory its
+/// relative paths hang off.
+fn run_apache_test(binary_path: &str, server_root: Option<&str>) -> OpResult {
+    let mut command = Command::new(binary_path);
+    if let Some(root) = server_root {
+        command.args(["-d", root]);
+    }
+    match command.arg("-t").output() {
+        Ok(out) => {
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            OpResult {
+                success: out.status.success(),
+                message: combined.trim().to_string(),
+            }
+        }
+        Err(e) => OpResult {
+            success: false,
+            message: format!("failed to run `{binary_path} -t`: {e}"),
         },
     }
 }
@@ -828,6 +898,15 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
         Operation::ReloadNginx { binary_path, prefix } => {
             platform::reload_nginx(&binary_path, prefix.as_deref())
         }
+        Operation::EnsureApacheConfDInclude { conf_d_dir, include_path } => {
+            ensure_apache_confd_include(&conf_d_dir, &include_path)
+        }
+        Operation::RunApacheTest { binary_path, server_root } => {
+            run_apache_test(&binary_path, server_root.as_deref())
+        }
+        Operation::ReloadApache { binary_path, pid_file } => {
+            platform::reload_apache(&binary_path, pid_file.as_deref())
+        }
         // The prefix check stays here, not in `platform`: it is the security boundary this
         // binary exists to enforce, and it is the same on every OS. Only what "install into
         // the trust store" means is platform-specific.
@@ -1049,6 +1128,15 @@ mod tests {
             "include \"/Users/me/Library/Application Support/com.soab.devspro/nginx/sites/*.conf\";\n"
         );
         assert_eq!(confd_include_line("/srv/a\"b"), "include \"/srv/a\\\"b\";\n");
+    }
+
+    #[test]
+    fn apache_include_keeps_a_path_with_a_space_one_argument() {
+        assert_eq!(
+            apache_include_line("C:/Users/MD. Talha/AppData/Roaming/com.soab.devspro/apache/devspro.conf"),
+            "Include \"C:/Users/MD. Talha/AppData/Roaming/com.soab.devspro/apache/devspro.conf\"\n"
+        );
+        assert_eq!(apache_include_line("/srv/a\"b"), "Include \"/srv/a\\\"b\"\n");
     }
 
     #[test]

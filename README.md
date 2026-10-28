@@ -8,7 +8,7 @@ Tauri + React + Rust.
 | Module | |
 | --- | --- |
 | **Dashboard** | Live CPU, memory, GPU, storage and network, with a health summary |
-| **Nginx & SSL** | Add sites (proxy-to-port or Laravel), each with a locally-trusted HTTPS certificate from a CA it manages for you. Optional public Cloudflare tunnel per site. A New Project wizard scaffolds Laravel, adds the site, creates a database, writes `.env` and runs migrations in one go, reporting each step |
+| **Web Server & SSL** | Add sites (proxy-to-port or Laravel), served by nginx or Apache — both detected, installable where a package manager exists, and switchable in one step — each with a locally-trusted HTTPS certificate from a CA it manages for you. Optional public Cloudflare tunnel per site. A New Project wizard scaffolds Laravel, adds the site, creates a database, writes `.env` and runs migrations in one go, reporting each step |
 | **Docker** | Containers: start, stop, restart, logs, and remap published ports |
 | **Databases** | MySQL / PostgreSQL / MongoDB / Redis in DevsPro's own compose project, each with an admin UI, plus users, backup and restore |
 | **Cleaner** | See how much space you can free, grouped by risk, with a "Clean suggested" shortcut and a history of past cleans. Covers package caches and stores (npm, pnpm, composer, cargo, gradle and others), each cleaned with the tool's own command; Docker leftovers, item by item, with DevsPro's own database volumes protected; large files and the biggest folders; node_modules, target and .next in idle projects; and the apt cache, journal and old snaps through the helper. A WinDirStat-style Storage map shows where the space went. Scans change nothing, and every clean goes through a review list |
@@ -61,6 +61,8 @@ so rather than pretending otherwise:
 | CA trust | OS store + NSS, so Firefox and Chrome both trust it | Windows Root store — Chrome and Edge trust it, **Firefox does not** without `security.enterprise_roots.enabled` |
 | Stopping a worker | SIGTERM, so it can finish the job it's on | forced, because Windows offers a GUI app no way to ask a console program to wind down |
 | nginx not running | reloaded through systemd | DevsPro writes the config and tells you to start nginx; it will not start it for you |
+| Apache wiring | a drop-in file in `conf.d` / `conf-enabled` | one `Include` appended to `httpd.conf` |
+| Apache reload | `systemctl reload apache2`/`httpd`, else `apachectl -k graceful` | a running Apache (Laragon, XAMPP) is restarted unelevated, since `httpd -k restart` only reaches a service |
 | Processes (listening ports) | `ss` + `/proc` | `GetExtendedTcpTable`; the full command line isn't shown, as Windows keeps it out of reach |
 
 macOS is partly implemented — elevation, nginx discovery and the system metrics
