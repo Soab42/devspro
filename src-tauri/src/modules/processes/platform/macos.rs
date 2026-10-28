@@ -25,6 +25,11 @@ pub fn exe_path(pid: u32) -> Option<String> {
     (output.status.success() && path.starts_with('/')).then_some(path)
 }
 
+pub fn process_name(pid: u32) -> Option<String> {
+    let path = exe_path(pid)?;
+    Some(path.rsplit('/').next().unwrap_or(&path).to_string())
+}
+
 pub fn kill(pid: u32, force: bool) -> Result<String, String> {
     super::unix_kill(pid, force)
 }

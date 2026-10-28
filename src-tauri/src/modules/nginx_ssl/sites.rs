@@ -757,6 +757,32 @@ pub fn nginx_ssl_remove_site(app: AppHandle, db: State<crate::db::Db>, id: Strin
     Ok(())
 }
 
+/// Tests `server`'s config and reloads it — for a change made outside DevsPro, or a
+/// server that should simply pick everything up again. Works on either server, whether
+/// or not it is the one sites are written for, and touches no site files.
+#[tauri::command(async)]
+pub fn nginx_ssl_reload_server(app: AppHandle, db: State<crate::db::Db>, server: WebServer) -> Result<String, String> {
+    let ready = web_server::require(&db, server)?;
+    let manifest = OperationManifest {
+        allowed_write_prefix: allowed_write_prefix(&app)?,
+        operations: ready.test_and_reload_ops(),
+    };
+    let results = elevate::run(&app, manifest)?;
+    if let Some(failed) = results.iter().find(|r| !r.success) {
+        return Err(format!(
+            "could not reload {}: {}",
+            ready.label(),
+            port_conflict::explain(&failed.message, ready.kind())
+        ));
+    }
+    // The last result is the reload's own ("reloaded via ...", or that the server isn't
+    // running); on Windows Apache the restart happens afterwards and says so itself.
+    match finish(&ready)? {
+        Some(note) => Ok(note),
+        None => Ok(results.last().map(|r| r.message.clone()).unwrap_or_default()),
+    }
+}
+
 /// Moves every site to the other web server: renders each enabled site's vhost in the
 /// new server's syntax, wires the new server in, tests and reloads it, and only then
 /// removes the old server's copies and records the choice. Nothing is switched unless

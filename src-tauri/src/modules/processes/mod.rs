@@ -44,6 +44,14 @@ pub(crate) fn exe_path(pid: u32) -> Option<String> {
     platform::exe_path(pid)
 }
 
+/// The name of the process running as `pid` right now (`httpd.exe`, `nginx`), or `None`
+/// when there is none. What makes a leftover pid file tell the truth: Laragon leaves
+/// `httpd.pid` behind when it stops Apache, so the pid in it has to be checked against
+/// what is actually running.
+pub(crate) fn process_name(pid: u32) -> Option<String> {
+    platform::process_name(pid)
+}
+
 #[tauri::command(async)]
 pub fn processes_kill(pid: u32, force: bool) -> Result<String, String> {
     platform::kill(pid, force)

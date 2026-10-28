@@ -136,6 +136,7 @@ pub fn run() {
             web_server::nginx_ssl_get_web_server,
             locate::nginx_ssl_forget_server_path,
             sites::nginx_ssl_set_web_server,
+            sites::nginx_ssl_reload_server,
             ca::nginx_ssl_ca_status,
             ca::nginx_ssl_ca_ensure,
             ca::nginx_ssl_ca_install,

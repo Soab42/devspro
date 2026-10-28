@@ -46,7 +46,8 @@ pub struct ApacheDetection {
     #[serde(skip)]
     pub server_root_arg: Option<String>,
     pub pid_file: Option<String>,
-    /// Whether the pid file exists right now — Apache is up.
+    /// Whether the pid in `pid_file` is a live Apache right now. Not merely whether the file
+    /// exists: Laragon leaves `httpd.pid` behind when it stops Apache.
     pub running: bool,
     pub package_manager: Option<String>,
     /// Shown when nothing was found and there is no install button to offer instead.
@@ -100,7 +101,10 @@ pub fn detect_with(binary_path: Option<String>) -> ApacheDetection {
         }
     });
     detection.server_root = server_root.map(|r| r.to_string_lossy().to_string());
-    detection.running = run_cfg.pid_file.as_deref().is_some_and(|f| Path::new(f).exists());
+    detection.running = run_cfg
+        .pid_file
+        .as_deref()
+        .is_some_and(|f| super::locate::pid_is_live(Path::new(f), super::web_server::WebServer::Apache));
     detection.pid_file = run_cfg.pid_file;
     detection
 }

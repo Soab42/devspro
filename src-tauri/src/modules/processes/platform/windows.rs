@@ -56,6 +56,15 @@ pub fn exe_path(pid: u32) -> Option<String> {
     (ok != 0 && len > 0).then(|| String::from_utf16_lossy(&buf[..len as usize]))
 }
 
+/// From the ToolHelp snapshot, which names every process — including services this app
+/// cannot open — so a live Apache running as a service still counts as running.
+pub fn process_name(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    process_names().remove(&pid)
+}
+
 pub fn list_listening_ports() -> Result<Vec<PortEntry>, String> {
     let mut sockets = listening_sockets(AF_INET)?;
     sockets.extend(listening_sockets(AF_INET6)?);

@@ -16,6 +16,7 @@
 //! instruction to execute, and the name check keeps it from ever being anything else.
 
 use serde::Serialize;
+use std::fs;
 use std::path::Path;
 
 use super::apache::{self, ApacheDetection};
@@ -95,6 +96,16 @@ fn running_from(listeners: &[PortEntry], server: WebServer, exe_path: impl Fn(u3
             WebServer::Apache => apache::platform::control_for_running(&exe),
         }
     })
+}
+
+/// Whether the pid recorded in `pid_file` belongs to a live process of `server`. A pid
+/// file on its own proves nothing — Laragon leaves `httpd.pid` behind when it stops
+/// Apache, and that pid may since have gone to an unrelated process.
+pub fn pid_is_live(pid_file: &Path, server: WebServer) -> bool {
+    let Some(pid) = fs::read_to_string(pid_file).ok().and_then(|t| t.trim().parse::<u32>().ok()) else {
+        return false;
+    };
+    processes::process_name(pid).is_some_and(|name| stem_is(&name, process_names(server)))
 }
 
 /// The binary to drive, and how it was found. Takes the lock itself, briefly, so it must
@@ -192,6 +203,21 @@ mod tests {
         assert!(!usable(WebServer::Nginx, r"C:\definitely\not\here\nginx.exe"));
         let me = std::env::current_exe().unwrap().to_string_lossy().to_string();
         assert!(!usable(WebServer::Nginx, &me), "an existing file with the wrong name is refused");
+    }
+
+    #[test]
+    fn a_missing_empty_or_dead_pid_file_is_not_running() {
+        let dir = std::env::temp_dir().join(format!("devspro-pid-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("httpd.pid");
+        assert!(!pid_is_live(&file, WebServer::Apache), "no file");
+        fs::write(&file, "").unwrap();
+        assert!(!pid_is_live(&file, WebServer::Apache), "empty, as Laragon leaves nginx.pid");
+        // This test's own process is alive but is not Apache — a pid reused by
+        // something else must not count.
+        fs::write(&file, std::process::id().to_string()).unwrap();
+        assert!(!pid_is_live(&file, WebServer::Apache), "live, but not Apache");
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[cfg(windows)]

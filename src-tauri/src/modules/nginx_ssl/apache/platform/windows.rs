@@ -159,13 +159,11 @@ pub fn after_apply(binary_path: &str, server_root: Option<&str>, pid_file: Optio
     Ok(Some("Restarted Apache.".to_string()))
 }
 
+/// Live *and* Apache: the pid comes from a file Laragon leaves behind when it stops
+/// Apache, and by now it may belong to something else entirely — which must never be
+/// the process `taskkill` ends.
 fn is_running(pid: u32) -> bool {
-    Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map(|out| String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\"")))
-        .unwrap_or(false)
+    crate::modules::processes::process_name(pid).is_some_and(|name| name.eq_ignore_ascii_case("httpd.exe"))
 }
 
 /// The trailing slash is load-bearing: without it Apache appends the script's `C:/...`

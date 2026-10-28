@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useConfirm } from "../../../app/ConfirmContext";
 import { Button, Callout, Mono, Section, Stack, StatusPill } from "../../../ui";
-import { Check, Download, RefreshCw, Server, X } from "../../../ui/icons";
+import { Check, Download, RefreshCw, RotateCw, Server, X } from "../../../ui/icons";
 import type { Resource } from "../../../ui";
-import { BinarySource, forgetServerPath, setWebServer, WebServer } from "../api";
+import { BinarySource, forgetServerPath, reloadServer, setWebServer, WebServer } from "../api";
 
 /** What both detections have in common — all this tab reads. */
 interface Detection {
@@ -13,8 +13,8 @@ interface Detection {
   version: string | null;
   config_path: string | null;
   package_manager: string | null;
-  /** Apache only: whether its pid file exists right now. */
-  running?: boolean;
+  /** Whether its pid file names a live process of this server. */
+  running: boolean;
 }
 
 /** How the binary path was found, as the tab words it. */
@@ -49,7 +49,7 @@ export default function WebServerTab<T extends Detection>({
   onSwitched: () => void;
 }) {
   const confirmAction = useConfirm();
-  const [busy, setBusy] = useState<"install" | "switch" | null>(null);
+  const [busy, setBusy] = useState<"install" | "switch" | "reload" | null>(null);
   // Success and failure stay separate states with distinct tones, so a failed
   // install never reads like a successful one.
   const [message, setMessage] = useState<string | null>(null);
@@ -58,7 +58,7 @@ export default function WebServerTab<T extends Detection>({
   const data = detection.data;
   const isActive = active === server;
 
-  async function run(kind: "install" | "switch", action: () => Promise<string>) {
+  async function run(kind: "install" | "switch" | "reload", action: () => Promise<string>) {
     setBusy(kind);
     setMessage(null);
     setError(null);
@@ -73,6 +73,11 @@ export default function WebServerTab<T extends Detection>({
 
   async function handleInstall() {
     await run("install", install);
+    await detection.refresh();
+  }
+
+  async function handleReload() {
+    await run("reload", () => reloadServer(server));
     await detection.refresh();
   }
 
@@ -105,7 +110,7 @@ export default function WebServerTab<T extends Detection>({
         data && (
           <>
             <StatusPill variant={data.found ? "ok" : "bad"} label={data.found ? "detected" : "not found"} />
-            {data.found && data.running !== undefined && (
+            {data.found && (
               <StatusPill variant={data.running ? "ok" : "warn"} label={data.running ? "running" : "not running"} />
             )}
             {isActive && <StatusPill variant="ok" label="serves your sites" />}
@@ -113,9 +118,16 @@ export default function WebServerTab<T extends Detection>({
         )
       }
       actions={
-        <Button variant="secondary" icon={RefreshCw} loading={detection.refreshing} onClick={detection.refresh}>
-          Recheck
-        </Button>
+        <>
+          {data?.found && (
+            <Button variant="secondary" icon={RotateCw} loading={busy === "reload"} onClick={handleReload}>
+              Reload
+            </Button>
+          )}
+          <Button variant="secondary" icon={RefreshCw} loading={detection.refreshing} onClick={detection.refresh}>
+            Recheck
+          </Button>
+        </>
       }
     >
       <Stack gap={4}>
@@ -174,6 +186,7 @@ export default function WebServerTab<T extends Detection>({
           </div>
         )}
 
+        {busy === "reload" && <p className="u-muted nginx-hint">Waiting for your admin password…</p>}
         {message && <Callout tone="success">{message}</Callout>}
         {error && <Callout tone="danger">{error}</Callout>}
       </Stack>

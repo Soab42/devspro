@@ -13,6 +13,9 @@ export interface NginxDetection {
   version: string | null;
   config_path: string | null;
   package_manager: string | null;
+  pid_file: string | null;
+  /** Whether the pid in `pid_file` is a live nginx — not merely whether the file exists. */
+  running: boolean;
   source: BinarySource | null;
 }
 
@@ -24,7 +27,7 @@ export interface ApacheDetection {
   config_path: string | null;
   server_root: string | null;
   pid_file: string | null;
-  /** Whether Apache's pid file exists right now. */
+  /** Whether the pid in `pid_file` is a live Apache — not merely whether the file exists. */
   running: boolean;
   package_manager: string | null;
   /** What to tell the user when there is no install button to offer. */
@@ -108,6 +111,9 @@ export const installApache = () => invoke<string>("nginx_ssl_install_apache");
 /** Drops the remembered binary path, so the next detection starts over. */
 export const forgetServerPath = (server: WebServer) =>
   invoke<void>("nginx_ssl_forget_server_path", { server });
+
+/** Tests the server's config and reloads it. Returns what the server said. */
+export const reloadServer = (server: WebServer) => invoke<string>("nginx_ssl_reload_server", { server });
 
 export const getWebServer = () => invoke<WebServer>("nginx_ssl_get_web_server");
 /**
