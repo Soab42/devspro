@@ -5,6 +5,16 @@ use serde::Serialize;
 
 pub use platform::to_config_path;
 
+/// A path as a single nginx directive argument: converted by `to_config_path`, then
+/// double-quoted. Unquoted, a space splits it into two arguments — and on Windows the
+/// app's own data directory sits under `C:/Users/<name>/`, where a space in the account
+/// name is ordinary, so `include`, `ssl_certificate` and the logs all break at once.
+/// Inside quotes nginx still treats `\` as an escape, so it and `"` are escaped too.
+pub fn quoted_config_path(path: &str) -> String {
+    let path = to_config_path(path).replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{path}\"")
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct NginxDetection {
     pub found: bool,
@@ -113,5 +123,23 @@ pub fn nginx_ssl_install_nginx(app: tauri::AppHandle) -> Result<String, String> 
         Some(r) if r.success => Ok(r.message.clone()),
         Some(r) => Err(r.message.clone()),
         None => Err("helper returned no results".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod quoting_tests {
+    use super::*;
+
+    #[test]
+    fn a_path_with_a_space_stays_one_argument() {
+        assert_eq!(
+            quoted_config_path("C:/Users/MD. Talha/AppData/Roaming/com.soab.devspro/nginx/sites/*.conf"),
+            r#""C:/Users/MD. Talha/AppData/Roaming/com.soab.devspro/nginx/sites/*.conf""#
+        );
+    }
+
+    #[test]
+    fn a_quote_in_the_path_cannot_end_the_argument_early() {
+        assert_eq!(quoted_config_path(r#"/srv/a"b"#), r#""/srv/a\"b""#);
     }
 }

@@ -48,7 +48,7 @@ fn location_block(backend: &BackendTarget, limits: &SiteLimits) -> String {
             public_root,
             fastcgi_pass,
         } => {
-            let public_root = super::to_config_path(public_root);
+            let public_root = super::quoted_config_path(public_root);
             let tuning = indented(
                 limits
                     .php_value_directive()
@@ -79,11 +79,12 @@ fn location_block(backend: &BackendTarget, limits: &SiteLimits) -> String {
     }
 }
 
-/// Every path written into the result goes through `to_config_path` first. This is the one
+/// Every path written into the result goes through `quoted_config_path` first. This is the one
 /// place paths enter an nginx config, so normalising here is what makes it impossible to
 /// miss one: on Windows a backslash is an escape character to nginx's parser, so
 /// `C:\Users\me\certs\app.pem` arrives with `\U`, `\m` and `\c` consumed and the
-/// certificate unfindable. A no-op on Unix, where the separator is already what nginx wants.
+/// certificate unfindable. The quoting keeps a path with a space in it — any Windows
+/// account name with one — a single argument instead of two.
 pub fn render_site_conf(
     hostname: &str,
     backend: &BackendTarget,
@@ -93,10 +94,10 @@ pub fn render_site_conf(
     access_log: &str,
     error_log: &str,
 ) -> String {
-    let cert_path = super::to_config_path(cert_path);
-    let key_path = super::to_config_path(key_path);
-    let access_log = super::to_config_path(access_log);
-    let error_log = super::to_config_path(error_log);
+    let cert_path = super::quoted_config_path(cert_path);
+    let key_path = super::quoted_config_path(key_path);
+    let access_log = super::quoted_config_path(access_log);
+    let error_log = super::quoted_config_path(error_log);
     let location = location_block(backend, limits);
     // Server-level tuning sits above the location block so a raw directive can be
     // overridden by the generated ones rather than the other way round — nginx
@@ -204,7 +205,7 @@ mod tests {
         assert!(conf.contains("return 301 https://$host$request_uri;"));
         assert!(conf.contains("proxy_pass http://127.0.0.1:3000;"));
         assert!(conf.contains("server_name app.test;"));
-        assert!(conf.contains("ssl_certificate     /certs/app.test.pem;"));
+        assert!(conf.contains(r#"ssl_certificate     "/certs/app.test.pem";"#));
     }
 
     /// The backend value is passed through verbatim, whichever form it takes — that is the
@@ -216,7 +217,7 @@ mod tests {
             fastcgi_pass: "unix:/run/php/php8.3-fpm.sock".to_string(),
         }, &SiteLimits::default());
         assert!(unix_socket.contains("fastcgi_pass unix:/run/php/php8.3-fpm.sock;"));
-        assert!(unix_socket.contains("root /srv/app/public;"));
+        assert!(unix_socket.contains(r#"root "/srv/app/public";"#));
 
         let tcp_listener = render(&BackendTarget::Laravel {
             public_root: "/srv/app/public".to_string(),
@@ -251,11 +252,11 @@ mod tests {
             r"C:\Users\me\logs\app.access.log",
             r"C:\Users\me\logs\app.error.log",
         );
-        assert!(conf.contains("root D:/projects/app/public;"));
-        assert!(conf.contains("ssl_certificate     C:/Users/me/certs/app.test.pem;"));
-        assert!(conf.contains("ssl_certificate_key C:/Users/me/certs/app.test-key.pem;"));
-        assert!(conf.contains("access_log C:/Users/me/logs/app.access.log;"));
-        assert!(conf.contains("error_log  C:/Users/me/logs/app.error.log;"));
+        assert!(conf.contains(r#"root "D:/projects/app/public";"#));
+        assert!(conf.contains(r#"ssl_certificate     "C:/Users/me/certs/app.test.pem";"#));
+        assert!(conf.contains(r#"ssl_certificate_key "C:/Users/me/certs/app.test-key.pem";"#));
+        assert!(conf.contains(r#"access_log "C:/Users/me/logs/app.access.log";"#));
+        assert!(conf.contains(r#"error_log  "C:/Users/me/logs/app.error.log";"#));
 
         // Checked directive by directive rather than by scanning the whole file for a
         // backslash: the template legitimately contains two, in the `location ~ \.php$`

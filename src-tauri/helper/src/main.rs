@@ -393,6 +393,14 @@ fn remove_marked_block(file_path: &str, marker_begin: &str, marker_end: &str) ->
     }
 }
 
+/// Quoted: macOS keeps app data under `~/Library/Application Support/`, and unquoted
+/// that space splits the glob into two arguments and fails `nginx -t`. Inside quotes
+/// nginx still reads `\` as an escape, so it and `"` are escaped too.
+fn confd_include_line(sites_glob: &str) -> String {
+    let escaped = sites_glob.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("include \"{escaped}\";\n")
+}
+
 fn ensure_nginx_confd_include(conf_d_dir: &str, sites_glob: &str) -> OpResult {
     let dir = Path::new(conf_d_dir);
     if !dir.is_dir() {
@@ -402,7 +410,7 @@ fn ensure_nginx_confd_include(conf_d_dir: &str, sites_glob: &str) -> OpResult {
         };
     }
     let dest = dir.join("devspro.conf");
-    let contents = format!("include {sites_glob};\n");
+    let contents = confd_include_line(sites_glob);
     match fs::write(&dest, contents) {
         Ok(()) => OpResult {
             success: true,
@@ -1033,6 +1041,15 @@ mod tests {
     }
 
     // --- RemoveMarkedBlock -------------------------------------------------------
+
+    #[test]
+    fn confd_include_keeps_a_path_with_a_space_one_argument() {
+        assert_eq!(
+            confd_include_line("/Users/me/Library/Application Support/com.soab.devspro/nginx/sites/*.conf"),
+            "include \"/Users/me/Library/Application Support/com.soab.devspro/nginx/sites/*.conf\";\n"
+        );
+        assert_eq!(confd_include_line("/srv/a\"b"), "include \"/srv/a\\\"b\";\n");
+    }
 
     #[test]
     fn remove_takes_the_markers_with_it() {

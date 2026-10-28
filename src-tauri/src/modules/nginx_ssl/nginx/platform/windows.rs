@@ -91,7 +91,7 @@ pub fn wire_in_sites_ops(config_path: &str, sites_glob: &str) -> Result<Vec<Oper
         config_path: config_path.to_string(),
         marker_begin: MARKER_BEGIN.to_string(),
         marker_end: MARKER_END.to_string(),
-        include_line: format!("include {};", to_config_path(sites_glob)),
+        include_line: format!("include {};", super::super::quoted_config_path(sites_glob)),
     }])
 }
 
@@ -171,7 +171,7 @@ mod tests {
         match &ops[0] {
             Operation::EnsureIncludeInHttpBlock { include_line, .. } => assert_eq!(
                 include_line,
-                "include C:/Users/me/AppData/Roaming/DevsPro/nginx/sites/*.conf;"
+                r#"include "C:/Users/me/AppData/Roaming/DevsPro/nginx/sites/*.conf";"#
             ),
             other => panic!("expected an http-block include, got {other:?}"),
         }
