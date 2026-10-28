@@ -4,7 +4,7 @@
 //! one filesystem, no symlinks. The tree sent to the frontend is pruned so a
 //! whole disk stays a small payload.
 
-use super::measure::{walk_dirs, Scan};
+use super::measure::{used_bytes, walk_dirs, Scan};
 use super::CleanerState;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -62,6 +62,24 @@ pub fn cleaner_scan_tree(
 ) -> Result<StorageTree, String> {
     let scan = Scan::start(&state, &app, &scan_id, "storage-map");
     scan_tree(Path::new(&root), &scan, MAX_ENTRIES)
+}
+
+/// About what a scan of `root` will add up to, for its progress bar: the space
+/// in use when `root` is a filesystem's root, since the walk stays on one
+/// filesystem. None for any other folder, whose size is unknown until walked.
+#[tauri::command(async)]
+pub fn cleaner_tree_estimate(root: String) -> Option<u64> {
+    let root = Path::new(&root);
+    is_fs_root(root).then(|| used_bytes(root).ok()).flatten()
+}
+
+/// `/`, a mount point, or a drive (`C:\`) on Windows.
+fn is_fs_root(path: &Path) -> bool {
+    let Some(parent) = path.parent() else { return path.is_absolute() };
+    match (fs::metadata(path), fs::metadata(parent)) {
+        (Ok(here), Ok(above)) => here.dev() != above.dev(),
+        _ => false,
+    }
 }
 
 /// A directory's node while it is built. Children are folded as they arrive,
@@ -425,6 +443,14 @@ fn kind_of(ext: &str) -> &'static str {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn estimates_only_a_whole_filesystem() {
+        let temp = std::env::temp_dir();
+        let drive = temp.ancestors().last().unwrap().to_string_lossy().into_owned();
+        assert!(cleaner_tree_estimate(drive).unwrap() > 0);
+        assert_eq!(cleaner_tree_estimate(temp.join("devspro-no-such-dir").to_string_lossy().into_owned()), None);
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("devspro-storage-map-{name}-{}", std::process::id()));

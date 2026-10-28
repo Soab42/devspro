@@ -264,6 +264,7 @@ pub fn run() {
             cleaner::projects::cleaner_scan_projects,
             cleaner::projects::cleaner_clean_projects,
             cleaner::storage_map::cleaner_scan_tree,
+            cleaner::storage_map::cleaner_tree_estimate,
             memory::memory_snapshot,
             memory::memory_stop,
             memory::memory_start,

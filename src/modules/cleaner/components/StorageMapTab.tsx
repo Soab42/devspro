@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Button, Callout, Card, Checkbox, DataTable, Meter, Mono, Select, Stack, Toolbar } from "../../../ui";
 import type { Column } from "../../../ui";
 import { ChevronDown, ChevronRight, Eraser, Files, X } from "../../../ui/icons";
-import { cancelScan, getSettings, onScanProgress, removeFiles, scanTree } from "../api";
+import { cancelScan, getSettings, onScanProgress, removeFiles, scanTree, treeEstimate } from "../api";
 import type { CleanOutcome, ExtStat, Finding, ScanProgress, StorageTree, TreeNode } from "../api";
 import { formatBytes, newScanId } from "../cleaner";
 import ReviewCleanModal from "./ReviewCleanModal";
@@ -85,6 +85,7 @@ export default function StorageMapTab() {
   const [tree, setTree] = useTabSlot<StorageTree | null>(TAB, "tree", null);
   const [scanning] = useTabSlot(TAB, "scanning", false);
   const [progress] = useTabSlot<ScanProgress | null>(TAB, "progress", null);
+  const [estimate] = useTabSlot<number | null>(TAB, "estimate", null);
   const [error, setError] = useTabSlot<string | null>(TAB, "error", null);
   const [scannedAt] = useTabSlot<number | null>(TAB, "scannedAt", null);
   const [trimmed] = useTabSlot(TAB, "trimmed", false);
@@ -130,6 +131,17 @@ export default function StorageMapTab() {
     setSlot(TAB, "trimmed", false, false);
     setSlot(TAB, "error", null as string | null, null);
     setSlot(TAB, "progress", null as ScanProgress | null, null);
+    // The bar's total: this folder's size from its last full scan, else the
+    // space in use when it is a whole drive.
+    const known = getSlot<Record<string, number>>(TAB, "sizes", {})[root] ?? null;
+    setSlot(TAB, "estimate", known, null);
+    if (known === null) {
+      void treeEstimate(root)
+        .then((e) => {
+          if (e && getSlot<string | null>(TAB, "scanId", null) === id) setSlot(TAB, "estimate", e as number | null, null);
+        })
+        .catch(() => {});
+    }
     const off = await onScanProgress((p) => {
       if (p.scan_id === id) setSlot(TAB, "progress", p as ScanProgress | null, null);
     }).catch(() => () => {});
@@ -140,6 +152,9 @@ export default function StorageMapTab() {
       setSlot(TAB, "selected", null as string | null, null);
       setSlot(TAB, "expanded", [] as string[], []);
       setSlot(TAB, "scannedAt", Date.now() as number | null, null);
+      if (!result.truncated) {
+        setSlot(TAB, "sizes", { ...getSlot<Record<string, number>>(TAB, "sizes", {}), [root]: result.total_bytes }, {});
+      }
       setHover(null);
     } catch (e) {
       setSlot(TAB, "error", (e instanceof Error ? e.message : String(e)) as string | null, null);
@@ -329,12 +344,7 @@ export default function StorageMapTab() {
         <Select aria-label="Folder to map" value={root} onChange={(v) => void choose(v)} options={options} placeholder="Choose a folder" disabled={scanning} />
       </Toolbar>
 
-      {scanning && (
-        <Callout tone="info" title="Scanning">
-          {progress ? `${progress.entries.toLocaleString()} items, ${formatBytes(progress.bytes)} so far. ` : "Starting. "}
-          {progress && <Mono>{progress.current}</Mono>}
-        </Callout>
-      )}
+      {scanning && <ScanStatus progress={progress} estimate={estimate} />}
       {error && (
         <Callout tone="danger" onDismiss={() => setError(null)}>
           {error}
@@ -435,6 +445,35 @@ export default function StorageMapTab() {
         />
       )}
     </Stack>
+  );
+}
+
+/** Items and bytes scanned, and a bar against the expected total when one is known. */
+function ScanStatus({ progress, estimate }: { progress: ScanProgress | null; estimate: number | null }) {
+  const items = progress?.entries ?? 0;
+  const bytes = progress?.bytes ?? 0;
+  // The total is an estimate, so the bar holds short of full until the scan ends.
+  const done = estimate ? Math.min(99, percent(bytes, estimate)) : 0;
+  return (
+    <Callout tone="info" title="Scanning">
+      <Stack gap={2}>
+        <Stack direction="row" align="center" justify="space-between" gap={3} wrap>
+          <span>
+            {items.toLocaleString()} items scanned, {formatBytes(bytes)} scanned
+          </span>
+          {estimate !== null && estimate > 0 && (
+            <Meter variant="inline" label="Scan progress" percent={done} valueLabel={`${Math.floor(done)}%`} warningAt={101} criticalAt={101} />
+          )}
+        </Stack>
+        {estimate ? (
+          <span>
+            Scanned {formatBytes(bytes)} of about {formatBytes(estimate)} total; about {formatBytes(Math.max(0, estimate - bytes))} left
+          </span>
+        ) : (
+          <span>Total size unknown until this folder has been scanned once, so there is no progress bar yet.</span>
+        )}
+      </Stack>
+    </Callout>
   );
 }
 

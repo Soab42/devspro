@@ -358,6 +358,36 @@ pub fn free_bytes(path: &Path) -> Result<u64, String> {
     Ok((st.f_bavail as u64).saturating_mul(st.f_frsize as u64))
 }
 
+/// Bytes in use on the filesystem holding `path`: its size less all free space.
+#[cfg(windows)]
+pub fn used_bytes(path: &Path) -> Result<u64, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let (mut total, mut free): (u64, u64) = (0, 0);
+    // SAFETY: `wide` is NUL-terminated and outlives the call; the per-user
+    // figure we don't need may be null.
+    let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), std::ptr::null_mut(), &mut total, &mut free) };
+    if ok == 0 {
+        return Err(format!("GetDiskFreeSpaceExW {}: {}", path.display(), std::io::Error::last_os_error()));
+    }
+    Ok(total.saturating_sub(free))
+}
+
+/// Bytes in use on the filesystem holding `path`: its size less all free space.
+#[cfg(unix)]
+pub fn used_bytes(path: &Path) -> Result<u64, String> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(|e| e.to_string())?;
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `c` is a valid NUL-terminated path and `st` a valid out-pointer.
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
+        return Err(format!("statvfs {}: {}", path.display(), std::io::Error::last_os_error()));
+    }
+    let used = (st.f_blocks as u64).saturating_sub(st.f_bfree as u64);
+    Ok(used.saturating_mul(st.f_frsize as u64))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
