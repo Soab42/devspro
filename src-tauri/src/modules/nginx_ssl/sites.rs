@@ -189,7 +189,7 @@ fn active_server(db: &crate::db::Db) -> Result<Ready, String> {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         web_server::active(&conn)
     };
-    web_server::require(server)
+    web_server::require(db, server)
 }
 
 /// Runs a manifest and turns the first failure into the message the user sees — with
@@ -774,7 +774,7 @@ pub fn nginx_ssl_set_web_server(
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         (web_server::active(&conn), list(&conn).map_err(|e| e.to_string())?)
     };
-    let target = web_server::require(server)?;
+    let target = web_server::require(&db, server)?;
     let label = target.label();
 
     let enabled: Vec<&Site> = sites.iter().filter(|s| s.enabled).collect();

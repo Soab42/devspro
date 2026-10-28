@@ -5,6 +5,7 @@
 //! | --- | --- |
 //! | `list_listening_ports()` | Every listening TCP socket and whatever process owns it. `Err` when this OS has no supported way to ask. |
 //! | `kill(pid, force)` | Stop a process the user picked, returning the message the UI shows. |
+//! | `exe_path(pid)` | The full path of the executable a process runs, or `None` where it can't be read. |
 //!
 //! Unlike the other three splits, this one keeps Linux and macOS apart. Linux reads `ss`
 //! (iproute2) and `/proc`, and macOS has neither — so rather than pretend, its listing

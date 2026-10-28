@@ -1,19 +1,28 @@
 import { useState } from "react";
 import { useConfirm } from "../../../app/ConfirmContext";
 import { Button, Callout, Mono, Section, Stack, StatusPill } from "../../../ui";
-import { Check, Download, RefreshCw, Server } from "../../../ui/icons";
+import { Check, Download, RefreshCw, Server, X } from "../../../ui/icons";
 import type { Resource } from "../../../ui";
-import { setWebServer, WebServer } from "../api";
+import { BinarySource, forgetServerPath, setWebServer, WebServer } from "../api";
 
 /** What both detections have in common — all this tab reads. */
 interface Detection {
   found: boolean;
+  binary_path: string | null;
+  source: BinarySource | null;
   version: string | null;
   config_path: string | null;
   package_manager: string | null;
   /** Apache only: whether its pid file exists right now. */
   running?: boolean;
 }
+
+/** How the binary path was found, as the tab words it. */
+const SOURCE_TEXT: Record<BinarySource, string> = {
+  running: "found from the running process",
+  saved: "remembered from when it last ran",
+  search: "found in a usual install location",
+};
 
 /**
  * One tab per web server, nginx and Apache alike: is it installed, where is its config,
@@ -67,6 +76,17 @@ export default function WebServerTab<T extends Detection>({
     await detection.refresh();
   }
 
+  async function handleForget() {
+    setMessage(null);
+    setError(null);
+    try {
+      await forgetServerPath(server);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    await detection.refresh();
+  }
+
   async function handleSwitch() {
     const ok = await confirmAction(
       `Every site will be rewritten as ${label} config and ${label} will be reloaded. Only one web server can own ports 80 and 443, so stop the other one afterwards.`,
@@ -99,14 +119,31 @@ export default function WebServerTab<T extends Detection>({
       }
     >
       <Stack gap={4}>
-        {data?.found ? (
+        {data?.found && (
           <p className="u-muted">
             {data.version ?? label} — config at{" "}
             <Mono variant="chip" copyable>
               {data.config_path ?? "unknown"}
             </Mono>
           </p>
-        ) : (
+        )}
+
+        {data?.found && data.binary_path && (
+          <p className="u-muted">
+            Binary{" "}
+            <Mono variant="chip" copyable>
+              {data.binary_path}
+            </Mono>
+            {data.source && ` — ${SOURCE_TEXT[data.source]}.`}{" "}
+            {data.source === "saved" && (
+              <Button variant="ghost" size="sm" icon={X} onClick={handleForget}>
+                Forget this path
+              </Button>
+            )}
+          </p>
+        )}
+
+        {!data?.found && (
           <p className="u-muted">
             Not found on this machine.
             {data?.package_manager

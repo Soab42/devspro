@@ -77,10 +77,12 @@ pub enum Ready {
     Apache(ApacheDetection),
 }
 
-pub fn require(server: WebServer) -> Result<Ready, String> {
+/// Takes the database lock itself (to read and remember the binary's path — see
+/// `locate`), so it must not be called while the caller holds it.
+pub fn require(db: &crate::db::Db, server: WebServer) -> Result<Ready, String> {
     match server {
         WebServer::Nginx => {
-            let detection = nginx::detect();
+            let detection = super::locate::detect_nginx(db);
             let binary_path = detection
                 .binary_path
                 .ok_or_else(|| "nginx was not found on this machine — install it first (see the Nginx tab)".to_string())?;
@@ -90,7 +92,7 @@ pub fn require(server: WebServer) -> Result<Ready, String> {
             Ok(Ready::Nginx { binary_path, config_path })
         }
         WebServer::Apache => {
-            let detection = apache::detect();
+            let detection = super::locate::detect_apache(db);
             if !detection.found {
                 return Err("Apache was not found on this machine — install it first (see the Apache tab)".to_string());
             }

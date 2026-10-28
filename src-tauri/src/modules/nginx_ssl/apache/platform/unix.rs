@@ -24,6 +24,20 @@ pub fn find_binary() -> Option<String> {
     crate::modules::tools::find("apache2ctl").or_else(|| crate::modules::tools::find("apachectl"))
 }
 
+/// The running process is the server binary itself (`/usr/sbin/apache2`, `httpd`), but
+/// everything here goes through its control script, which sits beside it: `apache2ctl`
+/// next to Debian's `apache2`, `apachectl` next to everyone else's `httpd`.
+pub fn control_for_running(exe: &str) -> Option<String> {
+    let path = Path::new(exe);
+    let script = match path.file_name()?.to_str()? {
+        "apache2" => "apache2ctl",
+        "httpd" => "apachectl",
+        _ => return None,
+    };
+    let candidate = path.parent()?.join(script);
+    candidate.is_file().then(|| candidate.to_string_lossy().to_string())
+}
+
 /// The control script already knows the root, so no `-d`.
 pub fn server_root_arg(_binary_path: &str) -> Option<String> {
     None

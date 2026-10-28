@@ -1,12 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { WizardPlan, WizardStepReport } from "./utils";
 
+/**
+ * How a server's binary was found: from the process running right now, remembered from
+ * an earlier time it ran, or from the usual install locations.
+ */
+export type BinarySource = "running" | "saved" | "search";
+
 export interface NginxDetection {
   found: boolean;
   binary_path: string | null;
   version: string | null;
   config_path: string | null;
   package_manager: string | null;
+  source: BinarySource | null;
 }
 
 export interface ApacheDetection {
@@ -22,6 +29,7 @@ export interface ApacheDetection {
   package_manager: string | null;
   /** What to tell the user when there is no install button to offer. */
   install_hint: string;
+  source: BinarySource | null;
 }
 
 /** Which web server DevsPro writes its sites for. One at a time — both want 80/443. */
@@ -96,6 +104,10 @@ export const detectNginx = () => invoke<NginxDetection>("nginx_ssl_detect_nginx"
 export const installNginx = () => invoke<string>("nginx_ssl_install_nginx");
 export const detectApache = () => invoke<ApacheDetection>("nginx_ssl_detect_apache");
 export const installApache = () => invoke<string>("nginx_ssl_install_apache");
+
+/** Drops the remembered binary path, so the next detection starts over. */
+export const forgetServerPath = (server: WebServer) =>
+  invoke<void>("nginx_ssl_forget_server_path", { server });
 
 export const getWebServer = () => invoke<WebServer>("nginx_ssl_get_web_server");
 /**

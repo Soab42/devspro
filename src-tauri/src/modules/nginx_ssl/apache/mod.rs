@@ -51,10 +51,18 @@ pub struct ApacheDetection {
     pub package_manager: Option<String>,
     /// Shown when nothing was found and there is no install button to offer instead.
     pub install_hint: String,
+    /// How `binary_path` was found — see `locate`. Filled in by the caller.
+    pub source: Option<super::locate::Source>,
 }
 
-pub fn detect() -> ApacheDetection {
-    let binary_path = platform::find_binary();
+/// Every place Apache is usually installed on this OS. `locate` tries the running
+/// process and the remembered path first, and falls back to this.
+pub fn find_binary() -> Option<String> {
+    platform::find_binary()
+}
+
+/// Everything about the Apache at `binary_path`, or "not found" for `None`.
+pub fn detect_with(binary_path: Option<String>) -> ApacheDetection {
     let server_root_arg = binary_path.as_deref().and_then(platform::server_root_arg);
     let mut detection = ApacheDetection {
         found: binary_path.is_some(),
@@ -67,6 +75,7 @@ pub fn detect() -> ApacheDetection {
         running: false,
         package_manager: platform::package_manager(),
         install_hint: platform::manual_install_hint().to_string(),
+        source: None,
     };
     let Some(bin) = binary_path else {
         return detection;
@@ -224,8 +233,8 @@ pub fn render_global_conf(detection: &ApacheDetection, global_conf_path: &Path, 
 }
 
 #[tauri::command(async)]
-pub fn nginx_ssl_detect_apache() -> ApacheDetection {
-    detect()
+pub fn nginx_ssl_detect_apache(db: tauri::State<crate::db::Db>) -> ApacheDetection {
+    super::locate::detect_apache(&db)
 }
 
 #[tauri::command(async)]

@@ -26,10 +26,18 @@ pub struct NginxDetection {
     /// instead of just a copyable command. `None` on macOS, where brew must not run as
     /// root, and on a Windows old enough to predate winget.
     pub package_manager: Option<String>,
+    /// How `binary_path` was found — see `locate`. Filled in by the caller.
+    pub source: Option<super::locate::Source>,
 }
 
-pub fn detect() -> NginxDetection {
-    let binary_path = platform::find_binary();
+/// Every place nginx is usually installed on this OS. `locate` tries the running
+/// process and the remembered path first, and falls back to this.
+pub fn find_binary() -> Option<String> {
+    platform::find_binary()
+}
+
+/// Everything about the nginx at `binary_path`, or "not found" for `None`.
+pub fn detect_with(binary_path: Option<String>) -> NginxDetection {
     let version = binary_path.as_deref().and_then(nginx_version);
     let config_path = binary_path.as_deref().and_then(nginx_config_path);
     NginxDetection {
@@ -38,6 +46,7 @@ pub fn detect() -> NginxDetection {
         version,
         config_path,
         package_manager: platform::package_manager(),
+        source: None,
     }
 }
 
@@ -99,8 +108,8 @@ pub fn test_and_reload_ops(binary_path: &str) -> Vec<crate::elevate::Operation> 
 }
 
 #[tauri::command(async)]
-pub fn nginx_ssl_detect_nginx() -> NginxDetection {
-    detect()
+pub fn nginx_ssl_detect_nginx(db: tauri::State<crate::db::Db>) -> NginxDetection {
+    super::locate::detect_nginx(&db)
 }
 
 #[tauri::command(async)]

@@ -14,6 +14,17 @@ pub fn list_listening_ports() -> Result<Vec<PortEntry>, String> {
     Err("listing ports is only supported on Linux and Windows right now".to_string())
 }
 
+/// `ps -o comm=` prints the full executable path on macOS, unlike on Linux. Nothing
+/// calls this until the listing above exists, but it keeps the platform surface whole.
+pub fn exe_path(pid: u32) -> Option<String> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "comm=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (output.status.success() && path.starts_with('/')).then_some(path)
+}
+
 pub fn kill(pid: u32, force: bool) -> Result<String, String> {
     super::unix_kill(pid, force)
 }

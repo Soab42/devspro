@@ -22,6 +22,9 @@ use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
     TH32CS_SNAPPROCESS,
 };
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+};
 
 use super::super::PortEntry;
 
@@ -33,6 +36,25 @@ const AF_INET6: u32 = 23;
 /// Without this, every `taskkill` would briefly flash a console window: this app is a GUI
 /// process, so Windows creates one for any console child that doesn't opt out.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Needs only `PROCESS_QUERY_LIMITED_INFORMATION`, which most processes grant even to
+/// another user — a service such as WAMP's Apache included. Protected processes refuse,
+/// and come back `None`.
+pub fn exe_path(pid: u32) -> Option<String> {
+    // SAFETY: plain call; the handle is checked and closed on every path out.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return None;
+    }
+    let mut buf = vec![0u16; 1024];
+    let mut len = buf.len() as u32;
+    // SAFETY: `buf` holds `len` UTF-16 units; the API writes at most that many and
+    // updates `len` to the count written.
+    let ok = unsafe { QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) };
+    // SAFETY: `process` is a live handle from OpenProcess above.
+    unsafe { CloseHandle(process) };
+    (ok != 0 && len > 0).then(|| String::from_utf16_lossy(&buf[..len as usize]))
+}
 
 pub fn list_listening_ports() -> Result<Vec<PortEntry>, String> {
     let mut sockets = listening_sockets(AF_INET)?;

@@ -37,6 +37,13 @@ pub(crate) fn listening_ports() -> Result<Vec<PortEntry>, String> {
     platform::list_listening_ports()
 }
 
+/// The full path of the executable a process was started from, where this OS will say.
+/// `nginx_ssl` uses it to find the exact web server that is running — XAMPP's, WAMP's,
+/// Laragon's — instead of guessing from a list of install folders.
+pub(crate) fn exe_path(pid: u32) -> Option<String> {
+    platform::exe_path(pid)
+}
+
 #[tauri::command(async)]
 pub fn processes_kill(pid: u32, force: bool) -> Result<String, String> {
     platform::kill(pid, force)

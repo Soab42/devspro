@@ -49,6 +49,12 @@ pub fn find_binary() -> Option<String> {
     })
 }
 
+/// On Windows the running `httpd.exe` is also what every invocation goes through.
+pub fn control_for_running(exe: &str) -> Option<String> {
+    let name = Path::new(exe).file_name()?.to_str()?.to_ascii_lowercase();
+    (name == "httpd.exe").then(|| exe.to_string())
+}
+
 fn install_dir(binary_path: &str) -> Option<PathBuf> {
     Some(Path::new(binary_path).parent()?.parent()?.to_path_buf())
 }
