@@ -5,7 +5,7 @@ for the version being released becomes the in-app update notes and the
 website's changelog. Keep the headings in this shape — `## <version> — <date>`
 (or `## Unreleased`), then `### <group>` and `- ` bullets.
 
-## Unreleased
+## 0.2.0 — 2026-10-29
 
 ### New
 - **Windows.** DevsPro now runs on Windows as well as Linux, from a per-machine installer. Elevation goes through UAC, scheduled tasks through Task Scheduler, terminals through ConPTY; the README lists what still differs.
