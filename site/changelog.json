@@ -23,7 +23,7 @@
           "items": [
             "Zoom the whole interface with Ctrl+Plus, Ctrl+Minus, Ctrl+0 and Ctrl+wheel.",
             "Cleaner scans read folders on several threads.",
-            "SFTP favourite folders, multi-select actions and Download as zip; deleting a remote folder removes what is in it too.",
+            "SFTP favourite folders, multi-select actions and Download as zip.",
             "SSH checks a private key's permissions before connecting, and imports pasted keys."
           ]
         },
@@ -31,6 +31,7 @@
           "title": "Fixed",
           "items": [
             "Closing a terminal now ends everything started in it, including background jobs, instead of leaving them running.",
+            "Deleting a remote folder that isn't empty from the Terminal's file browser works, and removes what is in it.",
             "On Linux, disabling or deleting a scheduled task stops its run in progress, as it already did on Windows.",
             "On Linux, stopping a worker stops everything it started, and one that ignores the stop request is ended after two seconds."
           ]

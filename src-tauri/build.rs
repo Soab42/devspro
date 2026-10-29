@@ -19,7 +19,10 @@ fn main() {
 /// either way, and running the placeholder gives a clear message rather than "exec
 /// format error" if someone skips the prerequisite and it ends up packaged for real.
 fn prepare_helper_sidecar() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    // Read when the script runs, not baked in with env!: checkouts sharing one
+    // CARGO_TARGET_DIR (worktrees) share this compiled script too, and a baked-in
+    // path would copy the helper into whichever checkout built it first.
+    let manifest_dir = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
     let target_triple = std::env::var("TARGET").unwrap_or_default();
     if target_triple.is_empty() {
