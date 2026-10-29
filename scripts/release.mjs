@@ -24,6 +24,9 @@ const PUBLIC_KEY_FILE = join(ROOT, "src-tauri/updater.pub");
 const FEED_FILE = join(ROOT, "site/latest.json");
 const CHANGELOG_JSON = join(ROOT, "site/changelog.json");
 const CHANGELOG_MD = join(ROOT, "CHANGELOG.md");
+// Run with node itself rather than through npx: npx is a .cmd shim on Windows,
+// which only a shell can start, and nothing here should go through a shell.
+const TAURI_CLI = join(ROOT, "node_modules/@tauri-apps/cli/tauri.js");
 
 const read = (p) => readFileSync(p, "utf8");
 const readJson = (p) => JSON.parse(read(p));
@@ -34,10 +37,10 @@ function fail(message) {
   process.exit(1);
 }
 
+/** No shell, so file names and the like are never interpreted. */
 function run(cmd, args, opts = {}) {
-  // npx and gh are .cmd shims on Windows, which only a shell can start.
-  const r = spawnSync(cmd, args, { stdio: "inherit", shell: process.platform === "win32", ...opts });
-  if (r.status !== 0) fail(`${cmd} ${args.join(" ")} failed`);
+  const r = spawnSync(cmd, args, { stdio: "inherit", ...opts });
+  if (r.status !== 0) fail(`${basename(cmd)} ${args[0] === TAURI_CLI ? args.slice(1, 3).join(" ") : args[0]} failed`);
   return r;
 }
 
@@ -185,9 +188,12 @@ function verifySignature(file, signatureB64) {
 function sign(file) {
   const keyPath = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH || join(homedir(), ".tauri", "devspro-updater.key");
   if (!existsSync(keyPath)) fail(`no signing key at ${keyPath} (set TAURI_SIGNING_PRIVATE_KEY_PATH)`);
-  const password = process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? "";
-  const quiet = { stdio: ["ignore", "ignore", "inherit"] };
-  run("npx", ["tauri", "signer", "sign", "-f", keyPath, "-p", password, file], quiet);
+  if (!existsSync(TAURI_CLI)) fail("the Tauri CLI isn't installed — run npm install");
+  // The password stays in the environment, where the signer reads it: on the
+  // command line it would show in the process list. Set even when empty, or
+  // the signer stops to ask for one.
+  const env = { ...process.env, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD ?? "" };
+  run(process.execPath, [TAURI_CLI, "signer", "sign", "-f", keyPath, file], { stdio: ["ignore", "ignore", "inherit"], env });
   const signature = read(`${file}.sig`).trim();
   const problem = verifySignature(file, signature);
   if (problem) fail(`${basename(file)}: ${problem}`);
@@ -244,7 +250,7 @@ function publish() {
   if (missing.length) fail(`not signed yet: ${missing.map((f) => basename(f)).join(", ")} — run npm run release:feed first`);
   const assets = files.flatMap((f) => [f, `${f}.sig`]);
   const tag = `v${version}`;
-  const exists = spawnSync("gh", ["release", "view", tag, "-R", REPO], { stdio: "ignore", shell: process.platform === "win32" }).status === 0;
+  const exists = spawnSync("gh", ["release", "view", tag, "-R", REPO], { stdio: "ignore" }).status === 0;
   if (exists) {
     run("gh", ["release", "upload", tag, ...assets, "--clobber", "-R", REPO]);
   } else {

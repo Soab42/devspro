@@ -241,6 +241,34 @@ fn decode_key_and_signature(
     Ok((key, sig))
 }
 
+/// The `x.y.z` a release file's name carries, read from the `file:` that
+/// `tauri signer sign` writes into the signed trusted comment
+/// (`DevsPro_0.2.0_amd64.deb`, `DevsPro-0.2.0-1.x86_64.rpm`,
+/// `DevsPro_0.2.0_x64-setup.exe`). The helper reads it the same way.
+fn signed_version(trusted_comment: &str) -> Option<(u64, u64, u64)> {
+    let file = trusted_comment.split('\t').find_map(|field| field.strip_prefix("file:"))?;
+    let rest = file.strip_prefix("DevsPro")?;
+    let rest = rest.strip_prefix('_').or_else(|| rest.strip_prefix('-'))?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+    let mut parts = digits.split('.').filter(|p| !p.is_empty()).map(|p| p.parse::<u64>().ok());
+    Some((parts.next()??, parts.next()??, parts.next()??))
+}
+
+/// The feed's version is just text on a web page; the signature is what can be
+/// trusted. So the package must be signed under the version the feed promised —
+/// otherwise a tampered feed could offer an old release as a new one. The
+/// comment is only proven genuine once the download verifies, which `finalize`
+/// checks; this rejects a mismatch before downloading anything.
+fn check_signed_as(signature: &minisign_verify::Signature, version: &str) -> Result<(), String> {
+    let expected = semver::Version::parse(version).map_err(|e| e.to_string())?;
+    match signed_version(signature.trusted_comment()) {
+        Some(signed) if signed == (expected.major, expected.minor, expected.patch) => Ok(()),
+        _ => Err(format!(
+            "the update feed offers {version}, but its package isn't signed as {version} — not downloading it"
+        )),
+    }
+}
+
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent(concat!("DevsPro/", env!("CARGO_PKG_VERSION")))
@@ -354,6 +382,7 @@ pub async fn updater_download(app: AppHandle) -> Result<String, String> {
     let _flag = DownloadingFlag(&state);
 
     let (key, signature) = decode_key_and_signature(PUBLIC_KEY, &package.signature)?;
+    check_signed_as(&signature, &version)?;
     let mut verifier = key
         .verify_stream(&signature)
         .map_err(|e| format!("the update's signature can't be checked: {e}"))?;
@@ -552,6 +581,21 @@ mod tests {
         assert!(verify_in_chunks(TEST_KEY, b"devspro update fixturE", TEST_SIGNATURE).is_err());
         // The shipped key didn't sign the fixture.
         assert!(verify_in_chunks(PUBLIC_KEY, TEST_PACKAGE, TEST_SIGNATURE).is_err());
+    }
+
+    // TEST_PACKAGE signed as DevsPro_9.9.9_amd64.deb (the helper's tests use it too).
+    const SIGNED_AS_9_9_9: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUQkMxYWdoQXV5WjJZYlRUeFQzWHNYOS8rOGRPcW91eklhMkg5WXNPM1pCc2NXQi96VUNwaEZPMmZibnlzTnU4aVlSV1NVdUtJaW1xek9hR2c2d0RVQ2hMRGh3V1JZemcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMjQxNDEwCWZpbGU6RGV2c1Byb185LjkuOV9hbWQ2NC5kZWIKUnkrMXJEVUNTc0hYamZ1OEdXMG9ISEdKYk5jdGpQWk9tdEpCNzhlcGdPUmRidmpkUmQramJodGtTR1AxekVxaEZ0VlVCL0lFdi8rTWZwZGY2clMvQnc9PQo=";
+
+    #[test]
+    fn a_package_must_be_signed_as_the_version_the_feed_offers() {
+        let (_, sig) = decode_key_and_signature(TEST_KEY, SIGNED_AS_9_9_9).unwrap();
+        assert_eq!(check_signed_as(&sig, "9.9.9"), Ok(()));
+        assert!(check_signed_as(&sig, "10.0.0").unwrap_err().contains("isn't signed as 10.0.0"));
+        let (_, unnamed) = decode_key_and_signature(TEST_KEY, TEST_SIGNATURE).unwrap();
+        assert!(check_signed_as(&unnamed, "9.9.9").is_err());
+        assert_eq!(signed_version("timestamp:1\tfile:DevsPro-0.10.3-1.x86_64.rpm"), Some((0, 10, 3)));
+        assert_eq!(signed_version("timestamp:1\tfile:DevsPro_1.0.0_x64-setup.exe"), Some((1, 0, 0)));
+        assert_eq!(signed_version("timestamp:1\tfile:Other_1.0.0_x64-setup.exe"), None);
     }
 
     #[test]

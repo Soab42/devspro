@@ -217,8 +217,10 @@ caught there rather than by users' copies refusing the update.
   `rpm -qf` on its own binary; NSIS on Windows) and checks the signature as
   it streams in.
 - Hands it to the helper as `InstallUpdate`. The helper reads the file once,
-  checks the signature again with the key compiled into it, and works from
-  its own copy: Linux installs from `/var/cache/devspro-update` with
+  checks the signature again with the key compiled into it, refuses one not
+  signed as a newer release than the installed one (the file name in the
+  signature's trusted comment carries the version), and works from its own
+  copy: Linux installs from `/var/cache/devspro-update` with
   `apt-get install -y` or `rpm -U`, both of which refuse a downgrade, then the
   app restarts itself; Windows starts the installer from a fresh
   Administrators-only folder under `%SystemRoot%\Temp` with `/P /UPDATE /R`
