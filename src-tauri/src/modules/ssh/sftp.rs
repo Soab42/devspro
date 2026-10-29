@@ -232,19 +232,58 @@ pub fn sftp_rename(state: State<SshState>, session: String, from: String, to: St
 /// Removes a file, or a directory that is already empty. Recursive deletion is
 /// deliberately not offered: over SFTP it is slow, non-atomic, and the kind of
 /// thing that should be typed into the terminal tab with intent.
+/// The few remote file operations a recursive delete needs, so the walk can be
+/// tested without a server.
+trait RemoteTree {
+    /// Children of a folder with whether each is a real folder (a symlink to
+    /// one is not: it must be unlinked, never followed).
+    fn children(&self, dir: &Path) -> Result<Vec<(PathBuf, bool)>, String>;
+    fn unlink(&self, path: &Path) -> Result<(), String>;
+    fn rmdir(&self, dir: &Path) -> Result<(), String>;
+}
+
+impl RemoteTree for Sftp {
+    fn children(&self, dir: &Path) -> Result<Vec<(PathBuf, bool)>, String> {
+        let list = self
+            .readdir(dir)
+            .map_err(|e| format!("could not list {}: {}", dir.display(), e.message()))?;
+        Ok(list.into_iter().map(|(path, stat)| (path, stat.is_dir())).collect())
+    }
+    fn unlink(&self, path: &Path) -> Result<(), String> {
+        Sftp::unlink(self, path).map_err(|e| format!("could not delete {}: {}", path.display(), e.message()))
+    }
+    fn rmdir(&self, dir: &Path) -> Result<(), String> {
+        Sftp::rmdir(self, dir).map_err(|e| format!("could not remove directory {}: {}", dir.display(), e.message()))
+    }
+}
+
+/// Deletes a folder and everything under it. SFTP's `rmdir` refuses a folder
+/// that has anything in it, so the contents go first.
+fn remove_tree(fs: &impl RemoteTree, dir: &Path) -> Result<(), String> {
+    for (child, is_dir) in fs.children(dir)? {
+        if matches!(child.file_name().and_then(|n| n.to_str()), Some("." | "..")) {
+            continue;
+        }
+        if is_dir {
+            remove_tree(fs, &child)?;
+        } else {
+            fs.unlink(&child)?;
+        }
+    }
+    fs.rmdir(dir)
+}
+
+/// Deletes a file, or a folder with its contents. The caller confirms first;
+/// there is no trash over SFTP.
 #[tauri::command(async)]
 pub fn sftp_delete(state: State<SshState>, session: String, path: String) -> Result<(), String> {
     with_session(&state, &session, |s| {
         let target = Path::new(&path);
         let stat = s.sftp.lstat(target).map_err(|e| format!("could not stat {path}: {}", e.message()))?;
         if stat.is_dir() {
-            s.sftp
-                .rmdir(target)
-                .map_err(|e| format!("could not remove directory {path} (is it empty?): {}", e.message()))
+            remove_tree(&s.sftp, target)
         } else {
-            s.sftp
-                .unlink(target)
-                .map_err(|e| format!("could not delete {path}: {}", e.message()))
+            RemoteTree::unlink(&s.sftp, target)
         }
     })
 }
@@ -686,6 +725,45 @@ pub fn upload_target(remote_dir: &str, local: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// In-memory folder tree: path -> is_dir, with the real server's rule that
+    /// `rmdir` fails on a folder that still has children.
+    struct Fake(std::cell::RefCell<std::collections::BTreeMap<PathBuf, bool>>);
+
+    impl RemoteTree for Fake {
+        fn children(&self, dir: &Path) -> Result<Vec<(PathBuf, bool)>, String> {
+            let all = self.0.borrow();
+            Ok(all.iter().filter(|(p, _)| p.parent() == Some(dir)).map(|(p, d)| (p.clone(), *d)).collect())
+        }
+        fn unlink(&self, path: &Path) -> Result<(), String> {
+            self.0.borrow_mut().remove(path).map(|_| ()).ok_or_else(|| "missing".to_string())
+        }
+        fn rmdir(&self, dir: &Path) -> Result<(), String> {
+            if self.0.borrow().keys().any(|p| p.parent() == Some(dir)) {
+                return Err("directory not empty".into());
+            }
+            self.0.borrow_mut().remove(dir).map(|_| ()).ok_or_else(|| "missing".to_string())
+        }
+    }
+
+    #[test]
+    fn remove_tree_deletes_a_folder_with_contents_and_leaves_siblings() {
+        let tree: std::collections::BTreeMap<PathBuf, bool> = [
+            ("/site", true),
+            ("/site/app", true),
+            ("/site/app/main.js", false),
+            ("/site/index.html", false),
+            ("/other", true),
+            ("/other/keep", false),
+        ]
+        .into_iter()
+        .map(|(p, d)| (PathBuf::from(p), d))
+        .collect();
+        let fake = Fake(std::cell::RefCell::new(tree));
+        remove_tree(&fake, Path::new("/site")).unwrap();
+        let left: Vec<_> = fake.0.borrow().keys().map(|p| p.to_string_lossy().into_owned()).collect();
+        assert_eq!(left, ["/other", "/other/keep"]);
+    }
 
     #[test]
     fn join_remote_handles_root_and_trailing_slashes() {

@@ -464,7 +464,7 @@ export default function TerminalSidebar({
   }
 
   async function removeRow(row: Row) {
-    const remoteNote = isLocal ? "It goes to the desktop's trash." : row.is_dir ? "Over SFTP only an empty folder can be removed, and there is no undo." : "There is no undo over SFTP.";
+    const remoteNote = isLocal ? "It goes to the desktop's trash." : row.is_dir ? "Everything inside it goes too, and there is no undo over SFTP." : "There is no undo over SFTP.";
     const ok = await confirmAction(`"${row.name}" will be ${isLocal ? "moved to the trash" : "deleted"}. ${remoteNote}`, {
       title: isLocal ? "Move to trash?" : "Delete?",
       confirmLabel: isLocal ? "Move to trash" : "Delete",
