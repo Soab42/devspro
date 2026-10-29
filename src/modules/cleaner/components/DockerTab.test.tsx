@@ -59,7 +59,7 @@ describe("DockerTab", () => {
       { found: true, daemon_reachable: false, version: null, error: "permission denied" },
     );
     render(<DockerTab />);
-    await waitFor(() => expect(screen.getByText("Docker daemon unreachable")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Docker isn't running")).toBeTruthy());
     expect(screen.getAllByText(/permission denied/).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Recheck" })).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();

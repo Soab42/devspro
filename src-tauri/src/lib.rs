@@ -163,6 +163,7 @@ pub fn run() {
             scaffold::scaffold_create_laravel_project,
             scaffold::wizard::scaffold_wizard_run,
             docker::docker_detect,
+            docker::docker_start_engine,
             docker::docker_list_containers,
             docker::docker_start,
             docker::docker_stop,

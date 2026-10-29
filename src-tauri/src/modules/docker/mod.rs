@@ -8,6 +8,8 @@
 //! that already exist. A user in the `docker` group needs no sudo prompt at all,
 //! which is the common case and why this module has no `elevate` involvement.
 
+mod engine;
+
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -151,6 +153,11 @@ fn run_action(action: &str, id: &str) -> Result<String, String> {
 #[tauri::command(async)]
 pub fn docker_detect() -> DockerDetection {
     detect()
+}
+
+#[tauri::command(async)]
+pub fn docker_start_engine(app: tauri::AppHandle) -> Result<String, String> {
+    engine::start(&app)
 }
 
 #[tauri::command(async)]

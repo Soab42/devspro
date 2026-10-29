@@ -21,7 +21,6 @@ import {
   Section,
   Stack,
   StatusPill,
-  statusOf,
   useResource,
 } from "../../../ui";
 import {
@@ -44,6 +43,7 @@ import {
   removeDatabase,
   restoreDatabase,
 } from "../api";
+import { useDockerGate } from "../../docker/blocked";
 import { parsePortMappings } from "../../docker/utils";
 
 interface Group {
@@ -85,7 +85,8 @@ function groupContainers(containers: DevsproContainer[]): Group[] {
 export default function DatabasesPage() {
   const confirmAction = useConfirm();
   const module = useModule("databases");
-  const databases = useResource(listDatabases);
+  const docker = useDockerGate();
+  const databases = useResource(listDatabases, { enabled: docker.usable });
 
   const [showCreate, setShowCreate] = useState(false);
   const [busyBase, setBusyBase] = useState<string | null>(null);
@@ -348,7 +349,7 @@ export default function DatabasesPage() {
     <Page
       title={module.label}
       icon={module.icon}
-      status={statusOf(databases)}
+      status={docker.status(databases)}
       actions={
         <>
           <Button
