@@ -207,7 +207,7 @@ fn volume_source(name: &str) -> String {
 /// The compose-level name of `name`'s volume. Hyphenated because database names can't
 /// contain a hyphen (`valid_name`), so a volume key can never be mistaken for a service
 /// key by `service_block_text` — `shop_data` could be a database, `shop-data` can't.
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn named_volume(name: &str) -> String {
     format!("{name}-data")
 }

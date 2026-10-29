@@ -269,15 +269,14 @@ pub fn workers_delete(
     Ok(())
 }
 
-/// Asks the process to stop and waits up to ~2s for it to exit — conceptually the
-/// same grace period `docker stop` gives a container by default. If it's still
-/// running after that it's left alone rather than force-killed; escalating to
-/// SIGKILL after a timeout would be a reasonable follow-up but isn't built for
-/// v1.
+/// Asks the worker to stop and waits up to ~2s for it to exit — conceptually the
+/// same grace period `docker stop` gives a container by default. A worker still
+/// running after that is killed outright and reaped, as `docker stop` does too.
 ///
-/// What "asks" means is the one part that differs per OS, and it's `platform`'s job:
-/// SIGTERM on Unix, and on Windows a `taskkill` that escalates, since nothing there can
-/// ask a console process to wind down. See `platform::request_stop`.
+/// What "asks" and "kills" mean is the part that differs per OS, and it's
+/// `platform`'s job: on Unix signals to the worker's whole process group, on Windows a
+/// `taskkill` tree kill, since nothing there can ask a console process to wind down.
+/// See `platform::request_stop` and `platform::force_stop`.
 fn stop_running(state: &WorkersState, id: &str) -> Result<bool, String> {
     let mut map = state.0.lock().map_err(|e| e.to_string())?;
     let Some(child) = map.get_mut(id) else {
@@ -297,6 +296,16 @@ fn stop_running(state: &WorkersState, id: &str) -> Result<bool, String> {
             break;
         }
         std::thread::sleep(Duration::from_millis(100));
+    }
+    if !exited {
+        platform::force_stop(child)?;
+        for _ in 0..10 {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                exited = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
     if exited {
         map.remove(id);
@@ -506,5 +515,68 @@ mod tests {
         assert!(!running_ids(&state).unwrap().contains(&id));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// SIGKILLs the group on drop, so a failed assertion leaves no process behind.
+    #[cfg(unix)]
+    struct GroupGuard(i32);
+    #[cfg(unix)]
+    impl Drop for GroupGuard {
+        fn drop(&mut self) {
+            // SAFETY: plain syscall on the group the test's worker created.
+            unsafe { libc::kill(-self.0, libc::SIGKILL) };
+        }
+    }
+
+    /// Starts `command` as a worker and stops it, returning whether `stop_running` said it
+    /// exited and whether any process of its group is left (checked before the guard runs).
+    #[cfg(unix)]
+    fn stop_worker(command: &str) -> (bool, bool) {
+        let child = platform::shell_command(command)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pgid = child.id() as i32;
+        let _guard = GroupGuard(pgid);
+        let state = WorkersState::default();
+        state.0.lock().unwrap().insert("w".to_string(), child);
+        std::thread::sleep(Duration::from_millis(300));
+
+        let exited = stop_running(&state, "w").unwrap();
+        // The shell is reaped; any orphan would still be in the group (zombies count
+        // until their reaper runs, so give init a moment).
+        let mut left = true;
+        for _ in 0..20 {
+            // SAFETY: signal 0 only probes.
+            left = unsafe { libc::kill(-pgid, 0) } == 0;
+            if !left {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        (exited, left)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stopping_a_worker_ends_what_the_shell_started_too() {
+        // The shell stays as the parent here instead of exec'ing the command.
+        for command in ["true && sleep 60", "sleep 60 | cat"] {
+            let (exited, left) = stop_worker(command);
+            assert!(exited, "{command}");
+            assert!(!left, "{command}: processes of the group survived");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_worker_ignoring_sigterm_is_killed_after_the_grace() {
+        let started = std::time::Instant::now();
+        let (exited, left) = stop_worker("trap '' TERM; sleep 60");
+        assert!(exited);
+        assert!(!left);
+        assert!(started.elapsed() >= Duration::from_secs(2));
     }
 }

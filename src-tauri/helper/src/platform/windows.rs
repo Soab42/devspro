@@ -566,3 +566,102 @@ mod tests {
         fs::remove_dir_all(&target).unwrap();
     }
 }
+
+/// The installer is staged in a folder under `%SystemRoot%\Temp` that this
+/// (elevated) process creates and then locks to SYSTEM and Administrators.
+/// The lock matters: the folder would otherwise inherit Temp's ACL, which lets
+/// any user create files in it — enough to plant a DLL beside the installer
+/// for it to load, elevated.
+const UPDATE_DIR_PREFIX: &str = "devspro-update-";
+
+/// SYSTEM and BUILTIN\Administrators by SID, so it works in every language.
+const ADMIN_ONLY_GRANTS: [&str; 2] = ["*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F"];
+
+/// Creates `dir` (refusing one that already exists), removes every inherited
+/// permission and grants only SYSTEM and Administrators, then checks nothing
+/// got in before the lock did.
+fn create_admin_only_dir(dir: &Path) -> Result<(), String> {
+    fs::create_dir(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    let mut icacls = Command::new("icacls");
+    icacls.arg(dir).arg("/inheritance:r");
+    for grant in ADMIN_ONLY_GRANTS {
+        icacls.args(["/grant:r", grant]);
+    }
+    match icacls.output() {
+        Ok(out) if out.status.success() => {}
+        Ok(out) => {
+            return Err(format!(
+                "could not restrict {}: {}",
+                dir.display(),
+                String::from_utf8_lossy(&out.stdout).trim()
+            ))
+        }
+        Err(e) => return Err(format!("failed to run icacls: {e}")),
+    }
+    if !entries(dir).is_empty() {
+        return Err(format!("{} was not empty once locked — refusing", dir.display()));
+    }
+    Ok(())
+}
+
+/// Starts the verified NSIS installer `main.rs` hands over, and returns without
+/// waiting: it has to replace `devspro.exe` and this very binary, so both must
+/// have exited first. `/P` is passive (a progress bar, no questions), and in
+/// passive mode the installer itself ends a DevsPro still running; `/UPDATE`
+/// keeps the app's data and skips first-install steps; `/R` relaunches DevsPro
+/// afterwards through `RunAsUser`, as the signed-in user rather than elevated.
+/// The installer inherits this process's elevation, so there is no second UAC
+/// prompt — and its TEMP points into the locked folder, so the plugin DLLs it
+/// unpacks there can't be swapped by the user's own processes either.
+pub fn install_update(kind: &str, bytes: &[u8]) -> OpResult {
+    use std::io::Write;
+    if kind != "exe" {
+        return OpResult {
+            success: false,
+            message: format!("a .{kind} update is not installable on Windows — refusing"),
+        };
+    }
+    let temp = match windows_dir() {
+        Ok(dir) => dir.join("Temp"),
+        Err(message) => return OpResult { success: false, message },
+    };
+    // Earlier updates' folders: their installers have long finished.
+    for old in entries(&temp) {
+        if old.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(UPDATE_DIR_PREFIX)) {
+            let _ = fs::remove_dir_all(&old);
+        }
+    }
+    let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let dir = temp.join(format!("{UPDATE_DIR_PREFIX}{}-{nanos}", std::process::id()));
+    if let Err(message) = create_admin_only_dir(&dir) {
+        return OpResult { success: false, message };
+    }
+    let installer = dir.join("DevsPro-update-setup.exe");
+    let written = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&installer)
+        .and_then(|mut f| f.write_all(bytes).and_then(|_| f.sync_all()));
+    if let Err(e) = written {
+        return OpResult {
+            success: false,
+            message: format!("could not write {}: {e}", installer.display()),
+        };
+    }
+    let started = Command::new(&installer)
+        .args(["/P", "/UPDATE", "/R"])
+        .current_dir(&dir)
+        .env("TEMP", &dir)
+        .env("TMP", &dir)
+        .spawn();
+    match started {
+        Ok(_) => OpResult {
+            success: true,
+            message: "started the DevsPro installer".to_string(),
+        },
+        Err(e) => OpResult {
+            success: false,
+            message: format!("could not start the installer: {e}"),
+        },
+    }
+}

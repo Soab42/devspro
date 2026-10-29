@@ -1,0 +1,88 @@
+/* The docked terminal: a column to the right of the module, never over it. */
+.terminal-dock {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+}
+
+.terminal-dock-hidden {
+  display: none;
+}
+
+/* Narrow windows have no room beside the module, so the dock covers it. */
+.terminal-dock-overlay {
+  position: absolute;
+  inset: var(--topbar-height) 0 0 0;
+  z-index: 20;
+  border-left: 0;
+}
+
+.terminal-dock-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--space-1) * -1);
+  width: var(--space-2);
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.terminal-dock-handle:hover,
+.terminal-dock-handle-dragging {
+  background-color: var(--color-accent-border);
+}
+
+.terminal-dock-overlay .terminal-dock-handle {
+  display: none;
+}
+
+.terminal-dock-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--topbar-height);
+  flex-shrink: 0;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.terminal-dock-title {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.terminal-dock-cwd {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.terminal-dock-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-dock-exited {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}

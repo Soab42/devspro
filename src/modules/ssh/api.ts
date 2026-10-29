@@ -195,8 +195,9 @@ export const sftpMkdir = (session: string, path: string) =>
 export const sftpRename = (session: string, from: string, to: string) =>
   invoke<void>("sftp_rename", { session, from, to });
 
-export const sftpDelete = (session: string, path: string) =>
-  invoke<void>("sftp_delete", { session, path });
+/** A folder goes only if empty, unless `recursive` — then with everything in it. */
+export const sftpDelete = (session: string, path: string, recursive = false) =>
+  invoke<void>("sftp_delete", { session, path, recursive });
 
 /** Running total for one transfer, emitted on `sftp:progress`. */
 export interface TransferProgress {

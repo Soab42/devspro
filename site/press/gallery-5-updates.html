@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="../assets/site.css">
+  <link rel="stylesheet" href="press.css">
+  <script src="press.js"></script>
+  <title>Gallery 5: updates (1270×760)</title>
+</head>
+<body>
+  <div class="slide">
+    <div class="p-kicker">Updates</div>
+    <h1 class="p-title">Updates itself, and <span class="grad">checks the signature twice.</span></h1>
+    <p class="p-sub">On Linux and Windows, an update installs only if it was signed with the DevsPro release key.</p>
+    <div class="p-flow">
+      <div class="p-step"><div class="n">01</div><div class="icon"><svg class="i"><use href="../assets/icons.svg#refresh-cw"/></svg></div><h3>Check</h3><p>Reads the release feed. You see the notes before anything downloads.</p></div>
+      <div class="p-step"><div class="n">02</div><div class="icon"><svg class="i"><use href="../assets/icons.svg#download"/></svg></div><h3>Download, verify</h3><p>Fetches the .deb, .rpm or Windows installer and checks its minisign signature.</p></div>
+      <div class="p-step is-root"><div class="n">03</div><div class="icon"><svg class="i"><use href="../assets/icons.svg#shield-check"/></svg></div><h3>Verify again, elevated</h3><p>The helper checks it against a key compiled into it, refuses downgrades, then installs.</p></div>
+      <div class="p-step"><div class="n">04</div><div class="icon"><svg class="i"><use href="../assets/icons.svg#rocket"/></svg></div><h3>Restart</h3><p>DevsPro restarts on the new version, as you, with everything where you left it.</p></div>
+    </div>
+    <div class="p-strip">
+      <span><svg class="i"><use href="../assets/icons.svg#circle-check"/></svg>One prompt: password or UAC</span>
+      <span><svg class="i"><use href="../assets/icons.svg#circle-check"/></svg>Release notes first</span>
+      <span><svg class="i"><use href="../assets/icons.svg#circle-check"/></svg>Downgrades refused</span>
+    </div>
+  </div>
+</body>
+</html>

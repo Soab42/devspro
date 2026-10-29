@@ -60,3 +60,8 @@ pub fn request_stop(child: &Child) -> Result<(), String> {
         .map_err(|e| format!("failed to run taskkill: {e}"))?;
     Ok(())
 }
+
+/// `request_stop` is already a forced tree kill, so there is nothing further to escalate to.
+pub fn force_stop(_child: &Child) -> Result<(), String> {
+    Ok(())
+}

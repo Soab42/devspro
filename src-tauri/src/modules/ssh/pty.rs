@@ -31,6 +31,92 @@ pub struct PtyHandle {
     owner: String,
 }
 
+impl PtyHandle {
+    /// Stops the session. On Unix that is every process the terminal started,
+    /// not just the shell: killing only the shell leaves its background jobs
+    /// (a dev server, a worker, an ssh) alive, and while they hold the pty the
+    /// reader never sees EOF, so the session is never reaped.
+    fn terminate(&mut self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.child.process_id() {
+            session::terminate(pid, session::GRACE);
+        }
+        let _ = self.child.kill();
+    }
+}
+
+/// Process-tree teardown for a terminal session (Unix).
+#[cfg(unix)]
+mod session {
+    use std::time::Duration;
+
+    /// How long processes get to handle SIGHUP/SIGTERM before SIGKILL.
+    pub const GRACE: Duration = Duration::from_millis(1500);
+
+    /// Pids of every process in session `sid`. The pty child is made a session
+    /// leader by portable-pty, so its session is the whole terminal: jobs the
+    /// shell starts get their own process groups but stay in the session.
+    #[cfg(target_os = "linux")]
+    pub fn members(sid: u32) -> Vec<u32> {
+        let Ok(dir) = std::fs::read_dir("/proc") else { return Vec::new() };
+        dir.flatten()
+            .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+            .filter(|&pid| session_of(pid) == Some(sid))
+            .collect()
+    }
+
+    /// Without `/proc` only the shell's own process group can be found.
+    #[cfg(not(target_os = "linux"))]
+    pub fn members(_sid: u32) -> Vec<u32> {
+        Vec::new()
+    }
+
+    /// Field 6 of `/proc/<pid>/stat`. The command name (field 2) may contain
+    /// spaces and parentheses, so parse after the last `)`.
+    #[cfg(target_os = "linux")]
+    fn session_of(pid: u32) -> Option<u32> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let rest = &stat[stat.rfind(')')? + 1..];
+        // rest: " S ppid pgrp session ..."
+        rest.split_whitespace().nth(3)?.parse().ok()
+    }
+
+    fn signal(pids: &[u32], sig: libc::c_int) {
+        for &pid in pids {
+            // SAFETY: plain syscall on a pid we just read from /proc.
+            unsafe { libc::kill(pid as libc::pid_t, sig) };
+        }
+    }
+
+    /// Every process in the session, signalled and killed at once, in this
+    /// thread.
+    pub fn kill_now(sid: u32) {
+        let mut pids = members(sid);
+        if !pids.contains(&sid) {
+            pids.push(sid);
+        }
+        signal(&pids, libc::SIGHUP);
+        signal(&pids, libc::SIGTERM);
+        signal(&pids, libc::SIGKILL);
+    }
+
+    /// Asks the session's processes to exit now, and kills whatever is still
+    /// there after `grace` from a background thread so callers never block.
+    pub fn terminate(sid: u32, grace: Duration) {
+        let mut pids = members(sid);
+        if !pids.contains(&sid) {
+            pids.push(sid);
+        }
+        signal(&pids, libc::SIGHUP);
+        signal(&pids, libc::SIGTERM);
+        std::thread::spawn(move || {
+            std::thread::sleep(grace);
+            // Re-read: only what is still in the session, never a recycled pid.
+            signal(&members(sid), libc::SIGKILL);
+        });
+    }
+}
+
 pub type PtyMap = Mutex<HashMap<String, PtyHandle>>;
 
 /// `"local"` for the user's shell, `{ "ssh": "<host id>" }` for a saved host,
@@ -311,6 +397,7 @@ pub fn pty_open(
     };
     #[cfg(not(windows))]
     std::thread::spawn(move || {
+        let mut pump = pump;
         pump();
         let code = reap(&app, &thread_id);
         let _ = app.emit(&exit_event, PtyExit { code });
@@ -448,7 +535,7 @@ pub fn proc_cwd(_pid: u32) -> Option<String> {
 pub fn kill_owned_by(state: &SshState, window_label: &str) {
     if let Ok(mut map) = state.pty.lock() {
         for handle in map.values_mut().filter(|h| h.owner == window_label) {
-            let _ = handle.child.kill();
+            handle.terminate();
         }
     }
 }
@@ -460,7 +547,7 @@ pub fn kill_owned_by(state: &SshState, window_label: &str) {
 pub fn pty_close(state: State<SshState>, id: String) -> Result<(), String> {
     let mut map = state.pty.lock().map_err(|e| e.to_string())?;
     if let Some(handle) = map.get_mut(&id) {
-        let _ = handle.child.kill();
+        handle.terminate();
     }
     Ok(())
 }
@@ -470,6 +557,12 @@ pub fn pty_close(state: State<SshState>, id: String) -> Result<(), String> {
 pub fn kill_all(state: &SshState) {
     if let Ok(mut map) = state.pty.lock() {
         for (_, mut handle) in map.drain() {
+            // The app is exiting, so a background SIGKILL thread may never
+            // run: no grace period here.
+            #[cfg(unix)]
+            if let Some(pid) = handle.child.process_id() {
+                session::kill_now(pid);
+            }
             let _ = handle.child.kill();
             let _ = handle.child.wait();
         }
@@ -584,6 +677,43 @@ mod tests {
         let text = String::from_utf8_lossy(&collected);
         assert!(text.contains("devspro-pty-ok"), "unexpected pty output: {text:?}");
         assert!(handle.child.wait().unwrap().success());
+    }
+
+    /// A background job in its own process group that ignores SIGHUP and
+    /// SIGTERM outlives its shell unless the whole session is torn down; once
+    /// it is, the reader gets EOF so the session can be reaped.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn terminating_a_session_kills_stubborn_background_jobs() {
+        let mut cmd = CommandBuilder::new("sh");
+        cmd.env("PS1", "$ ");
+        let (mut handle, mut reader) = spawn(cmd, 80, 24).unwrap();
+        let sid = handle.child.process_id().unwrap();
+        handle
+            .writer
+            .write_all(b"(trap '' HUP TERM; while :; do sleep 1; done) &\n echo job-$((6*7))\n")
+            .unwrap();
+        handle.writer.flush().unwrap();
+        let mut seen = String::new();
+        let mut buf = [0u8; 1024];
+        while !seen.contains("job-42") {
+            let n = reader.read(&mut buf).unwrap();
+            seen.push_str(&String::from_utf8_lossy(&buf[..n]));
+        }
+        assert!(session::members(sid).len() >= 2, "the job should share the session");
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            while !matches!(reader.read(&mut buf), Ok(0) | Err(_)) {}
+            let _ = tx.send(());
+        });
+        handle.terminate();
+        assert!(
+            rx.recv_timeout(std::time::Duration::from_secs(10)).is_ok(),
+            "the pty never reached EOF: a job survived"
+        );
+        let _ = handle.child.wait();
+        assert!(session::members(sid).is_empty());
     }
 
     /// Runs `cmd` in a ConPTY the way `pty_open` does on Windows: read on one

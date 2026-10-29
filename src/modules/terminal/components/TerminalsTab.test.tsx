@@ -12,8 +12,10 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}
 // xterm needs a real canvas; a pane only has to say which command it would run.
 vi.mock("../../../ui/Terminal", () => ({
   default: ({ command }: { command: unknown }) => <div data-testid="pty">{JSON.stringify(command)}</div>,
-  TerminalWorkspace: ({ children, empty }: { children: ReactNode; empty: ReactNode }) => (
+  TerminalWorkspace: ({ children, empty, tabs, actions }: { children: ReactNode; empty: ReactNode; tabs?: ReactNode; actions?: ReactNode }) => (
     <div>
+      {tabs}
+      {actions}
       {empty}
       {children}
     </div>
@@ -110,5 +112,27 @@ describe("opening an ssh terminal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await act(async () => {});
     expect(panes()).toEqual(['"local"']);
+  });
+});
+
+describe("closing terminals", () => {
+  it("removes a pane, a tab and a window, and none of them come back", async () => {
+    const workspace = renderTab();
+    act(() => workspace().openWindow("local"));
+    act(() => workspace().openWindow("local"));
+    act(() => workspace().split("local", "row"));
+    expect(panes()).toHaveLength(3);
+
+    // Only the active window is exposed to the accessibility tree.
+    fireEvent.click(document.querySelectorAll<HTMLElement>('[aria-label="Close pane"]')[1]);
+    expect(panes()).toHaveLength(2);
+
+    fireEvent(screen.getAllByRole("tab")[0], new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    await act(async () => {});
+    expect(panes()).toEqual([]);
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
   });
 });

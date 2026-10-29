@@ -5,7 +5,7 @@ use super::{ScanProgress, PROGRESS_EVENT};
 use std::collections::HashMap;
 use std::fs;
 use crate::modules::fs_compat::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -19,6 +19,11 @@ const MAX_WALK_THREADS: usize = 16;
 
 type Sink = Box<dyn Fn(ScanProgress) + Send + Sync>;
 
+/// Locks `m`, carrying on past a thread that panicked while holding it.
+pub(super) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 /// Every running scan's cancel flag, by scan id. Managed Tauri state.
 #[derive(Default)]
 pub struct CleanerState {
@@ -28,14 +33,14 @@ pub struct CleanerState {
 impl CleanerState {
     /// Flags the scan; it stops at its next check. Unknown ids are ignored.
     pub fn cancel(&self, scan_id: &str) {
-        let scans = self.scans.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(flag) = scans.get(scan_id) {
+        if let Some(flag) = lock(&self.scans).get(scan_id) {
             flag.store(true, Ordering::Relaxed);
         }
     }
 
+    #[cfg(test)]
     pub fn running(&self) -> usize {
-        self.scans.lock().unwrap_or_else(PoisonError::into_inner).len()
+        lock(&self.scans).len()
     }
 }
 
@@ -63,11 +68,7 @@ impl Scan {
 
     pub fn with_sink(state: &CleanerState, scan_id: &str, tab: &str, sink: Sink) -> Scan {
         let cancel = Arc::new(AtomicBool::new(false));
-        state
-            .scans
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(scan_id.to_string(), cancel.clone());
+        lock(&state.scans).insert(scan_id.to_string(), cancel.clone());
         let mut scan = Scan::detached_named(scan_id, tab, cancel);
         scan.registry = Some(state.scans.clone());
         scan.sink = Some(sink);
@@ -96,6 +97,7 @@ impl Scan {
         self.cancel.load(Ordering::Relaxed)
     }
 
+    #[cfg(test)]
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
@@ -137,7 +139,7 @@ impl Scan {
 impl Drop for Scan {
     fn drop(&mut self) {
         if let Some(registry) = &self.registry {
-            registry.lock().unwrap_or_else(PoisonError::into_inner).remove(&self.id);
+            lock(registry).remove(&self.id);
         }
     }
 }
@@ -154,14 +156,10 @@ struct Work<D> {
 }
 
 impl<D> Work<D> {
-    fn lock(&self) -> MutexGuard<'_, Queue<D>> {
-        self.queue.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
     /// The next directory to read, waiting while another thread may still add
     /// some. None once the tree is done or the scan is cancelled.
     fn next(&self, scan: &Scan) -> Option<D> {
-        let mut queue = self.lock();
+        let mut queue = lock(&self.queue);
         loop {
             if scan.is_cancelled() {
                 return None;
@@ -187,7 +185,7 @@ struct Taken<'a, D> {
 
 impl<D> Drop for Taken<'_, D> {
     fn drop(&mut self) {
-        let mut queue = self.work.lock();
+        let mut queue = lock(&self.work.queue);
         queue.busy -= 1;
         let wake = !self.subdirs.is_empty() || queue.busy == 0;
         queue.dirs.append(&mut self.subdirs);
@@ -246,7 +244,7 @@ pub fn walk_dirs<D: AsRef<Path> + Send, S: Send>(
             .collect::<Vec<_>>()
     });
     states.push(first);
-    let unread = std::mem::take(&mut work.lock().dirs);
+    let unread = std::mem::take(&mut lock(&work.queue).dirs);
     (states, unread)
 }
 
@@ -392,6 +390,7 @@ pub fn used_bytes(path: &Path) -> Result<u64, String> {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::path::PathBuf;
 
     fn scratch(name: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("devspro-cleaner-{name}-{}", std::process::id()));

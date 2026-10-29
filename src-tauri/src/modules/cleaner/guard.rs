@@ -12,7 +12,7 @@
 #[cfg(not(windows))]
 use super::super::file_manager;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Component, Path};
 
 /// Never removable, and everything below them is not either.
 #[cfg(not(windows))]
@@ -192,6 +192,7 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use super::*;
+    use std::path::PathBuf;
     use std::ffi::OsString;
     use std::path::Prefix;
 
@@ -413,6 +414,7 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn scratch(name: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("devspro-guard-{name}-{}", std::process::id()));

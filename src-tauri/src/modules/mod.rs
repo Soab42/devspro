@@ -27,4 +27,5 @@ pub mod system;
 pub mod tail;
 pub mod tools;
 pub mod tunnel;
+pub mod updater;
 pub mod workers;

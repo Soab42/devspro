@@ -14,8 +14,11 @@ import {
 } from "./ModuleRegistry";
 import { useModules } from "./ModulesContext";
 import { ThemeControl } from "./ThemeControl";
+import { UpdateIndicator } from "./UpdateIndicator";
 import { useLayoutMode } from "./useLayoutMode";
 import { CommandPalette } from "./CommandPalette";
+import { TerminalDock } from "./TerminalDock";
+import { useTerminalDock } from "./terminalDock";
 import {
   POPOUT_ACTIONS_SLOT,
   POPOUT_TABS_SLOT,
@@ -30,6 +33,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRight,
   Search,
   Settings,
   SquareArrowOutUpRight,
@@ -135,6 +139,7 @@ function MainShell() {
   const layout = useLayoutMode();
   const location = useLocation();
   const { enabled } = useModules();
+  const dock = useTerminalDock();
   const current = moduleByPath(location.pathname);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -318,6 +323,7 @@ function MainShell() {
             </kbd>
           </button>
           <div className="topbar-spacer" />
+          <UpdateIndicator />
           {current && (
             <IconButton
               icon={SquareArrowOutUpRight}
@@ -326,6 +332,14 @@ function MainShell() {
               onClick={() => void popOutCurrent(current)}
             />
           )}
+          <IconButton
+            icon={PanelRight}
+            label={dock.open ? "Hide terminal" : "Show terminal"}
+            aria-keyshortcuts="Control+` Meta+`"
+            variant="ghost"
+            aria-pressed={dock.open}
+            onClick={dock.toggle}
+          />
           <ThemeControl />
           <ProfileMenu
             name={profile?.display_name ?? "Profile"}
@@ -337,6 +351,14 @@ function MainShell() {
           <PageBoundary />
         </main>
       </div>
+
+      <TerminalDock
+        open={dock.open}
+        width={dock.width}
+        onWidthChange={dock.setWidth}
+        onClose={() => dock.setOpen(false)}
+        overlay={isDrawer}
+      />
 
       <CommandPalette
         open={paletteOpen}

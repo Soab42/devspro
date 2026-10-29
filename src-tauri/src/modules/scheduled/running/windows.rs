@@ -1,17 +1,7 @@
-//! Ending a task's runs that are still going on Windows.
-//!
-//! Disabling or deleting a Task Scheduler task only changes what fires next;
-//! an instance already started keeps running. That matters for a command that
-//! never exits on its own (`php artisan queue:work` as a "task"), which would
-//! otherwise outlive its definition with nothing left in DevsPro to stop it.
-//!
-//! Nothing here holds a pid: a run may have been started by Task Scheduler,
-//! or by "Run now" before an app restart. What every run does carry is its
-//! log path on the command line — `cmd_arguments` appends to
-//! `scheduled-logs\<id>.log` — and the id is a UUID, so that path names one
-//! task's runs and nothing else. Only `conhost` and `cmd` are matched, so an
-//! editor that happens to have the log open is never touched.
+//! Windows: runs are `conhost` + `cmd` processes whose command line names the log, and
+//! each is ended with a `taskkill` tree kill.
 
+use super::{roots, Entry};
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use windows_sys::Wdk::System::Threading::{NtQueryInformationProcess, ProcessCommandLineInformation};
@@ -32,12 +22,6 @@ pub fn marker(id: &str) -> String {
     format!(r"scheduled-logs\{id}.log").to_ascii_lowercase()
 }
 
-struct Entry {
-    pid: u32,
-    parent: u32,
-    matches: bool,
-}
-
 /// Kills every run of the task, each with its whole process tree (the user's
 /// command is a child of `cmd`, which is a child of `conhost`). Returns how
 /// many runs were found.
@@ -55,17 +39,6 @@ pub fn stop_runs(id: &str) -> usize {
             .output();
     }
     roots.len()
-}
-
-/// Matching processes whose parent doesn't match too: `conhost` and the
-/// `cmd` it started both carry the marker, and one tree kill covers both.
-fn roots(procs: &[Entry]) -> Vec<u32> {
-    procs
-        .iter()
-        .filter(|p| p.matches)
-        .filter(|p| !procs.iter().any(|q| q.matches && q.pid == p.parent))
-        .map(|p| p.pid)
-        .collect()
 }
 
 fn snapshot(marker: &str) -> Vec<Entry> {
@@ -140,18 +113,6 @@ fn command_line(pid: u32) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn e(pid: u32, parent: u32, matches: bool) -> Entry {
-        Entry { pid, parent, matches }
-    }
-
-    #[test]
-    fn a_nested_match_is_covered_by_its_parents_tree_kill() {
-        // svchost(1) -> conhost(10, match) -> cmd(11, match) -> php(12)
-        // devspro(2) -> cmd(20, match) -> php(21); unrelated cmd(30)
-        let procs = [e(1, 0, false), e(10, 1, true), e(11, 10, true), e(12, 11, false), e(20, 2, true), e(21, 20, false), e(30, 2, false)];
-        assert_eq!(roots(&procs), vec![10, 20]);
-    }
 
     #[test]
     fn marker_is_the_log_path_tail_in_lower_case() {

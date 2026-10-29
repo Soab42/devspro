@@ -26,6 +26,10 @@ vi.mock("./popout", () => ({
   POPOUT_TABS_SLOT: "popout-topbar-tabs",
 }));
 
+vi.mock("../ui/Terminal", () => ({
+  default: () => <div data-testid="terminal" />,
+}));
+
 import Shell from "./Shell";
 import { MODULE_GROUPS, modules } from "./ModuleRegistry";
 import { ModulesProvider } from "./ModulesContext";
@@ -82,6 +86,19 @@ describe("Shell", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
     expect(screen.getByRole("dialog")).toBeDefined();
+  });
+
+  it("toggles the docked terminal from the topbar and with Ctrl+`, leaving the page in place", async () => {
+    renderShell();
+    const dock = document.querySelector(".terminal-dock") as HTMLElement;
+    expect(dock.className).toContain("terminal-dock-hidden");
+    fireEvent.click(screen.getByRole("button", { name: "Show terminal" }));
+    expect(dock.className).not.toContain("terminal-dock-hidden");
+    expect(await screen.findByTestId("terminal")).toBeDefined();
+    expect(screen.getByText("page content")).toBeDefined();
+    fireEvent.keyDown(document.body, { key: "`", ctrlKey: true });
+    expect(dock.className).toContain("terminal-dock-hidden");
+    expect(localStorage.getItem("devspro:terminal-dock-open")).toBe("0");
   });
 
   it("pops the current module out from the topbar", async () => {

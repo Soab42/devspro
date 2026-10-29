@@ -4,7 +4,7 @@
 //! one filesystem, no symlinks. The tree sent to the frontend is pruned so a
 //! whole disk stays a small payload.
 
-use super::measure::{used_bytes, walk_dirs, Scan};
+use super::measure::{lock, used_bytes, walk_dirs, Scan};
 use super::CleanerState;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -13,7 +13,7 @@ use std::fs;
 use crate::modules::fs_compat::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, State};
 
 /// A directory keeps at most this many children; the rest fold together.
@@ -124,13 +124,11 @@ impl Frame {
         }
     }
 
-    /// Keeps the `MAX_CHILDREN` biggest children and folds the rest.
+    /// Sorts the children, biggest first, keeps the `MAX_CHILDREN` biggest and
+    /// folds the rest.
     fn trim(&mut self) {
-        if self.kids.len() <= MAX_CHILDREN {
-            return;
-        }
         self.kids.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.name.cmp(&b.name)));
-        for k in self.kids.split_off(MAX_CHILDREN) {
+        for k in self.kids.split_off(self.kids.len().min(MAX_CHILDREN)) {
             self.folded.add(&k);
         }
     }
@@ -148,7 +146,6 @@ impl Frame {
         });
         self.trim();
         let mut children = self.kids;
-        children.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.name.cmp(&b.name)));
         for k in children.iter_mut().filter(|k| k.path.is_empty()) {
             k.path = self.path.join(&k.name).to_string_lossy().into_owned();
         }
@@ -175,10 +172,6 @@ fn folded_node(f: &Folded) -> TreeNode {
         is_dir: false,
         children: vec![],
     }
-}
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// A directory whose subdirectories are still being read. The thread that
@@ -373,9 +366,7 @@ fn drop_small(node: &mut TreeNode, min: u64) {
             folded.bytes += k.bytes;
             folded.files += k.files;
         } else if k.bytes == 0 || k.bytes < min {
-            folded.items += 1;
-            folded.bytes += k.bytes;
-            folded.files += k.files;
+            folded.add(&k);
         } else {
             drop_small(&mut k, min);
             kept.push(k);

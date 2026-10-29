@@ -18,6 +18,9 @@
 //! platform so the tests run everywhere; only the `schtasks` calls are
 //! Windows-only.
 
+// Nothing outside Windows calls it; it is compiled here only for the tests.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use super::{CronSpec, ScheduledTask, DAY_LONG, MONTH_LONG};
 
 /// Task Scheduler folder that holds every task DevsPro manages.

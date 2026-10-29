@@ -1,0 +1,7 @@
+# Crawlers only read robots.txt at a domain's root, so this file takes effect
+# once the site has its own domain. Until then it is harmless.
+User-agent: *
+Allow: /
+Disallow: /press/
+
+Sitemap: https://soab42.github.io/devspro/sitemap.xml

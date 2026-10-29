@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DevsPro: your local dev stack in one window</title>
+  <meta name="description" content="Run nginx sites with trusted HTTPS, Docker, databases, workers, mail and logs from one app for Linux and Windows. Elevation only through a small helper. MIT licensed.">
+  <link rel="canonical" href="https://soab42.github.io/devspro/">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="DevsPro">
+  <meta property="og:title" content="DevsPro: your local dev stack in one window">
+  <meta property="og:description" content="nginx sites with trusted HTTPS, Docker, databases, workers, mail, logs and ports in one desktop app for Linux and Windows. Free and MIT licensed.">
+  <meta property="og:url" content="https://soab42.github.io/devspro/">
+  <meta property="og:image" content="https://soab42.github.io/devspro/assets/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="DevsPro: your local dev stack in one window. A desktop app for Linux and Windows.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DevsPro: your local dev stack in one window">
+  <meta name="twitter:description" content="nginx sites with trusted HTTPS, Docker, databases, workers, mail, logs and ports in one desktop app for Linux and Windows.">
+  <meta name="twitter:image" content="https://soab42.github.io/devspro/assets/og.png">
+
+  <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fcfcfd" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="preload" href="assets/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/site.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "DevsPro",
+    "operatingSystem": "Linux, Windows",
+    "applicationCategory": "DeveloperApplication",
+    "description": "A local development environment manager for Linux and Windows: nginx sites with locally-trusted HTTPS, Docker, databases, workers, a mail catcher, logs and ports in one window.",
+    "url": "https://soab42.github.io/devspro/",
+    "license": "https://opensource.org/licenses/MIT",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
+  <script>
+    // Runs before first paint so the right download buttons show without a
+    // flash. Sets data-os to "windows", "linux" or "other"; site.css and
+    // site.js read it. Phones and tablets count as "other": they see every
+    // download.
+    (function () {
+      var n = navigator, ua = (n.userAgent || "").toLowerCase(), p = "";
+      try { p = ((n.userAgentData && n.userAgentData.platform) || n.platform || "").toLowerCase(); } catch (e) {}
+      var os = /android|iphone|ipad|ipod|cros/.test(ua) ? "other"
+        : /^win|windows/.test(p) || (!p && /windows/.test(ua)) ? "windows"
+        : /linux/.test(p) || (!p && /linux/.test(ua)) ? "linux"
+        : "other";
+      document.documentElement.setAttribute("data-os", os);
+    })();
+  </script>
+  <script src="assets/config.js" defer></script>
+  <script src="assets/site.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <div class="ph-banner" data-ph-banner>
+    <a href="#" data-ph-link>
+      <span class="ph-mark" aria-hidden="true">P</span>
+      <span data-ph-text>DevsPro is live on Product Hunt.</span>
+      <span class="ph-banner-cta">Come say hi</span>
+    </a>
+  </div>
+
+  <header class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="./" aria-label="DevsPro home">
+        <img src="assets/icon.svg" alt="" width="28" height="28">
+        DevsPro
+      </a>
+      <nav aria-label="Primary">
+        <ul class="nav-links">
+          <li><a href="#modules">Modules</a></li>
+          <li><a href="#security">Security</a></li>
+          <li><a href="#platforms">Linux &amp; Windows</a></li>
+          <li><a href="#updates">Updates</a></li>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="changelog.html">Changelog</a></li>
+        </ul>
+      </nav>
+      <div class="nav-actions">
+        <a class="nav-github" href="https://github.com/Soab42/devspro" data-repo-link aria-label="DevsPro on GitHub">
+          <svg class="i" aria-hidden="true"><use href="assets/icons.svg#github"/></svg>
+        </a>
+        <a class="btn btn-primary btn-sm" href="#download">
+          <svg class="i" aria-hidden="true"><use href="assets/icons.svg#download"/></svg>
+          Download
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ============================================================ hero -->
+    <section class="hero">
+      <div class="container">
+        <div class="hero-copy">
+          <a class="eyebrow" href="changelog.html">
+            <span class="dot" aria-hidden="true"></span>
+            <span><span data-version-label>Latest release</span> · see what's new</span>
+          </a>
+          <h1>Your local dev stack, <span class="grad">in one window.</span></h1>
+          <p class="hero-sub">
+            DevsPro runs nginx sites with trusted HTTPS, Docker, databases, queue workers,
+            mail, logs and ports from one desktop app for Linux and Windows. Anything that
+            needs root or administrator rights goes through one small helper that can only
+            do a fixed list of things.
+          </p>
+          <!-- data-os (set in <head>) picks the primary button; with no match,
+               or no JavaScript, all three show. -->
+          <div class="hero-ctas hero-downloads">
+            <a class="btn btn-primary btn-stack cta-linux" href="https://github.com/Soab42/devspro/releases/latest" data-download="deb">
+              <span class="btn-row">
+                <svg class="i" aria-hidden="true"><use href="assets/icons.svg#download"/></svg>
+                Download .deb
+              </span>
+              <small>Ubuntu, Debian, Pop!_OS</small>
+            </a>
+            <a class="btn btn-secondary btn-stack cta-linux" href="https://github.com/Soab42/devspro/releases/latest" data-download="rpm">
+              <span class="btn-row">
+                <svg class="i" aria-hidden="true"><use href="assets/icons.svg#download"/></svg>
+                Download .rpm
+              </span>
+              <small>Fedora, RHEL</small>
+            </a>
+            <a class="btn btn-secondary btn-stack cta-win" href="https://github.com/Soab42/devspro/releases/latest" data-download="exe">
+              <span class="btn-row">
+                <svg class="i" aria-hidden="true"><use href="assets/icons.svg#download"/></svg>
+                Download for Windows
+              </span>
+              <small>64-bit installer (.exe)</small>
+            </a>
+          </div>
+          <p class="hero-also">
+            <span class="also-linux">Also for Linux:
+              <a href="https://github.com/Soab42/devspro/releases/latest" data-download="deb">.deb</a> ·
+              <a href="https://github.com/Soab42/devspro/releases/latest" data-download="rpm">.rpm</a></span>
+            <span class="also-win">Also for Windows:
+              <a href="https://github.com/Soab42/devspro/releases/latest" data-download="exe">64-bit installer</a></span>
+          </p>
+          <div class="hero-meta">
+            <span><svg class="i" aria-hidden="true"><use href="assets/icons.svg#badge-check"/></svg>Free, MIT licensed</span>
+            <span><svg class="i" aria-hidden="true"><use href="assets/icons.svg#refresh-cw"/></svg>Signed in-app updates</span>
+            <span><svg class="i" aria-hidden="true"><use href="assets/icons.svg#github"/></svg><a href="https://github.com/Soab42/devspro" data-repo-link>Source on GitHub</a></span>
+          </div>
+          <div class="ph-badge" data-ph-badge>
+            <a href="#" data-ph-link>
+              <img alt="DevsPro on Product Hunt" width="250" height="54" data-ph-badge-img>
+            </a>
+          </div>
+        </div>
+
+        <!-- The product picture. To use a real screenshot instead, set
+             screenshots.hero in assets/config.js; site.js swaps it in. -->
+        <figure class="shot" data-shot="hero" data-shot-alt="The DevsPro window, showing the Dashboard">
+          <div class="win" role="img" aria-label="Illustration of the DevsPro window: the module sidebar grouped into Services, Monitoring and System, beside the Dashboard with CPU, memory, storage, network, disk cleanup and port conflict cards.">
+            <div class="win-titlebar" aria-hidden="true">
+              DevsPro
+              <div class="win-controls"><span></span><span></span><span></span></div>
+            </div>
+            <div class="win-body" aria-hidden="true">
+              <aside class="win-sidebar">
+                <div class="win-brand"><img src="assets/icon.svg" alt=""><span>DevsPro</span></div>
+                <div class="win-nav">
+                  <div class="win-group">
+                    <div class="win-link is-active"><svg class="i"><use href="assets/icons.svg#layout-dashboard"/></svg><span>Dashboard</span></div>
+                  </div>
+                  <div class="win-group">
+                    <div class="win-group-label">Services</div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#globe"/></svg><span>Nginx &amp; SSL</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#container"/></svg><span>Docker</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#database"/></svg><span>Databases</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#table-2"/></svg><span>Data browser</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#mail"/></svg><span>Mail Catcher</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#workflow"/></svg><span>Workers</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#calendar-clock"/></svg><span>Scheduled tasks</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#database-zap"/></svg><span>Redis</span></div>
+                  </div>
+                  <div class="win-group">
+                    <div class="win-group-label">Monitoring</div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#network"/></svg><span>Processes</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#memory-stick"/></svg><span>Memory</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#scroll-text"/></svg><span>Logs</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#send"/></svg><span>HTTP client</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#app-window"/></svg><span>Browser</span></div>
+                  </div>
+                  <div class="win-group">
+                    <div class="win-group-label">System</div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#eraser"/></svg><span>Cleaner</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#package"/></svg><span>Apps</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#files"/></svg><span>Files</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#square-terminal"/></svg><span>Terminal</span></div>
+                  </div>
+                </div>
+              </aside>
+              <div class="win-main">
+                <div class="win-topbar">
+                  <span class="win-tab"><svg class="i"><use href="assets/icons.svg#layout-dashboard"/></svg>Dashboard</span>
+                  <span class="win-tab is-muted"><svg class="i"><use href="assets/icons.svg#globe"/></svg>Nginx &amp; SSL</span>
+                  <span class="win-tab is-muted win-hide-md"><svg class="i"><use href="assets/icons.svg#container"/></svg>Docker</span>
+                  <span class="win-search"><svg class="i"><use href="assets/icons.svg#search"/></svg><span>Search modules</span><kbd>Ctrl K</kbd></span>
+                </div>
+                <div class="win-content">
+                  <div class="win-page-title"><svg class="i"><use href="assets/icons.svg#layout-dashboard"/></svg>Dashboard</div>
+                  <div class="win-page-desc">System health, resource usage and port conflicts at a glance.</div>
+                  <div class="win-grid">
+                    <div class="win-card">
+                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#cpu"/></svg>CPU</div>
+                      <div class="win-kpi">23<small>%</small></div>
+                      <svg class="win-spark" viewBox="0 0 120 34" preserveAspectRatio="none"><path class="area" d="M0 26 L10 24 L20 27 L30 20 L40 22 L50 14 L60 18 L70 12 L80 19 L90 16 L100 21 L110 17 L120 19 L120 34 L0 34 Z"/><path d="M0 26 L10 24 L20 27 L30 20 L40 22 L50 14 L60 18 L70 12 L80 19 L90 16 L100 21 L110 17 L120 19"/></svg>
+                      <div class="win-sub">16 threads · load 0.84</div>
+                    </div>
+                    <div class="win-card">
+                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#memory-stick"/></svg>Memory</div>
+                      <div class="win-kpi">9.8 <small>/ 31.2 GB</small></div>
+                      <div class="win-meter"><span style="width: 31%"></span></div>
+                      <div class="win-sub">Swap 0 B used</div>
+                    </div>
+                    <div class="win-card win-hide-sm">
+                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#hard-drive"/></svg>Storage</div>
+                      <div class="win-kpi">412 <small>/ 931 GB</small></div>
+                      <div class="win-meter"><span style="width: 44%"></span></div>
+                      <div class="win-sub">/ · ext4</div>
+                    </div>
+                    <div class="win-card win-hide-sm">
+                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#activity"/></svg>Network</div>
+                      <div class="win-kpi">1.2 <small>MB/s down</small></div>
+                      <svg class="win-spark" viewBox="0 0 120 34" preserveAspectRatio="none"><path class="area" d="M0 30 L10 29 L20 22 L30 28 L40 25 L50 30 L60 12 L70 24 L80 27 L90 20 L100 26 L110 23 L120 28 L120 34 L0 34 Z"/><path d="M0 30 L10 29 L20 22 L30 28 L40 25 L50 30 L60 12 L70 24 L80 27 L90 20 L100 26 L110 23 L120 28"/></svg>
+                      <div class="win-sub">84 KB/s up</div>
+                    </div>
+                    <div class="win-card win-span-2">
+                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#eraser"/></svg>Disk cleanup <span class="pill pill-info">Suggested</span></div>
+                      <div class="win-free">14.2 GB <small style="font-size:11px;color:var(--w-muted);font-weight:500">can be freed</small></div>
+                      <div class="win-stack"><span style="width:48%;background:#6e8ef2"></span><span style="width:30%;background:#a78bfa"></span><span style="width:22%;background:#22d3ee"></span></div>
+                      <div class="win-rows">
+                        <div class="win-row"><span>Docker build cache</span><b>6.8 GB</b></div>
+                        <div class="win-row"><span>node_modules in idle projects</span><b>4.3 GB</b></div>
+                        <div class="win-row win-hide-sm"><span>npm and pnpm caches</span><b>3.1 GB</b></div>
+                      </div>
+                    </div>
+                    <div class="win-card win-span-2">
+                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#network"/></svg>Port conflicts <span class="pill pill-ok">None</span></div>
+                      <div class="win-rows">
+                        <div class="win-row"><span class="mono">:443</span><b>nginx</b></div>
+                        <div class="win-row"><span class="mono">:3306</span><b>devspro-mysql</b></div>
+                        <div class="win-row"><span class="mono">:8025</span><b>mailpit</b></div>
+                        <div class="win-row win-hide-sm"><span class="mono">:6379</span><b>redis</b></div>
+                      </div>
+                    </div>
+                    <div class="win-card win-span-2 win-hide-sm">
+                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#monitor"/></svg>System <span class="pill pill-ok">Healthy</span></div>
+                      <div class="win-rows">
+                        <div class="win-row"><span>OS</span><b>Pop!_OS 24.04 LTS</b></div>
+                        <div class="win-row"><span>Kernel</span><b>6.16.3</b></div>
+                      </div>
+                    </div>
+                    <div class="win-card win-span-2 win-hide-sm">
+                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#gauge"/></svg>GPU</div>
+                      <div class="win-rows">
+                        <div class="win-row"><span>Usage</span><b>12%</b></div>
+                        <div class="win-row"><span>GPU temp</span><b>47 °C</b></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <figcaption>Illustration of the DevsPro window. The figures are examples.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- ====================================================== highlights -->
+    <section class="section-tight" aria-labelledby="why-title">
+      <div class="container">
+        <h2 id="why-title" class="visually-hidden">Why DevsPro</h2>
+        <div class="highlights">
+          <article class="highlight">
+            <div class="highlight-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#lock"/></svg></div>
+            <h3>HTTPS for every local site</h3>
+            <p>Add a site and it gets a certificate from a local CA that DevsPro creates and adds to your system's trust store for you.</p>
+          </article>
+          <article class="highlight">
+            <div class="highlight-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#layers"/></svg></div>
+            <h3>Services with a start button</h3>
+            <p>Containers, compose stacks, databases with admin UIs, queue workers, cron tasks and a mail catcher, each with its logs.</p>
+          </article>
+          <article class="highlight">
+            <div class="highlight-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#gauge"/></svg></div>
+            <h3>See what the machine is doing</h3>
+            <p>Which process holds which port, which app holds your RAM, and where the disk space went.</p>
+          </article>
+          <article class="highlight">
+            <div class="highlight-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#square-terminal"/></svg></div>
+            <h3>The tools you keep switching to</h3>
+            <p>Terminal, SSH and SFTP, a database browser, an HTTP client, a browser and terminal AI agents, in tabs.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================= modules -->
+    <section class="section" id="modules" aria-labelledby="modules-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Modules</span>
+          <h2 id="modules-title">25 modules. Switch off the ones you don't use.</h2>
+          <p>Every module opens in its own tab and is found from the launcher with Ctrl+K. A module you switch off in Settings isn't loaded at all.</p>
+        </div>
+
+        <div class="module-groups">
+          <div class="module-group">
+            <h3>Services <small>8</small></h3>
+            <p class="module-group-desc">Things with a lifecycle you start, stop and remove.</p>
+            <ul class="modules">
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#globe"/></svg></span><div><h4>Nginx &amp; SSL</h4><p>Proxy-to-port and Laravel sites with trusted HTTPS, PHP versions, an optional Cloudflare tunnel, and a New Project wizard.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#container"/></svg></span><div><h4>Docker</h4><p>Containers and compose stacks: start, stop, restart, logs and published ports.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#database"/></svg></span><div><h4>Databases</h4><p>MySQL, PostgreSQL, MongoDB and Redis in their own compose project, each with an admin UI, users, backup and restore.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#table-2"/></svg></span><div><h4>Data browser</h4><p>Browse and edit rows in any MySQL or PostgreSQL database, local or remote, with a SQL console and export.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#mail"/></svg></span><div><h4>Mail Catcher</h4><p>Outgoing mail from local apps lands in Mailpit, where you can read it.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#workflow"/></svg></span><div><h4>Workers</h4><p>Any command kept running in the background, like a Laravel queue worker, with its output.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#calendar-clock"/></svg></span><div><h4>Scheduled tasks</h4><p>Recurring commands on a schedule, with each run's output.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#database-zap"/></svg></span><div><h4>Redis</h4><p>Browse keys by pattern and watch Laravel queues: pending, delayed and reserved.</p></div></li>
+            </ul>
+          </div>
+
+          <div class="module-group">
+            <h3>Dashboard &amp; monitoring <small>6</small></h3>
+            <p class="module-group-desc">The home screen, and read-mostly views onto the machine.</p>
+            <ul class="modules">
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#layout-dashboard"/></svg></span><div><h4>Dashboard</h4><p>Live CPU, memory, GPU, storage and network, with a health summary and port conflicts.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#network"/></svg></span><div><h4>Processes</h4><p>What is listening on which port, and stop it.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#memory-stick"/></svg></span><div><h4>Memory</h4><p>See which apps use your RAM, stop them, and let a watchdog close idle ones when memory runs out.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#scroll-text"/></svg></span><div><h4>Logs</h4><p>Tail nginx access and error logs and Laravel logs per site.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#send"/></svg></span><div><h4>HTTP client</h4><p>Send any request to your local sites, trusted through the app's own CA, with a history to rerun.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#app-window"/></svg></span><div><h4>Browser</h4><p>Tabs, bookmarks, saved logins, history, device presets and the Web Inspector, in a native webview.</p></div></li>
+            </ul>
+          </div>
+
+          <div class="module-group">
+            <h3>System <small>11</small></h3>
+            <p class="module-group-desc">The machine, your files and servers, and the app itself.</p>
+            <ul class="modules">
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#eraser"/></svg></span><div><h4>Cleaner</h4><p>Find what is eating disk space (caches, Docker, large files, project junk) and clear it after a review.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#package"/></svg></span><div><h4>Apps</h4><p>Install common dev tooling: nginx, Docker, PHP, Node and nvm, cloudflared and more.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#files"/></svg></span><div><h4>Files</h4><p>A Finder-style explorer with your drives, and editor tabs with syntax highlighting, git blame and diffs.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#square-terminal"/></svg></span><div><h4>Terminal</h4><p>Local and SSH shells with split panes, windows, pop-out, and a file browser that follows the shell.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#bot"/></svg></span><div><h4>AI agents</h4><p>Run Claude Code, Codex, Gemini CLI, OpenCode and other terminal coding agents in a project folder.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#terminal"/></svg></span><div><h4>SSH</h4><p>Saved hosts, key generation, and installing a key on a host.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#folder-sync"/></svg></span><div><h4>SFTP</h4><p>A two-pane file browser and transfers for a saved host.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#screen-share"/></svg></span><div><h4>Remote Desktop</h4><p>VNC screens viewed in-app, and RDP sessions in your system's RDP client.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#book-user"/></svg></span><div><h4>Hosts file</h4><p>Edit the hosts file entry by entry, with DevsPro's own lines told apart from the system's.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#file-diff"/></svg></span><div><h4>Env Diff</h4><p>Compare two <code>.env</code> files by variable and copy values across.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#settings"/></svg></span><div><h4>Settings</h4><p>Theme, interface size, autostart and tray, updates, and backup and restore.</p></div></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <hr class="divider">
+
+    <!-- ====================================================== spotlights -->
+    <section class="section" aria-label="Highlights">
+      <div class="container spotlights">
+        <article class="spotlight">
+          <div class="spotlight-copy">
+            <span class="kicker">Nginx &amp; SSL</span>
+            <h3>A new Laravel project, served over HTTPS, in one go.</h3>
+            <p>The New Project wizard scaffolds Laravel, adds the site, creates a database, writes <code>.env</code> and runs migrations, reporting each step as it goes.</p>
+            <ul class="checks">
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>Proxy-to-port sites for anything that listens on a port</li>
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>A locally-trusted certificate per site from a CA DevsPro manages</li>
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>An optional public Cloudflare tunnel, per site</li>
+            </ul>
+          </div>
+          <div data-shot="wizard" data-shot-alt="The New Project wizard in DevsPro">
+            <div class="panel" role="img" aria-label="Illustration of the New Project wizard's progress list.">
+              <div class="panel-head" aria-hidden="true">
+                <svg class="i"><use href="assets/icons.svg#rocket"/></svg>New project: shop
+                <span class="pill pill-info">Running</span>
+              </div>
+              <ol class="steps" aria-hidden="true">
+                <li><svg class="i"><use href="assets/icons.svg#circle-check"/></svg><span>Scaffold Laravel in <code>~/code/shop</code></span></li>
+                <li><svg class="i"><use href="assets/icons.svg#circle-check"/></svg><span>Add site <code>shop.test</code> with a trusted certificate</span></li>
+                <li><svg class="i"><use href="assets/icons.svg#circle-check"/></svg><span>Create database <code>shop</code></span></li>
+                <li><svg class="i"><use href="assets/icons.svg#circle-check"/></svg><span>Write <code>.env</code></span></li>
+                <li><span class="spin"></span><span>Run migrations</span></li>
+              </ol>
+            </div>
+            <p class="panel-caption">Illustration</p>
+          </div>
+        </article>
+
+        <article class="spotlight is-flipped">
+          <div class="spotlight-copy">
+            <span class="kicker">Cleaner</span>
+            <h3>Find the gigabytes. Then decide.</h3>
+            <p>See how much space you can free, grouped by risk: package caches, Docker leftovers, large files and the biggest folders, and <code>node_modules</code> or <code>target</code> in projects you haven't touched in a while.</p>
+            <ul class="checks">
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>Scans change nothing; every clean goes through a review list</li>
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>Each cache is cleaned with its own tool's command</li>
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>DevsPro's own database volumes are protected</li>
+            </ul>
+          </div>
+          <div data-shot="cleaner" data-shot-alt="The Cleaner's Storage map in DevsPro">
+            <div class="panel" role="img" aria-label="Illustration of the Cleaner: a storage map treemap and space grouped by risk.">
+              <div class="panel-head" aria-hidden="true">
+                <svg class="i"><use href="assets/icons.svg#hard-drive"/></svg>Storage map
+              </div>
+              <div class="treemap" aria-hidden="true">
+                <div class="tm-a"><b>~/code</b><span>148 GB</span></div>
+                <div class="tm-b"><b>Docker</b><span>61 GB</span></div>
+                <div class="tm-c"><b>~/.cache</b><span>22 GB</span></div>
+                <div class="tm-d"><b>~/Videos</b><span>54 GB</span></div>
+                <div class="tm-e"><b>~/.local/share</b><span>19 GB</span></div>
+                <div class="tm-f"><b>~/.npm</b><span>9 GB</span></div>
+              </div>
+              <div class="risk-list" aria-hidden="true">
+                <div><span class="pill pill-ok">Safe</span><span>Package caches and build cache</span><b>9.9 GB</b></div>
+                <div><span class="pill pill-warn">Review</span><span>Idle projects' node_modules</span><b>4.3 GB</b></div>
+              </div>
+            </div>
+            <p class="panel-caption">Illustration</p>
+          </div>
+        </article>
+
+        <article class="spotlight">
+          <div class="spotlight-copy">
+            <span class="kicker">Terminal and AI agents</span>
+            <h3>Your shells, your servers and your agents, side by side.</h3>
+            <p>A tmux-style terminal with split panes and windows, saved SSH hosts and SFTP, and a launcher for terminal coding agents. Each agent opens in its own tab in the project folder you pick; DevsPro sees which are installed and installs the missing ones.</p>
+            <ul class="agents" aria-label="Agents DevsPro can launch">
+              <li>Claude Code</li><li>Codex CLI</li><li>Gemini CLI</li><li>OpenCode</li><li>Copilot CLI</li><li>Aider</li><li>Goose</li><li>Amp</li><li>and more, or your own command</li>
+            </ul>
+          </div>
+          <div data-shot="agents" data-shot-alt="AI agents running in DevsPro's terminal">
+            <div class="term" role="img" aria-label="Illustration of terminal tabs for an agent, a shell and an SSH host.">
+              <div class="term-tabs" aria-hidden="true">
+                <span class="term-tab is-active"><svg class="i"><use href="assets/icons.svg#bot"/></svg>Claude Code · shop</span>
+                <span class="term-tab"><svg class="i"><use href="assets/icons.svg#square-terminal"/></svg>zsh</span>
+                <span class="term-tab"><svg class="i"><use href="assets/icons.svg#terminal"/></svg>staging</span>
+              </div>
+<div class="term-body" aria-hidden="true"><span class="p">~/code/shop</span> <span class="m">(main)</span> $ <span class="c">php artisan queue:work</span>
+<span class="m">  INFO  Processing jobs from the [default] queue.</span>
+<span class="a">  SendOrderConfirmation</span> <span class="m">......</span> <span class="p">DONE</span>
+<span class="a">  RebuildSearchIndex</span> <span class="m">.........</span> <span class="p">DONE</span>
+
+<span class="p">~/code/shop</span> <span class="m">(main)</span> $ <span class="c">curl -sI https://shop.test</span>
+HTTP/2 200
+server: nginx</div>
+            </div>
+            <p class="panel-caption">Illustration</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ======================================================== security -->
+    <section class="section security" id="security" aria-labelledby="security-title">
+      <div class="container security-grid">
+        <div>
+          <span class="kicker">How privilege works</span>
+          <h2 id="security-title">Root only where it's needed. Never for arbitrary commands.</h2>
+          <p class="security-lead">
+            DevsPro itself never runs elevated. Anything that needs root or administrator
+            rights (nginx config, the hosts file, the certificate trust store, package
+            installs) goes through one small helper binary that applies a declared manifest
+            of operations and exits. On Linux it is started with <code>pkexec</code>; on
+            Windows, through a UAC prompt.
+          </p>
+          <ul class="ops" aria-label="What the helper can do">
+            <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Write a file under one allowed prefix</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Sync a marker-delimited block</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Install named packages</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Test and reload nginx</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Trust the local root CA</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Install a verified DevsPro update</li>
+            <li class="is-absent"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#ban"/></svg><span>There is no <q>run this command</q></span></li>
+          </ul>
+          <p class="nonroot">
+            On Windows the installer puts DevsPro and its helper in Program Files, where only
+            administrators can write, so no other program can swap the helper before DevsPro
+            elevates it. On Linux, what doesn't need root doesn't get it: nvm installs into
+            <code>~/.nvm</code>, npm globals go to your own npm prefix, and binaries like
+            <code>cloudflared</code> land in <code>~/.local/bin</code>.
+          </p>
+        </div>
+        <div>
+          <div class="code-label"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#file-signature"/></svg>What the helper receives when you add a site on Linux</div>
+<pre class="code" aria-label="Example operation manifest"><code>{
+  <span class="k">"allowed_write_prefix"</span>: <span class="s">"/home/you/.local/share/com.soab.devspro"</span>,
+  <span class="k">"operations"</span>: [
+    { <span class="k">"type"</span>: <span class="s">"EnsureNginxConfDInclude"</span>,
+      <span class="k">"conf_d_dir"</span>: <span class="s">"/etc/nginx/conf.d"</span>,
+      <span class="k">"sites_glob"</span>:
+        <span class="s">"/home/you/.local/share/com.soab.devspro/nginx/sites/*.conf"</span> },
+    { <span class="k">"type"</span>: <span class="s">"SyncMarkedBlock"</span>,
+      <span class="k">"file_path"</span>: <span class="s">"/etc/hosts"</span>,
+      <span class="k">"marker_begin"</span>: <span class="s">"# &gt;&gt;&gt; devspro (do not edit this block manually) &gt;&gt;&gt;"</span>,
+      <span class="k">"marker_end"</span>: <span class="s">"# &lt;&lt;&lt; devspro &lt;&lt;&lt;"</span>,
+      <span class="k">"block_lines"</span>: [<span class="s">"127.0.0.1 shop.test"</span>] },
+    { <span class="k">"type"</span>: <span class="s">"RunNginxTest"</span>, <span class="k">"binary_path"</span>: <span class="s">"/usr/sbin/nginx"</span> },
+    { <span class="k">"type"</span>: <span class="s">"ReloadNginx"</span>,  <span class="k">"binary_path"</span>: <span class="s">"/usr/sbin/nginx"</span> }
+  ]
+}
+<span class="cm">// The first failed step stops the rest: a config that
+// fails nginx -t is never reloaded.</span></code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================= platforms -->
+    <!-- From the README's "Platform support" table. Keep the two in step. -->
+    <section class="section" id="platforms" aria-labelledby="platforms-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Linux and Windows</span>
+          <h2 id="platforms-title">Every module on both.<br> A few honest differences.</h2>
+          <p>Where Windows works differently, DevsPro does too, and the app says so rather than pretending otherwise.</p>
+        </div>
+        <div class="platforms">
+          <table class="platform-table" role="table">
+            <thead role="rowgroup">
+              <tr role="row"><th scope="col" role="columnheader"><span class="visually-hidden">What</span></th><th scope="col" role="columnheader">Linux</th><th scope="col" role="columnheader">Windows</th></tr>
+            </thead>
+            <tbody role="rowgroup">
+              <tr role="row"><th scope="row" role="rowheader">Elevation</th><td role="cell" data-label="Linux"><code>pkexec</code>, with the polkit policy the package installs</td><td role="cell" data-label="Windows">UAC</td></tr>
+              <tr role="row"><th scope="row" role="rowheader">PHP for Laravel sites</th><td role="cell" data-label="Linux">PHP-FPM pools under <code>/run/php</code></td><td role="cell" data-label="Windows"><code>php-cgi.exe</code>, which DevsPro starts itself on a port per PHP version</td></tr>
+              <tr role="row"><th scope="row" role="rowheader">nginx wiring</th><td role="cell" data-label="Linux">A drop-in file in <code>conf.d</code></td><td role="cell" data-label="Windows">One <code>include</code> added inside <code>http{}</code>, since Windows nginx has no <code>conf.d</code></td></tr>
+              <tr role="row"><th scope="row" role="rowheader">Trusting the local CA</th><td role="cell" data-label="Linux">The OS store and NSS, so Firefox and Chrome both trust it</td><td role="cell" data-label="Windows">The Windows Root store: Chrome and Edge trust it; Firefox needs <code>security.<wbr>enterprise_roots.<wbr>enabled</code></td></tr>
+              <tr role="row"><th scope="row" role="rowheader">Stopping a worker</th><td role="cell" data-label="Linux">SIGTERM, so it can finish the job it's on</td><td role="cell" data-label="Windows">Forced, because Windows gives a GUI app no way to ask a console program to wind down</td></tr>
+              <tr role="row"><th scope="row" role="rowheader">nginx not running</th><td role="cell" data-label="Linux">Reloaded through systemd</td><td role="cell" data-label="Windows">DevsPro writes the config and tells you to start nginx; it won't start it for you</td></tr>
+              <tr role="row"><th scope="row" role="rowheader">Listening ports</th><td role="cell" data-label="Linux"><code>ss</code> and <code>/proc</code></td><td role="cell" data-label="Windows"><code>GetExtendedTcpTable</code>; the full command line isn't shown, as Windows keeps it out of reach</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================================= updates -->
+    <section class="section" id="updates" aria-labelledby="updates-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Updates</span>
+          <h2 id="updates-title">Updates itself, and checks the signature twice.</h2>
+          <p>DevsPro looks for a new version when it starts and whenever you ask in Settings&nbsp;→&nbsp;Updates. An update installs only if it was signed with the DevsPro release key, and never one older than what you have.</p>
+        </div>
+        <ol class="flow">
+          <li>
+            <h3>Check</h3>
+            <p>Reads the release feed and compares versions. You see the release notes before anything downloads.</p>
+          </li>
+          <li>
+            <h3>Download and verify</h3>
+            <p>Fetches the package that matches how you installed it (<code>.deb</code>, <code>.rpm</code> or the Windows installer) and checks its minisign signature.</p>
+          </li>
+          <li class="is-root">
+            <h3>Verify again, elevated</h3>
+            <p>The helper checks the signature itself against a key compiled into it, and refuses downgrades. On Linux, apt or rpm installs it after one password prompt; on Windows, the installer runs in passive mode, a progress bar only, after one UAC prompt.</p>
+          </li>
+          <li>
+            <h3>Restart</h3>
+            <p>DevsPro restarts on the new version, as you rather than elevated, with your sites, services and settings where you left them.</p>
+          </li>
+        </ol>
+        <div class="updates-foot">
+          <a href="changelog.html">
+            See what's new
+            <svg class="i" aria-hidden="true"><use href="assets/icons.svg#arrow-right"/></svg>
+          </a>
+          <span>Current release: <strong data-version>see the changelog</strong></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================== download -->
+    <section class="section security" id="download" aria-labelledby="download-title">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Download</span>
+          <h2 id="download-title">Install DevsPro</h2>
+          <p>For 64-bit Linux and Windows. Install once by hand; after that DevsPro updates itself.</p>
+        </div>
+
+        <!-- Without JavaScript both panels show, one after the other. site.js
+             turns this into tabs and opens the visitor's own system. -->
+        <div class="os-tabs" role="tablist" aria-label="Operating system" data-os-tabs hidden>
+          <button type="button" role="tab" id="tab-linux" aria-controls="panel-linux" aria-selected="true" data-os-tab="linux">Linux</button>
+          <button type="button" role="tab" id="tab-windows" aria-controls="panel-windows" aria-selected="false" data-os-tab="windows" tabindex="-1">Windows</button>
+        </div>
+
+        <div class="os-panel" id="panel-linux" role="tabpanel" aria-labelledby="tab-linux" data-os-panel="linux">
+          <h3 class="os-panel-title">Linux</h3>
+          <div class="install">
+            <article class="install-card">
+              <h4>Debian, Ubuntu, Pop!_OS</h4>
+              <p>The <code>.deb</code> package.</p>
+              <div class="cmd">
+                <code data-install="deb">sudo apt install ./DevsPro_*_amd64.deb</code>
+                <button class="copy-btn" type="button" data-copy="deb">
+                  <svg class="i" aria-hidden="true"><use href="assets/icons.svg#copy"/></svg><span>Copy</span>
+                </button>
+              </div>
+              <a class="btn btn-primary" href="https://github.com/Soab42/devspro/releases/latest" data-download="deb">
+                <svg class="i" aria-hidden="true"><use href="assets/icons.svg#download"/></svg>
+                <span data-filename="deb">Download .deb</span>
+              </a>
+            </article>
+            <article class="install-card">
+              <h4>Fedora, RHEL</h4>
+              <p>The <code>.rpm</code> package.</p>
+              <div class="cmd">
+                <code data-install="rpm">sudo dnf install ./DevsPro-*.x86_64.rpm</code>
+                <button class="copy-btn" type="button" data-copy="rpm">
+                  <svg class="i" aria-hidden="true"><use href="assets/icons.svg#copy"/></svg><span>Copy</span>
+                </button>
+              </div>
+              <a class="btn btn-primary" href="https://github.com/Soab42/devspro/releases/latest" data-download="rpm">
+                <svg class="i" aria-hidden="true"><use href="assets/icons.svg#download"/></svg>
+                <span data-filename="rpm">Download .rpm</span>
+              </a>
+            </article>
+          </div>
+          <p class="install-note">
+            <svg class="i" aria-hidden="true"><use href="assets/icons.svg#shield-check"/></svg>
+            <span>Needs <code>pkexec</code> (polkit), which both packages depend on. The package also installs the polkit policy that lets the helper ask for your password.</span>
+          </p>
+        </div>
+
+        <div class="os-panel" id="panel-windows" role="tabpanel" aria-labelledby="tab-windows" data-os-panel="windows">
+          <h3 class="os-panel-title">Windows</h3>
+          <div class="install">
+            <article class="install-card">
+              <h4>Windows, 64-bit</h4>
+              <p>One installer: <code class="file" data-install="exe">DevsPro_*_x64-setup.exe</code></p>
+              <ol class="win-steps">
+                <li><strong>Run it and approve the administrator prompt.</strong> It installs for every user on the machine, into Program Files, so Windows asks with UAC.</li>
+                <li><strong>If SmartScreen says &ldquo;Windows protected your PC&rdquo;,</strong> choose More&nbsp;info, then Run&nbsp;anyway. The installer isn't code-signed yet, so you'll see this the first time.</li>
+                <li><strong>No WebView2? It's fetched for you.</strong> If Microsoft Edge WebView2 is missing, the installer downloads it.</li>
+              </ol>
+              <a class="btn btn-primary" href="https://github.com/Soab42/devspro/releases/latest" data-download="exe">
+                <svg class="i" aria-hidden="true"><use href="assets/icons.svg#download"/></svg>
+                <span data-filename="exe">Download for Windows</span>
+              </a>
+            </article>
+            <article class="install-card install-aside">
+              <h4>Why it installs for all users</h4>
+              <p>DevsPro starts its helper with administrator rights. In Program Files only administrators can change that file, so a program running as you can't replace the helper and wait for DevsPro to elevate it. A per-user install would leave it writable.</p>
+              <p>Updates after this one install from inside DevsPro, checked against its own signing key first.</p>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================= FAQ -->
+    <section class="section" id="faq" aria-labelledby="faq-title">
+      <div class="container">
+        <div class="section-head center">
+          <span class="kicker">FAQ</span>
+          <h2 id="faq-title">Questions</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>Which systems does it run on?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>64-bit Linux and Windows. On Linux, the <code>.deb</code> is for Debian, Ubuntu, Pop!_OS and their relatives, and the <code>.rpm</code> is for Fedora and RHEL. On Windows there is one installer, <code>DevsPro_&lt;version&gt;_x64-setup.exe</code>. There is no macOS version.</p></div>
+          </details>
+          <details>
+            <summary>Does it run on Windows?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>Yes, every module does. A few things work differently because Windows does: elevation is a UAC prompt, Laravel sites run on <code>php-cgi.exe</code> that DevsPro starts on a port per PHP version, Firefox needs <code>security.<wbr>enterprise_roots.<wbr>enabled</code> to trust the local CA, and stopping a worker ends it rather than letting it finish its job. The full list is under <a href="#platforms">Linux and Windows</a>.</p></div>
+          </details>
+          <details>
+            <summary>Why does Windows warn about the installer?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>The installer isn't code-signed yet; that needs a code-signing certificate. Until it is, SmartScreen shows &ldquo;Windows protected your PC&rdquo; the first time you run it: choose More&nbsp;info, then Run&nbsp;anyway.</p><p>Updates after that don't depend on Windows' signing: DevsPro checks each one against its own minisign key, and its elevated helper checks again before it runs the installer.</p></div>
+          </details>
+          <details>
+            <summary>Why no AppImage or Flatpak on Linux?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>Elevation needs a polkit policy file in <code>/usr/share/polkit-1/actions/</code>, and only an installed package can put it there. Without it, every action that needs root (nginx config, <code>/etc/hosts</code>, the trust store, package installs) would fail, and that is most of the app.</p></div>
+          </details>
+          <details>
+            <summary>What can DevsPro do with root or administrator rights?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>Only the operations the helper knows: write files under one allowed prefix, sync a marked block in a file like <code>/etc/hosts</code>, install named packages, test and reload nginx, trust the local CA, fix a Laravel project's storage permissions, start or stop a system service, a few memory and disk cleanup tasks, and install a signed DevsPro update. Some of these exist only on Linux. Each run asks first: for your password through <code>pkexec</code> on Linux, with a UAC prompt on Windows. There is no operation that runs an arbitrary command.</p></div>
+          </details>
+          <details>
+            <summary>Does it send anything anywhere?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>No telemetry and no online account. Apart from the update check, DevsPro only goes online when you ask it to, for example to install a tool, open a tunnel or load a page in its browser. Your sites, services and settings stay on your machine (in <code>~/.local/share/com.soab.devspro</code> on Linux), and Settings&nbsp;→ Backup&nbsp;&amp;&nbsp;restore exports them to one file.</p></div>
+          </details>
+          <details>
+            <summary>How do updates work?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>DevsPro reads a small release feed, downloads the package that matches how you installed it, and checks its minisign signature. The elevated helper checks the signature again before it installs, so even a tampered download that got past the app would be refused, and it refuses anything older than the version you have.</p><p>On Linux you confirm with your password and apt or rpm installs the package. On Windows you approve one UAC prompt and the installer runs in passive mode, showing only a progress bar. Then DevsPro restarts on the new version, as you.</p></div>
+          </details>
+          <details>
+            <summary>What does it cost?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>Nothing. DevsPro is free and released under the MIT license.</p></div>
+          </details>
+          <details>
+            <summary>Do I need Docker?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>Only for the modules built on it: Docker, Databases and the Mail Catcher. Sites, workers, scheduled tasks, the terminal, Files and the rest work without it. The Apps module installs common tooling such as nginx, Docker, PHP and Node.</p></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================= final CTA -->
+    <section class="container" aria-labelledby="cta-title">
+      <div class="cta-band">
+        <img src="assets/icon.svg" alt="" width="64" height="64">
+        <h2 id="cta-title">Set it up once. Keep it in one window.</h2>
+        <p>Free for Linux and Windows. Install it once, and DevsPro keeps itself up to date from then on.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary" href="#download">
+            <svg class="i" aria-hidden="true"><use href="assets/icons.svg#download"/></svg>
+            Download DevsPro
+          </a>
+          <a class="btn btn-secondary" href="https://github.com/Soab42/devspro" data-repo-link>
+            <svg class="i" aria-hidden="true"><use href="assets/icons.svg#github"/></svg>
+            View on GitHub
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <a class="brand" href="./">
+        <img src="assets/icon.svg" alt="" width="22" height="22">
+        DevsPro
+      </a>
+      <ul class="footer-links">
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="#download">Download</a></li>
+        <li><a href="https://github.com/Soab42/devspro" data-repo-link>GitHub</a></li>
+        <li><a href="https://github.com/Soab42/devspro/blob/main/LICENSE" data-license-link>MIT License</a></li>
+      </ul>
+      <span>© <span data-year>2026</span> soab42</span>
+    </div>
+  </footer>
+</body>
+</html>

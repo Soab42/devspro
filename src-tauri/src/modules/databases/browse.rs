@@ -619,11 +619,6 @@ fn spawn_failed(inv: &Invocation, e: std::io::Error) -> String {
     format!("failed to run {}: {e}", inv.program)
 }
 
-fn run_client(conn: &Conn, client: &str, tail: &[String]) -> Result<std::process::Output, String> {
-    let inv = invocation(conn, &runner_for(conn, client), client, tail, false);
-    command_for(&inv).output().map_err(|e| spawn_failed(&inv, e))
-}
-
 /// Streams the client's stdout straight into a file rather than buffering it,
 /// since a dump can be far too large to hold in memory.
 fn run_client_to_file(conn: &Conn, client: &str, tail: &[String], file_path: &Path) -> Result<(), String> {

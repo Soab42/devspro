@@ -22,7 +22,7 @@ Tauri + React + Rust.
 | **Apps** | Install common dev tooling: nginx, Docker, PHP, Node/nvm, cloudflared… |
 | **SSH** | Saved hosts and key generation / install on host |
 | **AI agents** | Launch terminal coding agents — Claude Code, Codex, Gemini CLI, OpenCode, Copilot CLI, Aider and more, or any command you add — in a project folder of your choice, each in its own tab; sees which are installed and installs the missing ones |
-| **Terminal** | Local and ssh shells, tmux-style: split panes, multiple windows, pop-out into its own OS window, and a file browser that follows the shell |
+| **Terminal** | Local and ssh shells, tmux-style: split panes, multiple windows, pop-out into its own OS window, a file browser that follows the shell, and one shell docked on the right of any page (Ctrl+`) |
 | **SFTP** | Two-pane file browser and transfers for a saved host |
 | **Remote Desktop** | Saved VNC and RDP machines: VNC is viewed in-app (noVNC over a local bridge), RDP opens in FreeRDP or Remmina |
 | **Files** | A Finder-style explorer: places down the side, back/forward and a path bar, list, icon or column view, filter, hidden files, and per-item open / reveal / rename / move to trash. USB drives, memory cards, phones and cameras (MTP, gPhoto2), Google Drive accounts and network shares appear under Devices and Cloud & network, mount on a click and eject from the sidebar; Drive files show their real titles. Files open in editor-style tabs: source and text in a syntax-highlighted editor with folding, a right-click menu and Format document (the project's prettier, rustfmt, ruff/black, gofmt…, else a built-in prettier; optional format on save), pictures with wheel zoom and drag to pan, audio and video players, and PDFs; Ctrl+Tab and Ctrl+W move between and close tabs, and open tabs come back after a restart. Inside a git repository the listing shows VS Code's status letters and colours and the branch, and the editor shows change bars against the staged copy, an inline diff with Revert per change, GitLens-style blame on the current line and the file's history |
@@ -47,6 +47,14 @@ On Windows, run `DevsPro_0.1.0_x64-setup.exe` from `bundle/nsis/`. It installs
 per-machine and asks for administrator rights, which is deliberate — see
 [PACKAGING.md](docs/PACKAGING.md#the-installer-is-per-machine-on-purpose). The
 installer is unsigned, so SmartScreen will interpose once.
+
+### Updates
+
+Once installed, DevsPro updates itself: it checks for a new version on start
+and in Settings → Updates, and installs it through the elevation helper with
+one password (or UAC) prompt. Packages are signed, and the helper checks the
+signature itself before installing anything. Release notes:
+**[soab42.github.io/devspro](https://soab42.github.io/devspro/changelog.html)**.
 
 ## Platform support
 
@@ -102,7 +110,9 @@ trust store, installing apt packages — goes through one small helper binary
 *operation manifest*. The manifest's operations are a fixed enum: write a file
 under one allowed prefix, sync a marker-delimited block, install named
 packages, reload nginx, clean the apt cache, vacuum the journal, remove a
-disabled snap revision. There is no "run this command" operation.
+disabled snap revision, install a DevsPro update — and only one carrying a
+valid signature from the release key compiled into the helper. There is no
+"run this command" operation.
 
 Everything that does not genuinely need root deliberately does not get it —
 nvm installs into `~/.nvm`, npm globals go to your own npm prefix, and

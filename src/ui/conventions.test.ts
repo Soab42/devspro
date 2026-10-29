@@ -129,6 +129,7 @@ describe("styling discipline", () => {
     "ui/PaneLayout.tsx", // pane rects are measured from the slots at runtime
     "ui/Terminal.tsx", // the file browser's width is whatever the user dragged it to
     "modules/file-manager/components/ColumnView.tsx", // column widths set by dragging, virtual-list offsets measured at runtime
+    "app/TerminalDock.tsx", // the dock's width is whatever the user dragged it to
     "ui/SplitView.tsx", // aside width is whatever the user dragged it to
     "modules/file-manager/pages/FileManagerPage.tsx", // tree indent is the row's depth
     "modules/file-manager/components/ContextMenu.tsx", // opens at the pointer, measured at runtime
