@@ -4,6 +4,8 @@
 
 mod catalog;
 mod procs;
+#[cfg(windows)]
+mod recycle_bin;
 
 use super::{guard, history, measure, CleanOutcome, CleanerState, Finding, Scan};
 use crate::db::Db;
@@ -28,7 +30,15 @@ const LOOKUP_TIMEOUT: Duration = Duration::from_secs(5);
 /// Runs `bin args` with no shell and nothing on stdin, in `cwd`. Killed after
 /// `timeout`. Returns what it printed on stdout.
 fn exec(bin: &Path, args: &[&str], cwd: &Path, timeout: Duration) -> Result<String, String> {
-    let mut child = Command::new(bin)
+    let mut command = Command::new(bin);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // These are console programs; without this each one flashes a window.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::null())
@@ -96,14 +106,33 @@ fn run_tool(tool: &Tool, home: &Path) -> Result<(), String> {
     exec(&tool.bin, &tool.args, home, TOOL_TIMEOUT).map(|_| ())
 }
 
+/// An absolute directory from the environment.
+fn env_dir(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name).map(PathBuf::from).filter(|p| p.is_absolute())
+}
+
 /// The real machine: $HOME, $PATH, pnpm's store and the managed Laravel sites.
 fn real_host(db: &Db) -> Result<Host, String> {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|h| h.is_absolute())
-        .ok_or("HOME is not set")?;
+    // Windows has no HOME; the profile folder is USERPROFILE.
+    #[cfg(unix)]
+    let home = env_dir("HOME").ok_or("HOME is not set")?;
+    #[cfg(windows)]
+    let home = env_dir("USERPROFILE").ok_or("USERPROFILE is not set")?;
     let path = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
     let mut host = Host { home: home.clone(), path, ..Host::default() };
+    #[cfg(windows)]
+    {
+        host.local = env_dir("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData/Local"));
+        host.roaming = env_dir("APPDATA").unwrap_or_else(|| home.join("AppData/Roaming"));
+        host.temp = env_dir("TEMP");
+        host.recycle_bins = recycle_bin::bins();
+        if let Some(npm) = host.which("npm") {
+            host.npm_cache = exec(&npm, &["config", "get", "cache"], &home, LOOKUP_TIMEOUT)
+                .ok()
+                .map(|s| PathBuf::from(s.trim()))
+                .filter(|p| p.is_absolute());
+        }
+    }
     if let Some(pnpm) = host.which("pnpm") {
         host.pnpm_store = exec(&pnpm, &["store", "path"], &home, LOOKUP_TIMEOUT)
             .ok()
@@ -170,6 +199,28 @@ fn scan_entries(host: &Host, procs: &[Proc], scan: &Scan) -> Vec<Finding> {
 /// Removes what is inside `root`, keeping `root`. A symlink inside is unlinked
 /// without touching its target; everything else goes through the guard.
 fn empty_dir(root: &Path, exclusions: &[PathBuf]) -> Result<usize, String> {
+    let (removed, errors) = empty_dir_each(root, exclusions)?;
+    match errors.first() {
+        None => Ok(removed),
+        Some(first) => Err(format!("{} item(s) could not be removed, first: {first}", errors.len())),
+    }
+}
+
+/// Removes a symlink itself. Windows keeps directory links (and junctions)
+/// as directories, which `remove_file` refuses; `remove_dir` drops the link only.
+fn unlink(path: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileTypeExt;
+        if fs::symlink_metadata(path)?.file_type().is_symlink_dir() {
+            return fs::remove_dir(path);
+        }
+    }
+    fs::remove_file(path)
+}
+
+/// `empty_dir`'s work: how many children went, and why each other one did not.
+fn empty_dir_each(root: &Path, exclusions: &[PathBuf]) -> Result<(usize, Vec<String>), String> {
     if !fs::symlink_metadata(root).map(|m| m.is_dir()).unwrap_or(false) {
         return Err(format!("{} is not a plain directory", root.display()));
     }
@@ -179,7 +230,7 @@ fn empty_dir(root: &Path, exclusions: &[PathBuf]) -> Result<usize, String> {
         let path = child.path();
         let is_link = fs::symlink_metadata(&path).map(|m| m.file_type().is_symlink()).unwrap_or(false);
         let result = if is_link {
-            fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
+            unlink(&path).map_err(|e| format!("{}: {e}", path.display()))
         } else {
             guard::check_removable(&path, &[root], exclusions).and_then(|_| guard::remove_path(&path, true))
         };
@@ -188,10 +239,7 @@ fn empty_dir(root: &Path, exclusions: &[PathBuf]) -> Result<usize, String> {
             Err(e) => errors.push(e),
         }
     }
-    match errors.first() {
-        None => Ok(removed),
-        Some(first) => Err(format!("{} item(s) could not be removed, first: {first}", errors.len())),
-    }
+    Ok((removed, errors))
 }
 
 /// Runs the tool's command if the entry has one, else works on its directories.
@@ -200,10 +248,37 @@ fn clean_one(entry: &Entry, exclusions: &[PathBuf], run: &dyn Fn(&Tool) -> Resul
         run(tool)?;
         return Ok(format!("ran {}", tool.display()));
     }
+    #[cfg(windows)]
+    match entry.action {
+        Action::RecycleBin => {
+            // The shell empties every bin at once, so an exclusion inside one
+            // cannot be honoured item by item; refuse instead.
+            if let Some(p) = entry.paths.iter().find(|p| exclusions.iter().any(|e| e.starts_with(p) || p.starts_with(e))) {
+                return Err(format!("{} is excluded in the Cleaner settings", p.display()));
+            }
+            recycle_bin::empty()?;
+            return Ok("emptied the Recycle Bin".to_string());
+        }
+        Action::Sweep => {
+            let (mut removed, mut skipped) = (0, 0);
+            for path in &entry.paths {
+                let (r, errors) = empty_dir_each(path, exclusions)?;
+                removed += r;
+                skipped += errors.len();
+            }
+            return Ok(match skipped {
+                0 => format!("removed {removed} item(s)"),
+                _ => format!("removed {removed} item(s), skipped {skipped} in use or excluded"),
+            });
+        }
+        _ => {}
+    }
     let mut count = 0;
     for path in &entry.paths {
         count += match entry.action {
             Action::Empty => empty_dir(path, exclusions)?,
+            #[cfg(windows)]
+            Action::Sweep | Action::RecycleBin => unreachable!("handled above"),
             Action::Remove => {
                 guard::check_removable(path, &[root_for(entry, path)], exclusions)?;
                 guard::remove_path(path, true)?;
@@ -316,9 +391,11 @@ pub fn cleaner_clean_caches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::modules::cleaner::Risk;
     use procs::Blocker;
     use std::cell::RefCell;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     fn scratch(name: &str) -> PathBuf {
@@ -346,6 +423,7 @@ mod tests {
         clean_entries(h, procs, excl, &ids, &no_tool).into_iter().map(|(_, o)| o).collect()
     }
 
+    #[cfg(unix)]
     #[test]
     fn scan_reports_size_risk_reason_method_and_no_suggestion_when_small() {
         let home = scratch("scan");
@@ -363,6 +441,7 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn scan_sets_blocked_by_for_a_running_owner() {
         let home = scratch("blocked-scan");
@@ -395,6 +474,7 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn empty_keeps_the_root_and_removes_its_contents() {
         let home = scratch("empty");
@@ -408,6 +488,7 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn empty_honours_exclusions_and_reports_the_failure() {
         let home = scratch("excl");
@@ -420,6 +501,7 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_symlink_inside_a_cache_is_unlinked_not_followed() {
         let home = scratch("link");
@@ -434,6 +516,7 @@ mod tests {
         fs::remove_dir_all(&target).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_tool_runs_with_its_fixed_argv_and_the_directory_is_left_alone() {
         let home = scratch("tool");
@@ -461,6 +544,7 @@ mod tests {
         fs::remove_dir_all(&bindir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_blocked_entry_is_refused_at_clean_time() {
         let home = scratch("blocked-clean");
@@ -473,6 +557,7 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn remove_deletes_the_version_directory_itself() {
         let home = scratch("remove");
@@ -505,6 +590,7 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn exec_kills_a_command_that_overruns_its_timeout() {
         let sleep = Path::new("/bin/sleep");
@@ -517,6 +603,7 @@ mod tests {
         assert!(exec(Path::new("/bin/false"), &[], Path::new("/"), TOOL_TIMEOUT).is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn exec_keeps_the_tail_of_a_flood_on_both_pipes() {
         let out = exec(
@@ -530,6 +617,7 @@ mod tests {
         assert!(out.ends_with("final-line\n"), "the last output is kept, not the first");
     }
 
+    #[cfg(unix)]
     #[test]
     fn bytes_freed_is_the_free_space_delta_read_on_the_surviving_ancestor() {
         let home = scratch("freed");
@@ -554,5 +642,122 @@ mod tests {
         let surviving = home.join(".nvm/versions/node");
         assert_eq!(*asked.borrow(), vec![surviving.clone(), surviving]);
         fs::remove_dir_all(&home).unwrap();
+    }
+
+    /// A Windows profile: Local and Roaming under AppData, as on a real machine.
+    #[cfg(windows)]
+    fn win_host(home: &Path) -> Host {
+        Host { local: home.join("AppData/Local"), roaming: home.join("AppData/Roaming"), ..host(home) }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_scan_sizes_and_clean_empties_a_cache() {
+        let home = scratch("win-scan");
+        let pip = home.join("AppData/Local/pip/Cache");
+        fill(&pip, "wheel");
+        fill(&pip.join("http/0"), "b");
+        let h = win_host(&home);
+        let found = scan_entries(&h, &[], &Scan::detached());
+        assert_eq!(found.len(), 1);
+        assert_eq!((found[0].id.as_str(), found[0].method.as_str()), ("pip", "delete"));
+        assert!(found[0].bytes >= 8192);
+        let out = clean(&h, &[], &[], &["pip"]);
+        assert!(out[0].ok, "{}", out[0].message);
+        assert!(pip.is_dir() && fs::read_dir(&pip).unwrap().count() == 0);
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_a_junction_inside_a_cache_is_unlinked_not_followed() {
+        let home = scratch("win-junction");
+        let target = scratch("win-junction-target");
+        fs::write(target.join("precious"), "x").unwrap();
+        // Backslashes throughout: mklink reads a "/" as the start of a switch.
+        let pip = home.join("AppData").join("Local").join("pip").join("Cache");
+        fill(&pip, "a");
+        // A junction needs no privilege, unlike a symlink.
+        let made = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(pip.join("ln"))
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+        let out = clean(&win_host(&home), &[], &[], &["pip"]);
+        assert!(out[0].ok, "{}", out[0].message);
+        assert!(target.join("precious").exists());
+        assert!(fs::symlink_metadata(pip.join("ln")).is_err());
+        fs::remove_dir_all(&home).unwrap();
+        fs::remove_dir_all(&target).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_temp_sweep_skips_a_file_in_use() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let home = scratch("win-temp");
+        let temp = home.join("AppData/Local/Temp");
+        fill(&temp, "old");
+        fill(&temp.join("dir"), "older");
+        fs::write(temp.join("busy"), "x").unwrap();
+        // Held open with no sharing, as a running program's temp file would be.
+        let held = fs::OpenOptions::new().read(true).share_mode(0).open(temp.join("busy")).unwrap();
+        let mut h = win_host(&home);
+        h.temp = Some(temp.clone());
+        let out = clean(&h, &[], &[], &["temp"]);
+        assert!(out[0].ok, "{}", out[0].message);
+        assert_eq!(out[0].message, "removed 2 item(s), skipped 1 in use or excluded");
+        assert!(temp.join("busy").exists() && !temp.join("old").exists() && !temp.join("dir").exists());
+        drop(held);
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_a_tool_runs_through_its_cmd_shim() {
+        let home = scratch("win-tool");
+        fill(&home.join("AppData/Local/npm-cache/_cacache"), "blob");
+        let bindir = scratch("win-tool-bin");
+        fs::write(bindir.join("npm.cmd"), "@echo off\r\n").unwrap();
+        let mut h = win_host(&home);
+        h.path = vec![bindir.clone()];
+        let seen: RefCell<Vec<(PathBuf, Vec<&str>)>> = RefCell::new(Vec::new());
+        let run = |t: &Tool| {
+            seen.borrow_mut().push((t.bin.clone(), t.args.clone()));
+            run_tool(t, &home)
+        };
+        let out = clean_entries(&h, &[], &[], &["npm".to_string()], &run);
+        assert!(out[0].1.ok, "{}", out[0].1.message);
+        assert_eq!(*seen.borrow(), vec![(bindir.join("npm.cmd"), vec!["cache", "clean", "--force"])]);
+        fs::remove_dir_all(&home).unwrap();
+        fs::remove_dir_all(&bindir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_a_running_editor_blocks_its_cache() {
+        let home = scratch("win-blocked");
+        fill(&home.join("AppData/Roaming/Code/Cache"), "x");
+        let procs = [Proc { comm: "code".into(), args: vec![] }];
+        let out = clean(&win_host(&home), &procs, &[], &["vscode"]);
+        assert!(!out[0].ok && out[0].message.contains("VS Code is running"));
+        assert!(home.join("AppData/Roaming/Code/Cache/x").exists());
+        assert!(Blocker::Comm("VS Code", &["code"]).hit(&procs).is_some());
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_exec_kills_a_command_that_overruns_its_timeout() {
+        let system = PathBuf::from(std::env::var("SystemRoot").unwrap()).join("System32");
+        let start = Instant::now();
+        let err = exec(&system.join("ping.exe"), &["-n", "10", "127.0.0.1"], &system, Duration::from_millis(300)).unwrap_err();
+        assert!(err.contains("timed out"), "{err}");
+        assert!(start.elapsed() < Duration::from_secs(5));
+        let cmd = system.join("cmd.exe");
+        assert_eq!(exec(&cmd, &["/C", "echo", "hi"], &system, TOOL_TIMEOUT).unwrap().trim(), "hi");
+        assert!(exec(&cmd, &["/C", "exit", "1"], &system, TOOL_TIMEOUT).is_err());
     }
 }

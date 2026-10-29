@@ -38,4 +38,15 @@ describe("devices", () => {
     expect(friendlyPath(`${phone.path}/Internal shared storage`, list, {}, "/home/me")).toBe("Redmi Note 13/Internal shared storage");
     expect(friendlyPath("/home/me/src", list, {}, "/home/me")).toBe("~/src");
   });
+
+  it("puts Windows drives in the path bar, but keeps home ~-relative", () => {
+    const c = device({ id: "C:", label: "Local Disk (C:)", kind: "drive", path: "C:\\" });
+    const e = device({ id: "E:", label: "Stick (E:)", path: "E:\\" });
+    const drives = [c, e];
+    expect(deviceAt("E:\\photos", drives)?.id).toBe("E:");
+    expect(breadcrumb("E:\\photos\\2024", drives, {}).map((x) => x.path)).toEqual(["E:\\", "E:\\photos", "E:\\photos\\2024"]);
+    expect(friendlyPath("E:\\photos", drives, {}, "C:\\Users\\me")).toBe("Stick (E:)\\photos");
+    expect(friendlyPath("C:\\Users\\me\\src", drives, {}, "C:\\Users\\me")).toBe("~\\src");
+    expect(friendlyPath("C:\\Windows", drives, {}, "C:\\Users\\me")).toBe("Local Disk (C:)\\Windows");
+  });
 });

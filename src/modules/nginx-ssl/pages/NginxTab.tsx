@@ -3,6 +3,7 @@ import { Button, Callout, Mono, Section, Stack, StatusPill } from "../../../ui";
 import { Download, RefreshCw, Server } from "../../../ui/icons";
 import type { Resource } from "../../../ui";
 import { installNginx, NginxDetection } from "../api";
+import { isWindows } from "../../../app/platform";
 
 export default function NginxTab({ nginx }: { nginx: Resource<NginxDetection> }) {
   const [busy, setBusy] = useState(false);
@@ -62,13 +63,15 @@ export default function NginxTab({ nginx }: { nginx: Resource<NginxDetection> })
         ) : (
           <p className="u-muted">
             Not found on this machine.
-            {detection?.linux_package_manager
-              ? ` Install it via ${detection.linux_package_manager} below — this prompts for your admin password.`
-              : " Install it manually, then recheck — e.g. sudo apt install nginx on Debian/Ubuntu, or brew install nginx on macOS."}
+            {detection?.package_manager
+              ? ` Install it via ${detection.package_manager} below — this prompts for your admin password.`
+              : isWindows
+                ? " Install it manually, then recheck — unzip the Windows build from nginx.org/en/download.html to C:\\nginx, or add its folder to PATH."
+                : " Install it manually, then recheck — e.g. sudo apt install nginx on Debian/Ubuntu, or brew install nginx on macOS."}
           </p>
         )}
 
-        {!detection?.found && detection?.linux_package_manager && (
+        {!detection?.found && detection?.package_manager && (
           <div>
             <Button
               variant="primary"
@@ -76,7 +79,7 @@ export default function NginxTab({ nginx }: { nginx: Resource<NginxDetection> })
               loading={busy}
               onClick={handleInstall}
             >
-              {`Install nginx via ${detection.linux_package_manager}`}
+              {`Install nginx via ${detection.package_manager}`}
             </Button>
             {busy && (
               <p className="u-muted nginx-hint">Waiting for your admin password…</p>

@@ -87,6 +87,7 @@ pub fn ssh_args(host: &SshHost) -> Vec<String> {
 /// The interactive shell to run for a local terminal: `$SHELL`, else a safe
 /// default. Started as a login shell (`-l`) so the user's profile — PATH
 /// additions, nvm, prompt — is loaded, the same as a fresh terminal window.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn local_shell(shell_env: Option<&str>) -> (String, Vec<String>) {
     let shell = shell_env
         .map(str::trim)
@@ -96,12 +97,35 @@ pub fn local_shell(shell_env: Option<&str>) -> (String, Vec<String>) {
     (shell, vec!["-l".to_string()])
 }
 
+/// The interactive shell for a local terminal on Windows, where `$SHELL`
+/// means nothing (or, under Git Bash, a POSIX path CreateProcess can't run).
+/// PowerShell 7 when installed, else the Windows PowerShell every install
+/// has, else `%ComSpec%`. PowerShell loads the user's profile by default, so
+/// no login flag is needed; `-NoLogo` drops the copyright banner.
+#[cfg(windows)]
+pub fn windows_shell() -> (String, Vec<String>) {
+    let no_logo = vec!["-NoLogo".to_string()];
+    if let Some(pwsh) = crate::modules::tools::program("pwsh") {
+        return (pwsh, no_logo);
+    }
+    let root = std::env::var_os("SystemRoot")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
+    let powershell = root.join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+    if powershell.is_file() {
+        return (powershell.to_string_lossy().into_owned(), no_logo);
+    }
+    let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
+    (comspec, Vec::new())
+}
+
 /// The argv that runs `program args…` through the user's interactive login
 /// shell, replacing it: `$SHELL -l -i -c 'exec "$0" "$@"' program args…`.
 /// The shell exists only to load the profile — PATH additions from nvm, pyenv
 /// and the like live in `.zshrc`/`.bashrc`, which a bare `-l` shell skips —
 /// and `exec` hands the PTY straight to the program, so the exit code the
 /// terminal reports is the program's own.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn exec_via_shell(shell: &str, program: &str, args: &[String]) -> (String, Vec<String>) {
     let mut argv = vec![
         "-l".to_string(),
@@ -185,7 +209,10 @@ fn build_command(db: &State<crate::db::Db>, command: PtyCommand) -> Result<Comma
             if tag != "local" {
                 return Err(format!("unknown terminal command \"{tag}\""));
             }
+            #[cfg(not(windows))]
             let (shell, args) = local_shell(std::env::var("SHELL").ok().as_deref());
+            #[cfg(windows)]
+            let (shell, args) = windows_shell();
             let mut cmd = CommandBuilder::new(shell);
             cmd.args(args);
             cmd
@@ -195,7 +222,7 @@ fn build_command(db: &State<crate::db::Db>, command: PtyCommand) -> Result<Comma
                 let conn = db.0.lock().map_err(|e| e.to_string())?;
                 super::hosts::find(&conn, &host_id)?
             };
-            let mut cmd = CommandBuilder::new("ssh");
+            let mut cmd = CommandBuilder::new(super::openssh_program("ssh"));
             cmd.args(ssh_args(&host));
             cmd
         }
@@ -204,9 +231,28 @@ fn build_command(db: &State<crate::db::Db>, command: PtyCommand) -> Result<Comma
             if program.is_empty() {
                 return Err("nothing to run".to_string());
             }
-            let (shell, _) = local_shell(std::env::var("SHELL").ok().as_deref());
-            let (shell, args) = exec_via_shell(&shell, program, &exec.args);
             cwd = exec_cwd(exec.cwd.as_deref(), &home);
+            #[cfg(not(windows))]
+            let (shell, args) = {
+                let (shell, _) = local_shell(std::env::var("SHELL").ok().as_deref());
+                exec_via_shell(&shell, program, &exec.args)
+            };
+            // No shell wrapping on Windows: the argv runs as given through
+            // ConPTY. An app started from Explorer already has the user's full
+            // PATH, which is all the Unix profile shell is there to load. The
+            // AI module hands over a resolved `.exe` path or `cmd.exe /d /c
+            // call <shim.cmd> …`; a bare name is resolved through PATHEXT so
+            // an npm `.cmd` shim is still named with its extension.
+            #[cfg(windows)]
+            let (shell, args) = {
+                let given = std::path::Path::new(program);
+                let program = if given.is_absolute() || given.is_file() {
+                    program.to_string()
+                } else {
+                    crate::modules::tools::program(program).unwrap_or_else(|| program.to_string())
+                };
+                (program, exec.args.clone())
+            };
             let mut cmd = CommandBuilder::new(shell);
             cmd.args(args);
             cmd
@@ -241,6 +287,8 @@ pub fn pty_open(
     let cmd = build_command(&db, command)?;
     let (mut handle, mut reader) = spawn(cmd, cols, rows)?;
     handle.owner = window.label().to_string();
+    #[cfg(windows)]
+    let pid = handle.child.process_id();
     state.pty.lock().map_err(|e| e.to_string())?.insert(id.clone(), handle);
 
     // One reader thread per session. It ends when the child exits (EOF on the
@@ -249,28 +297,89 @@ pub fn pty_open(
     let output_event = format!("pty:output:{id}");
     let exit_event = format!("pty:exit:{id}");
     let thread_id = id.clone();
-    std::thread::spawn(move || {
+    let pump_app = app.clone();
+    let pump = move || {
         let mut buf = [0u8; READ_CHUNK];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let _ = app.emit(&output_event, STANDARD.encode(&buf[..n]));
+                    let _ = pump_app.emit(&output_event, STANDARD.encode(&buf[..n]));
                 }
             }
         }
-        let code = app
+    };
+    #[cfg(not(windows))]
+    std::thread::spawn(move || {
+        let mut pump = pump;
+        pump();
+        let code = reap(&app, &thread_id);
+        let _ = app.emit(&exit_event, PtyExit { code });
+    });
+    // ConPTY never reports EOF on its own: the output pipe stays open after
+    // the child exits, until the pseudoconsole itself is closed. So a second
+    // thread waits for the process instead, then drops the handle (closing
+    // the pseudoconsole, which flushes the last output and ends the reader)
+    // and reports the exit once the reader has delivered everything.
+    #[cfg(windows)]
+    {
+        let reader = std::thread::spawn(pump);
+        std::thread::spawn(move || {
+            wait_for_exit(&app, &thread_id, pid);
+            let code = reap(&app, &thread_id);
+            let _ = reader.join();
+            let _ = app.emit(&exit_event, PtyExit { code });
+        });
+    }
+
+    Ok(id)
+}
+
+/// Takes the session out of the map and collects its exit code. Dropping the
+/// handle here closes the master side.
+fn reap(app: &AppHandle, id: &str) -> Option<u32> {
+    app.state::<SshState>()
+        .pty
+        .lock()
+        .ok()
+        .and_then(|mut map| map.remove(id))
+        .and_then(|mut handle| handle.child.wait().ok())
+        .map(|status| status.exit_code())
+}
+
+/// Blocks until the session's process has exited, or its handle has left the
+/// map (`kill_all`). Waits on the process itself when it can be opened, which
+/// costs nothing while the terminal is in use; polls otherwise.
+#[cfg(windows)]
+fn wait_for_exit(app: &AppHandle, id: &str, pid: Option<u32>) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE};
+    if let Some(pid) = pid {
+        // SAFETY: plain FFI; a null handle is checked, a real one closed once.
+        // The session's own handle keeps the process object alive, so the pid
+        // cannot have been reused yet.
+        let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        if !process.is_null() {
+            unsafe {
+                WaitForSingleObject(process, INFINITE);
+                CloseHandle(process);
+            }
+            return;
+        }
+    }
+    loop {
+        let running = app
             .state::<SshState>()
             .pty
             .lock()
             .ok()
-            .and_then(|mut map| map.remove(&thread_id))
-            .and_then(|mut handle| handle.child.wait().ok())
-            .map(|status| status.exit_code());
-        let _ = app.emit(&exit_event, PtyExit { code });
-    });
-
-    Ok(id)
+            .and_then(|mut map| map.get_mut(id).map(|h| matches!(h.child.try_wait(), Ok(None))))
+            .unwrap_or(false);
+        if !running {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
 }
 
 #[tauri::command(async)]
@@ -318,10 +427,20 @@ pub fn pty_cwd(state: State<SshState>, id: String) -> Result<Option<String>, Str
     Ok(handle.child.process_id().and_then(proc_cwd))
 }
 
+#[cfg(not(windows))]
 pub fn proc_cwd(pid: u32) -> Option<String> {
     std::fs::read_link(format!("/proc/{pid}/cwd"))
         .ok()
         .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Windows has no `/proc`, and another process's working directory is only
+/// reachable by reading its PEB out of its memory — undocumented layout, and
+/// different again for a 32-bit shell. So the sidebar can't follow a local
+/// shell's directory here; `None` is what it already treats as "unknown".
+#[cfg(windows)]
+pub fn proc_cwd(_pid: u32) -> Option<String> {
+    None
 }
 
 /// Kills every session owned by a window that has just been destroyed. React
@@ -428,6 +547,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn proc_cwd_reads_this_process() {
         let cwd = proc_cwd(std::process::id()).expect("own cwd via /proc");
         assert_eq!(std::path::PathBuf::from(cwd), std::env::current_dir().unwrap());
@@ -446,6 +566,7 @@ mod tests {
     /// and confirm the child is reaped — the same primitives `pty_open` wires
     /// to events, minus the `AppHandle`.
     #[test]
+    #[cfg(not(windows))]
     fn smoke_test_spawns_writes_and_reads_a_real_pty() {
         let mut cmd = CommandBuilder::new("sh");
         cmd.env("PS1", "$ ");
@@ -464,5 +585,66 @@ mod tests {
         let text = String::from_utf8_lossy(&collected);
         assert!(text.contains("devspro-pty-ok"), "unexpected pty output: {text:?}");
         assert!(handle.child.wait().unwrap().success());
+    }
+
+    /// Runs `cmd` in a ConPTY the way `pty_open` does on Windows: read on one
+    /// thread, wait for the process, then drop the handle so the reader sees
+    /// EOF. Returns the output and the exit code.
+    #[cfg(windows)]
+    fn run_in_conpty(cmd: CommandBuilder) -> (String, u32) {
+        let (mut handle, mut reader) = spawn(cmd, 80, 24).unwrap();
+        let pump = std::thread::spawn(move || {
+            let mut collected = Vec::new();
+            let mut buf = [0u8; 1024];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => collected.extend_from_slice(&buf[..n]),
+                }
+            }
+            String::from_utf8_lossy(&collected).into_owned()
+        });
+        // ConPTY opens by asking the terminal where the cursor is (`ESC[6n`)
+        // and holds the program until it hears back. xterm.js answers that
+        // itself in the app; here the reply is sent up front.
+        handle.writer.write_all(b"\x1b[1;1R").unwrap();
+        handle.writer.flush().unwrap();
+        let code = handle.child.wait().unwrap().exit_code();
+        drop(handle);
+        (pump.join().unwrap(), code)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn smoke_test_runs_a_program_in_a_conpty_and_sees_it_exit() {
+        let mut cmd = CommandBuilder::new("cmd.exe");
+        cmd.args(["/d", "/c", "echo devspro-pty-ok& exit 3"]);
+        let (text, code) = run_in_conpty(cmd);
+        assert!(text.contains("devspro-pty-ok"), "unexpected pty output: {text:?}");
+        assert_eq!(code, 3);
+    }
+
+    /// AI agents installed through npm are `.cmd` shims on Windows; the exec
+    /// path hands their resolved path straight to the PTY.
+    #[cfg(windows)]
+    #[test]
+    fn a_cmd_shim_runs_directly_in_a_conpty() {
+        let dir = std::env::temp_dir().join(format!("devspro-pty-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let shim = dir.join("agent.cmd");
+        std::fs::write(&shim, "@echo off\r\necho shim-ran %1\r\n").unwrap();
+        let mut cmd = CommandBuilder::new(&shim);
+        cmd.arg("--resume");
+        let (text, code) = run_in_conpty(cmd);
+        assert!(text.contains("shim-ran --resume"), "unexpected pty output: {text:?}");
+        assert_eq!(code, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_shell_is_something_runnable() {
+        let (shell, _) = windows_shell();
+        assert!(std::path::Path::new(&shell).is_file() || shell == "cmd.exe", "{shell}");
     }
 }

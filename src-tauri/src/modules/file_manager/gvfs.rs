@@ -8,24 +8,39 @@
 //! a GIO attribute. These helpers ask `gio` for the titles so a Drive folder
 //! reads the way it does on the web. Google Docs, Sheets and Slides are
 //! shortcuts there: no bytes to read, only a web address to open.
+//!
+//! GVfs is GNOME's; on Windows none of this is ever reached.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+#[cfg(unix)]
+fn current_uid() -> u32 {
+    // SAFETY: getuid has no failure mode and touches no memory.
+    unsafe { libc::getuid() }
+}
+
+/// GVfs is GNOME-only; off Unix the root simply never exists.
+#[cfg(not(unix))]
+fn current_uid() -> u32 {
+    0
+}
 
 /// Where gvfsd-fuse mounts its backends for this user.
 pub fn gvfs_root() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        // SAFETY: getuid has no failure mode and touches no memory.
-        .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", unsafe { libc::getuid() })))
+        .unwrap_or_else(|| PathBuf::from(format!("/run/user/{}", current_uid())))
         .join("gvfs")
 }
 
 /// Whether `path` is on a GVfs backend that names files by an opaque ID.
+/// Never on Windows: Google Drive for desktop there is a drive letter whose
+/// files carry their real names, so there are no titles to look up.
 pub fn names_by_id(path: &Path) -> bool {
-    names_by_id_under(path, &gvfs_root())
+    cfg!(not(windows)) && names_by_id_under(path, &gvfs_root())
 }
 
 fn names_by_id_under(path: &Path, root: &Path) -> bool {

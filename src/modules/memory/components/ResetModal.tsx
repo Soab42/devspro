@@ -19,8 +19,8 @@ import {
   useResource,
 } from "../../../ui";
 import { ChevronDown, ChevronRight, CircleCheck, Lock, OctagonX } from "../../../ui/icons";
-import { ResetSummary, ResetTarget, resetMemory, resetPreview } from "../api";
-import { formatMb, groupTargets, processCount, TargetGroup, targetKey } from "../memory";
+import { ResetSummary, ResetTarget, resetMemory, resetPreview, Support } from "../api";
+import { formatMb, FULL_SUPPORT, groupTargets, processCount, TargetGroup, targetKey } from "../memory";
 
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -29,13 +29,14 @@ function plural(n: number, one: string, many: string) {
 }
 
 /** "Stop 143 processes and 2 services" — the button says exactly what it does. */
-function actionLabel(processes: number, services: number, dropCaches: boolean): string {
+function actionLabel(processes: number, services: number, dropCaches: boolean, reclaimSwap: boolean): string {
   const parts = [
     processes > 0 && plural(processes, "process", "processes"),
     services > 0 && plural(services, "service", "services"),
   ].filter(Boolean);
   if (parts.length > 0) return `Stop ${parts.join(" and ")}`;
-  return dropCaches ? "Drop cache and reclaim swap" : "Nothing selected";
+  if (!dropCaches) return "Nothing selected";
+  return reclaimSwap ? "Drop cache and reclaim swap" : "Drop the cache";
 }
 
 /**
@@ -44,12 +45,16 @@ function actionLabel(processes: number, services: number, dropCaches: boolean): 
  * and types YES. The backend re-checks every pid before it signals it.
  */
 export default function ResetModal({
+  support = FULL_SUPPORT,
   onFinished,
   onClose,
 }: {
+  /** Where swap can't be reclaimed (Windows), the cache step only drops the cache. */
+  support?: Support;
   onFinished: () => void;
   onClose: () => void;
 }) {
+  const swap = support.reclaim_swap;
   const preview = useResource(resetPreview);
   // Stored as what is unticked, so everything starts ticked.
   const [unticked, setUnticked] = useState<Set<string>>(() => new Set());
@@ -157,7 +162,7 @@ export default function ResetModal({
             Cancel
           </Button>
           <Button variant="danger-solid" disabled={!canRun} loading={running} onClick={() => void run()}>
-            {actionLabel(processes.length, services.length, dropCaches)}
+            {actionLabel(processes.length, services.length, dropCaches, swap)}
           </Button>
         </ModalFooter>
       }
@@ -240,13 +245,14 @@ export default function ResetModal({
 
             <Stack gap={1}>
               <Checkbox
-                label="Also drop cache and reclaim swap"
+                label={swap ? "Also drop cache and reclaim swap" : "Also drop the cache"}
                 checked={dropCaches}
                 onChange={setDropCaches}
               />
               <p className="u-muted">
-                Asks for your admin password. Swap is left alone if there isn&apos;t enough free
-                RAM to take it back.
+                {swap
+                  ? "Asks for your admin password. Swap is left alone if there isn't enough free RAM to take it back."
+                  : "Asks for your admin password."}
               </p>
             </Stack>
 
@@ -256,10 +262,14 @@ export default function ResetModal({
                   This stops {plural(processes.length, "process", "processes")} using{" "}
                   {formatMb(ram)}
                   {services.length > 0 && ` and ${plural(services.length, "service", "services")}`}
-                  {dropCaches && ", then drops the cache and reclaims swap"}.
+                  {dropCaches && (swap ? ", then drops the cache and reclaims swap" : ", then drops the cache")}.
                 </>
               ) : dropCaches ? (
-                "Nothing is stopped. This only drops the cache and reclaims swap."
+                swap ? (
+                  "Nothing is stopped. This only drops the cache and reclaims swap."
+                ) : (
+                  "Nothing is stopped. This only drops the cache."
+                )
               ) : (
                 "Nothing is selected."
               )}

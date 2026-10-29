@@ -9,9 +9,8 @@ use crate::db::Db;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
-use std::os::unix::fs::MetadataExt;
+use crate::modules::fs_compat::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use tauri::{AppHandle, State};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,7 +79,7 @@ fn is_suggested(idle: Option<u32>, threshold: u32) -> bool {
 /// Last commit time, else the newest mtime among the top-level entries that
 /// are not artifacts.
 fn last_activity(project: &Path) -> Option<i64> {
-    let git = Command::new("git")
+    let git = crate::modules::tools::command("git")
         .arg("-C")
         .arg(project)
         .args(["log", "-1", "--format=%ct"])
@@ -99,6 +98,23 @@ fn newest_mtime(project: &Path) -> Option<i64> {
         .filter_map(|e| fs::symlink_metadata(e.path()).ok())
         .map(|m| m.mtime())
         .max()
+}
+
+/// Windows marks the folders Linux would name with a dot — `AppData` above
+/// all, where apps like VS Code ship their own `package.json` and
+/// `node_modules` — hidden or system instead. The walk leaves those alone, as
+/// it leaves dot-folders alone everywhere.
+#[cfg(windows)]
+fn is_hidden(meta: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt as _;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+    meta.file_attributes() & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM) != 0
+}
+
+#[cfg(not(windows))]
+fn is_hidden(_meta: &fs::Metadata) -> bool {
+    false
 }
 
 struct Found {
@@ -135,7 +151,7 @@ fn find_projects(root: &Path, scan: &Scan) -> Vec<Found> {
                 continue;
             }
             if let Ok(m) = fs::symlink_metadata(entry.path()) {
-                if m.is_dir() && m.dev() == dev {
+                if m.is_dir() && m.dev() == dev && !is_hidden(&m) {
                     stack.push((entry.path(), depth + 1));
                 }
             }
@@ -205,7 +221,7 @@ fn validate(path: &Path, roots: &[PathBuf], exclusions: &[String]) -> Result<(),
     if !marker_present(parent, &name) {
         return Err(format!("{} has no project file beside it", path.display()));
     }
-    if !roots.iter().any(|r| path.starts_with(r) && path != r) {
+    if !roots.iter().any(|r| guard::within(path, r) && !guard::same(path, r)) {
         return Err(format!("{} is outside the project folders", path.display()));
     }
     guard::check_removable(path, roots, exclusions)?;
@@ -363,7 +379,18 @@ mod tests {
         let outside = scratch("depth-outside");
         touch(&outside.join("package.json"));
         fs::create_dir_all(outside.join("node_modules")).unwrap();
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, d.join("link")).unwrap();
+        // A junction, Windows' directory link that needs no admin rights.
+        #[cfg(windows)]
+        assert!(std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(d.join("link"))
+            .arg(&outside)
+            .output()
+            .unwrap()
+            .status
+            .success());
         assert_eq!(kinds(&d), ["f:node_modules"]);
         fs::remove_dir_all(&d).unwrap();
         fs::remove_dir_all(&outside).unwrap();
@@ -457,18 +484,36 @@ mod tests {
 
     #[test]
     fn reads_nginx_project_paths_and_tolerates_a_missing_table() {
-        let settings = CleanerSettings { project_roots: vec!["/a".into(), "/site".into()], ..CleanerSettings::default() };
+        // An absolute path on this OS.
+        let abs = |p: &str| if cfg!(windows) { format!("C:{p}") } else { p.to_string() };
+        let settings = CleanerSettings { project_roots: vec![abs("/a"), abs("/site")], ..CleanerSettings::default() };
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         // No table yet: only the settings roots.
-        assert_eq!(project_roots(&conn, &settings), vec![PathBuf::from("/a"), PathBuf::from("/site")]);
-        conn.execute_batch(
+        assert_eq!(project_roots(&conn, &settings), vec![PathBuf::from(abs("/a")), PathBuf::from(abs("/site"))]);
+        conn.execute_batch(&format!(
             "CREATE TABLE nginx_ssl_sites (project_path TEXT);
-             INSERT INTO nginx_ssl_sites VALUES ('/site'), ('/laravel'), (NULL), (''), ('relative');",
-        )
+             INSERT INTO nginx_ssl_sites VALUES ('{}'), ('{}'), (NULL), (''), ('relative');",
+            abs("/site"),
+            abs("/laravel")
+        ))
         .unwrap();
         assert_eq!(
             project_roots(&conn, &settings),
-            vec![PathBuf::from("/a"), PathBuf::from("/site"), PathBuf::from("/laravel")]
+            vec![PathBuf::from(abs("/a")), PathBuf::from(abs("/site")), PathBuf::from(abs("/laravel"))]
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hidden_folders_are_not_walked_on_windows() {
+        let d = scratch("hidden");
+        touch(&d.join("AppData/vscode/package.json"));
+        fs::create_dir_all(d.join("AppData/vscode/node_modules")).unwrap();
+        touch(&d.join("code/app/package.json"));
+        fs::create_dir_all(d.join("code/app/node_modules")).unwrap();
+        let hide = std::process::Command::new("attrib").arg("+h").arg(d.join("AppData")).output().unwrap();
+        assert!(hide.status.success());
+        assert_eq!(kinds(&d), ["app:node_modules"]);
+        fs::remove_dir_all(&d).unwrap();
     }
 }

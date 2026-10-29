@@ -87,14 +87,45 @@ fn locate(path: &str) -> Option<(PathBuf, PathBuf)> {
     }
     let dir = if path.is_dir() { path } else { path.parent()? };
     let out = run("git", &["-C".as_ref(), dir.as_os_str(), "rev-parse".as_ref(), "--show-toplevel".as_ref()], None, None, QUICK).ok()?;
-    let root = std::fs::canonicalize(out.trim_end_matches('\n')).ok()?;
+    let root = canonical(Path::new(out.trim_end_matches(['\r', '\n']))).ok()?;
     // A deleted file cannot be canonicalized, but its folder can.
-    let canonical = match std::fs::canonicalize(path) {
+    let full = match canonical(path) {
         Ok(p) => p,
-        Err(_) => std::fs::canonicalize(path.parent()?).ok()?.join(path.file_name()?),
+        Err(_) => canonical(path.parent()?).ok()?.join(path.file_name()?),
     };
-    let rel = canonical.strip_prefix(&root).ok()?.to_path_buf();
+    let rel = full.strip_prefix(&root).ok()?.to_path_buf();
     Some((root, rel))
+}
+
+/// `fs::canonicalize`, spelled the way the rest of the app spells paths. On
+/// Windows that means without the `\\?\` prefix it adds, which no listing
+/// path carries and which would keep every status entry from matching a row.
+fn canonical(path: &Path) -> std::io::Result<PathBuf> {
+    let p = std::fs::canonicalize(path)?;
+    #[cfg(windows)]
+    let p = super::windows::plain(&p);
+    Ok(p)
+}
+
+/// A repo-relative path as git writes it: forward slashes, which `HEAD:path`
+/// requires even on Windows.
+fn git_path(rel: &Path) -> String {
+    let s = rel.to_string_lossy().into_owned();
+    if cfg!(windows) {
+        s.replace('\\', "/")
+    } else {
+        s
+    }
+}
+
+/// `root` joined with a path git printed (always `/`-separated), in the OS's
+/// own spelling so it matches the paths a listing hands out.
+fn under_root(root: &Path, git_rel: &str) -> PathBuf {
+    if cfg!(windows) {
+        root.join(git_rel.replace('/', "\\"))
+    } else {
+        root.join(git_rel)
+    }
 }
 
 fn git_args<'a>(root: &'a Path, rest: &[&'a str]) -> Vec<&'a std::ffi::OsStr> {
@@ -182,7 +213,7 @@ fn parse_status(out: &str, root: &Path) -> GitStatus {
         }
         let Some(code) = status_code(x, y) else { continue };
         files.push(GitFile {
-            path: root.join(path.trim_end_matches('/')).to_string_lossy().into_owned(),
+            path: under_root(root, path.trim_end_matches('/')).to_string_lossy().into_owned(),
             code: code.to_string(),
             staged: x != ' ' && x != '?',
         });
@@ -195,7 +226,7 @@ fn parse_status(out: &str, root: &Path) -> GitStatus {
 #[tauri::command(async)]
 pub fn fm_git_base(path: String) -> Option<String> {
     let (root, rel) = locate(&path)?;
-    let spec = format!(":{}", rel.to_string_lossy());
+    let spec = format!(":{}", git_path(&rel));
     let args = git_args(&root, &["show", &spec]);
     let bytes = run_bytes("git", &args, None, None, QUICK).ok()?;
     String::from_utf8(bytes).ok()
@@ -275,7 +306,7 @@ fn parse_blame(out: &str, contents: &str) -> GitBlame {
 #[tauri::command(async)]
 pub fn fm_git_blame(path: String, contents: String) -> Result<GitBlame, String> {
     let Some((root, rel)) = locate(&path) else { return Ok(GitBlame::default()) };
-    let rel = rel.to_string_lossy().into_owned();
+    let rel = git_path(&rel);
     let tracked = git_args(&root, &["ls-files", "--error-unmatch", "--", &rel]);
     if run("git", &tracked, None, None, QUICK).is_err() {
         return Ok(GitBlame::default());
@@ -315,7 +346,7 @@ fn parse_log(out: &str, fallback_path: &str) -> Vec<GitLogEntry> {
 #[tauri::command(async)]
 pub fn fm_git_log(path: String) -> Result<Vec<GitLogEntry>, String> {
     let Some((root, rel)) = locate(&path) else { return Ok(vec![]) };
-    let rel = rel.to_string_lossy().into_owned();
+    let rel = git_path(&rel);
     let args = git_args(
         &root,
         &[
@@ -404,20 +435,20 @@ mod tests {
         let s = parse_status(out, Path::new("/repo"));
         assert_eq!((s.branch.as_deref(), s.upstream.as_deref(), s.ahead, s.behind), (Some("main"), Some("origin/main"), 1, 0));
         let got: Vec<(&str, &str, bool)> = s.files.iter().map(|f| (f.path.as_str(), f.code.as_str(), f.staged)).collect();
-        assert_eq!(
-            got,
-            vec![
-                ("/repo/staged.rs", "M", true),
-                ("/repo/worktree.rs", "M", false),
-                ("/repo/both.rs", "M", true),
-                ("/repo/new name.rs", "R", true),
-                ("/repo/notes", "U", false),
-                ("/repo/ünï cödé.txt", "U", false),
-                ("/repo/clash.rs", "C", true),
-                ("/repo/added.rs", "A", true),
-                ("/repo/gone.rs", "D", false),
-            ]
-        );
+        // `/repo/x` on Unix; Windows joins with its own separator.
+        let p = |name: &str| format!("/repo{}{name}", std::path::MAIN_SEPARATOR);
+        let want = [
+            (p("staged.rs"), "M", true),
+            (p("worktree.rs"), "M", false),
+            (p("both.rs"), "M", true),
+            (p("new name.rs"), "R", true),
+            (p("notes"), "U", false),
+            (p("ünï cödé.txt"), "U", false),
+            (p("clash.rs"), "C", true),
+            (p("added.rs"), "A", true),
+            (p("gone.rs"), "D", false),
+        ];
+        assert_eq!(got, want.iter().map(|(a, b, c)| (a.as_str(), *b, *c)).collect::<Vec<_>>());
     }
 
     const SHA_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -475,7 +506,7 @@ mod tests {
         if !installed("git") {
             return;
         }
-        let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("devspro-git-{}", uuid::Uuid::new_v4()));
+        let dir = canonical(&std::env::temp_dir()).unwrap().join(format!("devspro-git-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         git(&dir, &["init", "-q"]);
         let file = dir.join("a.txt");

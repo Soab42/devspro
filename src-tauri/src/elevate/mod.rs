@@ -20,16 +20,18 @@ pub enum Operation {
     /// arbitrary.
     WriteFile { path: String, contents: String },
     RemoveFile { path: String },
-    /// Full overwrite of exactly `/etc/hosts` — the destination is fixed inside
-    /// the helper, so it deliberately sits outside the `allowed_write_prefix`
+    /// Full overwrite of exactly the system hosts file (`/etc/hosts`, or
+    /// `<system dir>\drivers\etc\hosts` on Windows) — the destination is fixed
+    /// inside the helper, so it deliberately sits outside the `allowed_write_prefix`
     /// gate rather than widening that prefix to `/etc`. The helper writes
-    /// atomically and refuses contents with no `localhost` line, so a bug in the
+    /// atomically and refuses contents with no `localhost` line (on Windows, which
+    /// ships without one: contents that drop an existing one), so a bug in the
     /// caller cannot leave the machine without its loopback name.
     WriteHostsFile { contents: String },
     /// Ensures a marker-delimited block exists verbatim inside `file_path` — inserts
     /// it if the markers aren't present, replaces the block's contents if they are.
     /// Used for both the one `include` line in nginx.conf and the whole set of
-    /// devspro-owned /etc/hosts entries (recomputed and passed in full each time,
+    /// devspro-owned hosts-file entries (recomputed and passed in full each time,
     /// so this stays idempotent rather than needing incremental add/remove tracking).
     SyncMarkedBlock {
         file_path: String,
@@ -53,8 +55,34 @@ pub enum Operation {
     /// that's the exact bug this replaces. The destination filename is fixed by
     /// the helper itself, not caller-controlled.
     EnsureNginxConfDInclude { conf_d_dir: String, sites_glob: String },
-    RunNginxTest { binary_path: String },
-    ReloadNginx { binary_path: String },
+    /// Windows counterpart of `EnsureNginxConfDInclude`. The stock Windows nginx has no
+    /// `conf.d` convention at all — nothing in its shipped nginx.conf includes such a
+    /// directory, and none exists — so there is no drop-in location to write into.
+    /// Instead one marker-wrapped `include` line goes *inside* `http{}`. Inserting
+    /// inside the block is the entire point: appended at the end of the file it would
+    /// land after `http{}`'s closing brace, where an include of `server{}` blocks is a
+    /// syntax error — precisely the bug `cleanup_legacy_include_block_op` exists to undo
+    /// on Linux. The helper decides nothing here beyond where to splice the block in.
+    EnsureIncludeInHttpBlock {
+        config_path: String,
+        marker_begin: String,
+        marker_end: String,
+        include_line: String,
+    },
+    /// `prefix` is nginx's `-p`: `None` everywhere it can be left to nginx itself, and
+    /// set on Windows, where it is not optional. The Windows builds are configured with
+    /// an empty `--prefix=` and a *relative* `--conf-path=conf/nginx.conf`, which nginx
+    /// then resolves against the current working directory rather than against its own
+    /// executable — so `nginx -t` run from anywhere but the install directory looks for
+    /// the config under the wrong root and reports the whole configuration broken.
+    RunNginxTest {
+        binary_path: String,
+        prefix: Option<String>,
+    },
+    ReloadNginx {
+        binary_path: String,
+        prefix: Option<String>,
+    },
     /// Linux only: `manager` is one of "apt", "dnf", "pacman" — whichever
     /// `nginx::linux_package_manager()` detected on this machine. macOS/Windows
     /// never build this op (brew must not run as root; Windows has no such step).
@@ -65,10 +93,16 @@ pub enum Operation {
     /// Laravel can log/cache anything. Scoped to exactly those two subdirectories
     /// of a path the user picked via the native folder dialog, not touched
     /// otherwise.
+    ///
+    /// Nothing to do on Windows, where `php-cgi.exe` runs as the desktop user who
+    /// already owns the project folder — the helper reports that rather than inventing
+    /// an ACL change nobody asked for.
     FixLaravelPermissions { project_path: String },
     /// Installs the root CA into the OS trust store and, if `nss_db_path` is given,
     /// also imports it into that NSS database (Firefox/Chrome-on-Linux don't read
-    /// the OS store).
+    /// the OS store). `nss_db_paths` is always empty on Windows: the OS store there is
+    /// what Chrome and Edge read, and the `certutil` on PATH is Microsoft's own tool of
+    /// that name, not NSS's.
     InstallRootCa {
         cert_path: String,
         /// One `sql:<dir>` entry per NSS database to import into — the shared
@@ -79,16 +113,19 @@ pub enum Operation {
     },
     /// Memory module: `systemctl <action> -- <unit>`. The helper accepts only
     /// "start" or "stop", and only a unit name matching
-    /// `^[A-Za-z0-9@._:-]{1,128}$` that doesn't start with `-`.
+    /// `^[A-Za-z0-9@._:-]{1,128}$` that doesn't start with `-`. On Windows `unit` is a
+    /// service name, started or stopped through the Service Control Manager.
     ServiceControl { action: String, unit: String },
     /// Memory module: `sync`, then `3` into /proc/sys/vm/drop_caches (page
     /// cache, dentries and inodes). Only clean pages are dropped, hence the sync.
+    /// On Windows: flush the modified page list, then empty the standby list.
     DropCaches,
     /// Memory module: `swapoff -a && swapon -a`, pulling everything in swap
     /// back into RAM. Refused when what's in swap is more than 80 % of
     /// MemAvailable, since swapoff would then push the machine into the OOM
     /// killer; succeeds without doing anything when swap is empty. Put it last
     /// in a manifest: the helper skips everything after a failed operation.
+    /// Fails on Windows, which has no equivalent; the app doesn't send it there.
     ReclaimSwap,
     /// Cleaner, System tab: `apt-get clean`.
     AptClean,
@@ -99,6 +136,19 @@ pub enum Operation {
     /// must match `[a-z0-9-]+`, `revision` is digits only, and the helper
     /// re-checks with `snap list --all` that the revision is disabled.
     RemoveSnapRevision { name: String, revision: String },
+    /// Cleaner, System tab, Windows: entries of `%SystemRoot%\Temp` untouched
+    /// for a day. Every path below is fixed inside the helper, never sent.
+    ClearWindowsTemp,
+    /// Cleaner, System tab, Windows: empties
+    /// `%SystemRoot%\SoftwareDistribution\Download`, stopping the Windows
+    /// Update service around it when it was running.
+    ClearWindowsUpdateCache,
+    /// Cleaner, System tab, Windows: `Delete-DeliveryOptimizationCache -Force`.
+    ClearDeliveryOptimizationCache,
+    /// Cleaner, System tab, Windows: `%SystemRoot%\MEMORY.DMP`, the contents of
+    /// `%SystemRoot%\Minidump` and of `%ProgramData%\Microsoft\Windows\WER`'s
+    /// ReportArchive and ReportQueue.
+    RemoveSystemCrashDumps,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

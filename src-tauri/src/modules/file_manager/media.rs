@@ -71,7 +71,13 @@ fn path_from(uri_path: &str, token: &str) -> Result<PathBuf, Failure> {
     if rest.is_empty() {
         return Err((StatusCode::NOT_FOUND, "no file named".into()));
     }
-    Ok(PathBuf::from(format!("/{rest}")))
+    // The slash after the secret is the root's own on Unix; on Windows the
+    // frontend adds it, and the path (`C:\…`) follows it whole.
+    if cfg!(windows) {
+        Ok(PathBuf::from(rest))
+    } else {
+        Ok(PathBuf::from(format!("/{rest}")))
+    }
 }
 
 fn percent_decode(text: &str) -> Option<String> {
@@ -193,6 +199,12 @@ mod tests {
             .collect()
     }
 
+    /// What `fmMediaUrl` asks for: the secret, a slash, then the path.
+    fn url(token: &str, path: &str) -> String {
+        let sep = if path.starts_with('/') { "" } else { "/" };
+        format!("fmfile://localhost/{}", encode(&format!("{token}{sep}{path}")))
+    }
+
     fn scratch_file(bytes: &[u8]) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("devspro-media-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
@@ -219,7 +231,7 @@ mod tests {
         let bytes: Vec<u8> = (0..=255u8).cycle().take(1000).collect();
         let file = scratch_file(&bytes);
         let token = "s3cret";
-        let uri = format!("fmfile://localhost/{}", encode(&format!("{token}{}", file.display())));
+        let uri = url(token, &file.to_string_lossy());
 
         let whole = handle(&request(&uri, None), token);
         assert_eq!(whole.status(), StatusCode::OK);
@@ -234,10 +246,10 @@ mod tests {
         let past = handle(&request(&uri, Some("bytes=5000-")), token);
         assert_eq!(past.status(), StatusCode::RANGE_NOT_SATISFIABLE);
 
-        let forged = format!("fmfile://localhost/{}", encode(&format!("guess{}", file.display())));
+        let forged = url("guess", &file.to_string_lossy());
         assert_eq!(handle(&request(&forged, None), token).status(), StatusCode::FORBIDDEN);
 
-        let missing = format!("fmfile://localhost/{}", encode(&format!("{token}/no/such/file.png")));
+        let missing = url(token, &file.with_file_name("no-such-file.png").to_string_lossy());
         assert_eq!(handle(&request(&missing, None), token).status(), StatusCode::NOT_FOUND);
         fs::remove_dir_all(file.parent().unwrap()).unwrap();
     }

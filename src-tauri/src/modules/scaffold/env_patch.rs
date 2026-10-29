@@ -82,8 +82,11 @@ pub fn patch_env(contents: &str, updates: &[(String, String)]) -> String {
         }
     }
 
-    let mut result = out.join("\n");
-    result.push('\n');
+    // A file saved with Windows line endings keeps them: `lines()` strips the
+    // `\r`, and putting back only `\n` would rewrite every line of the file.
+    let eol = if contents.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut result = out.join(eol);
+    result.push_str(eol);
     result
 }
 
@@ -157,5 +160,12 @@ mod tests {
         assert_eq!(value_of(env, "DB_PASSWORD").as_deref(), Some("p w"));
         assert_eq!(value_of(env, "DB_HOST").as_deref(), Some("h"));
         assert_eq!(value_of(env, "MISSING"), None);
+    }
+
+    #[test]
+    fn windows_line_endings_are_kept() {
+        let input = "APP_NAME=Laravel\r\nAPP_URL=http://localhost\r\n";
+        let out = patch_env(input, &kv(&[("APP_URL", "https://shop.test"), ("DB_HOST", "127.0.0.1")]));
+        assert_eq!(out, "APP_NAME=Laravel\r\nAPP_URL=https://shop.test\r\n\r\nDB_HOST=127.0.0.1\r\n");
     }
 }

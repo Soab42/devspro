@@ -32,6 +32,11 @@ export interface ModalProps {
   /** A drag handle in the corner lets the user size the dialog — for an
       editor, where the right width is the file's longest line. */
   resizable?: boolean;
+  /** The body stops scrolling and becomes a flex column, so the content
+      scrolls itself — a log or table under tabs that must stay in view.
+      The content takes the height with `fill` (Stack, CodeBlock) or
+      DataTable's `fillHeight`. */
+  fill?: boolean;
   children: ReactNode;
 }
 
@@ -45,6 +50,7 @@ export function Modal({
   onClose,
   footer,
   resizable = false,
+  fill = false,
   children,
 }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -129,7 +135,7 @@ export function Modal({
           />
         </div>
 
-        <div className="modal-body">{children}</div>
+        <div className={fill ? "modal-body modal-body-fill" : "modal-body"}>{children}</div>
 
         {footer && <div className="modal-footer-wrap">{footer}</div>}
       </div>

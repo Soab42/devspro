@@ -1,8 +1,9 @@
+pub mod platform;
 pub mod render;
 
 use serde::Serialize;
-use std::path::Path;
-use std::process::Command;
+
+pub use platform::to_config_path;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct NginxDetection {
@@ -10,113 +11,32 @@ pub struct NginxDetection {
     pub binary_path: Option<String>,
     pub version: Option<String>,
     pub config_path: Option<String>,
-    /// Present only on Linux, when a supported package manager was found — lets the
-    /// UI offer a real "Install nginx" button instead of just a copyable command.
-    /// Never set on macOS (brew must not run as root) or Windows (no such step).
-    pub linux_package_manager: Option<String>,
-}
-
-/// The exact marker block DevsPro adds to the user's real nginx.conf — one `include`
-/// line, wrapped so it can be found and removed cleanly again. Never touches
-/// anything else in that file.
-pub const MARKER_BEGIN: &str = "# >>> devspro (do not edit this block manually) >>>";
-pub const MARKER_END: &str = "# <<< devspro <<<";
-
-/// Finds nginx's `conf.d` directory next to its main config — every standard
-/// package (Debian/Ubuntu, RHEL/Fedora) already `include`s `conf.d/*.conf` from
-/// inside `http{}`, so dropping one file there wires our sites in without ever
-/// touching the user's real nginx.conf.
-pub fn conf_d_dir(config_path: &str) -> Option<std::path::PathBuf> {
-    let dir = Path::new(config_path).parent()?.join("conf.d");
-    dir.is_dir().then_some(dir)
-}
-
-/// Builds the "make sure our sites are included" operation. Applied idempotently
-/// on every add/remove (cheap to rewrite the same one line every time).
-pub fn include_op(config_path: &str, sites_glob: &str) -> Result<crate::elevate::Operation, String> {
-    let dir = conf_d_dir(config_path).ok_or_else(|| {
-        format!(
-            "could not find a conf.d directory next to {config_path} — this nginx installation doesn't use \
-             the standard layout, so automatic site setup isn't supported for it yet"
-        )
-    })?;
-    Ok(crate::elevate::Operation::EnsureNginxConfDInclude {
-        conf_d_dir: dir.to_string_lossy().to_string(),
-        sites_glob: sites_glob.to_string(),
-    })
-}
-
-/// One-time cleanup for the earlier (buggy) approach, which appended the include
-/// line at the very end of nginx.conf — landing *after* `http{}`'s closing brace,
-/// where a `server{}` block is a syntax error. Safe to call unconditionally on
-/// every add/remove: a no-op once the stray block is gone.
-pub fn cleanup_legacy_include_block_op(config_path: &str) -> crate::elevate::Operation {
-    crate::elevate::Operation::RemoveMarkedBlock {
-        file_path: config_path.to_string(),
-        marker_begin: MARKER_BEGIN.to_string(),
-        marker_end: MARKER_END.to_string(),
-    }
+    /// The elevated package manager that can install nginx here — `apt`/`dnf`/`pacman` on
+    /// Linux, `winget` on Windows — which lets the UI offer a real "Install nginx" button
+    /// instead of just a copyable command. `None` on macOS, where brew must not run as
+    /// root, and on a Windows old enough to predate winget.
+    pub package_manager: Option<String>,
 }
 
 pub fn detect() -> NginxDetection {
-    let binary_path = find_binary();
+    let binary_path = platform::find_binary();
     let version = binary_path.as_deref().and_then(nginx_version);
     let config_path = binary_path.as_deref().and_then(nginx_config_path);
-    let linux_package_manager = if cfg!(target_os = "linux") {
-        linux_package_manager()
-    } else {
-        None
-    };
     NginxDetection {
         found: binary_path.is_some(),
         binary_path,
         version,
         config_path,
-        linux_package_manager,
+        package_manager: platform::package_manager(),
     }
 }
 
-/// Which package manager (if any) is available on this Linux machine to install
-/// nginx with. macOS's `brew` deliberately never goes through this path — Homebrew
-/// refuses to run as root, so there's no elevated install step for it to plug into.
-pub(crate) fn linux_package_manager() -> Option<String> {
-    const CANDIDATES: &[(&str, &str)] = &[
-        ("apt", "/usr/bin/apt-get"),
-        ("dnf", "/usr/bin/dnf"),
-        ("pacman", "/usr/bin/pacman"),
-    ];
-    CANDIDATES
-        .iter()
-        .find(|(_, path)| Path::new(path).exists())
-        .map(|(name, _)| name.to_string())
-}
-
-fn find_binary() -> Option<String> {
-    const CANDIDATES: &[&str] = &[
-        "/usr/sbin/nginx",
-        "/usr/bin/nginx",
-        "/usr/local/sbin/nginx",
-        "/usr/local/bin/nginx",
-        "/opt/homebrew/bin/nginx",
-        "/opt/homebrew/opt/nginx/bin/nginx",
-    ];
-    if let Some(found) = CANDIDATES.iter().find(|p| Path::new(p).exists()) {
-        return Some(found.to_string());
-    }
-    let output = Command::new("which").arg("nginx").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() {
-        None
-    } else {
-        Some(path)
-    }
+pub(crate) fn package_manager() -> Option<String> {
+    platform::package_manager()
 }
 
 fn nginx_version(bin: &str) -> Option<String> {
-    let output = Command::new(bin).arg("-v").output().ok()?;
+    let output = crate::modules::tools::command(bin).arg("-v").output().ok()?;
     let text = String::from_utf8_lossy(&output.stderr);
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -126,11 +46,46 @@ fn nginx_version(bin: &str) -> Option<String> {
     }
 }
 
+/// The `--conf-path=` nginx was built with, made openable.
+///
+/// Splitting the reported value from the resolved one is what the Windows builds force:
+/// they report `conf/nginx.conf`, relative to a prefix nginx only computes at run time, so
+/// the raw value can't be opened or handed to `conf.d` discovery as-is.
 fn nginx_config_path(bin: &str) -> Option<String> {
-    let output = Command::new(bin).arg("-V").output().ok()?;
+    let output = crate::modules::tools::command(bin).arg("-V").output().ok()?;
     let text = String::from_utf8_lossy(&output.stderr);
-    text.split_whitespace()
-        .find_map(|tok| tok.strip_prefix("--conf-path=").map(str::to_string))
+    let reported = text
+        .split_whitespace()
+        .find_map(|tok| tok.strip_prefix("--conf-path="))?;
+    platform::resolve_config_path(reported, bin)
+}
+
+/// Every elevated operation needed to make nginx include DevsPro's site files, in the
+/// order they must be applied. What that takes is genuinely different per OS — a drop-in
+/// file in `conf.d` on Unix, a spliced `include` inside `http{}` on Windows — so the whole
+/// list comes from `platform` rather than being assembled by the caller.
+pub fn wire_in_sites_ops(
+    config_path: &str,
+    sites_glob: &str,
+) -> Result<Vec<crate::elevate::Operation>, String> {
+    platform::wire_in_sites_ops(config_path, sites_glob)
+}
+
+/// `nginx -t` followed by a reload, the pair that ends every site-changing manifest.
+/// Grouped here because both need the same `-p` prefix, and forgetting it on Windows makes
+/// the test report the user's entire configuration broken.
+pub fn test_and_reload_ops(binary_path: &str) -> Vec<crate::elevate::Operation> {
+    let prefix = platform::prefix_for(binary_path);
+    vec![
+        crate::elevate::Operation::RunNginxTest {
+            binary_path: binary_path.to_string(),
+            prefix: prefix.clone(),
+        },
+        crate::elevate::Operation::ReloadNginx {
+            binary_path: binary_path.to_string(),
+            prefix,
+        },
+    ]
 }
 
 #[tauri::command(async)]
@@ -140,14 +95,16 @@ pub fn nginx_ssl_detect_nginx() -> NginxDetection {
 
 #[tauri::command(async)]
 pub fn nginx_ssl_install_nginx(app: tauri::AppHandle) -> Result<String, String> {
-    let manager = linux_package_manager()
-        .ok_or_else(|| "no supported package manager (apt/dnf/pacman) was found".to_string())?;
+    let manager = platform::package_manager()
+        .ok_or_else(|| "no supported package manager (apt/dnf/pacman/winget) was found".to_string())?;
 
     let manifest = crate::elevate::OperationManifest {
         allowed_write_prefix: super::app_root_dir(&app)?.to_string_lossy().to_string(),
         operations: vec![crate::elevate::Operation::InstallPackage {
             manager,
-            packages: vec!["nginx".to_string()],
+            // The package is named differently in every repository — `nginx` for apt,
+            // `nginxinc.nginx` for winget — so it comes from the platform, not from here.
+            packages: platform::install_packages(),
         }],
     };
 

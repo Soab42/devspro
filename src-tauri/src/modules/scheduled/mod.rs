@@ -17,6 +17,13 @@
 //!
 //! No elevation: the user's crontab is the user's own file, `crontab -` edits
 //! it without root.
+//!
+//! On Windows there is no cron; the same definitions are registered as Task
+//! Scheduler tasks under `\DevsPro\` instead — see `task_scheduler`.
+
+#[cfg(windows)]
+mod running;
+mod task_scheduler;
 
 use chrono::{DateTime, Datelike, Local, NaiveDate, NaiveDateTime, TimeDelta, Timelike};
 use rusqlite::Connection;
@@ -42,6 +49,12 @@ pub const MIGRATION_SCHEDULED_TASKS: &str = r#"
 
 pub const BLOCK_START: &str = "# >>> devspro managed — edit in DevsPro >>>";
 pub const BLOCK_END: &str = "# <<< devspro managed <<<";
+
+/// What the sync writes to, for "saved, but ... was not updated" errors.
+#[cfg(unix)]
+const SCHEDULER: &str = "the crontab";
+#[cfg(windows)]
+const SCHEDULER: &str = "Task Scheduler";
 
 /// How many trailing log lines ride along with the list response. Enough to
 /// see "what happened last time" at a glance; the logs modal has the rest.
@@ -366,6 +379,7 @@ pub fn describe(spec: &CronSpec) -> String {
 
 /// Single-quotes a path for `sh`, so spaces and `$` in a project folder
 /// survive. A literal `'` becomes `'\''` — the only escape sh needs.
+#[cfg_attr(windows, allow(dead_code))]
 fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', r"'\''"))
 }
@@ -373,6 +387,7 @@ fn shell_quote(s: &str) -> String {
 /// One crontab line for a task. `%` is special in crontab command text (it
 /// means newline, and everything after it becomes stdin), so it is escaped —
 /// otherwise `date +%F` in a command would silently truncate the job.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn cron_line(task: &ScheduledTask, log_path: &str) -> String {
     let command = format!(
         "cd {} && {} >> {} 2>&1",
@@ -386,6 +401,7 @@ pub fn cron_line(task: &ScheduledTask, log_path: &str) -> String {
 /// The full managed block, markers included, or `None` when nothing is
 /// enabled — in which case the block is removed from the crontab entirely
 /// rather than left as an empty pair of markers.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn render_block(tasks: &[ScheduledTask], log_dir: &str) -> Option<String> {
     let enabled: Vec<&ScheduledTask> = tasks.iter().filter(|t| t.enabled).collect();
     if enabled.is_empty() {
@@ -413,6 +429,7 @@ pub fn render_block(tasks: &[ScheduledTask], log_dir: &str) -> Option<String> {
 /// outside the markers is preserved exactly, including a missing final
 /// newline on the user's own last line — the only byte added is the newline
 /// needed to keep the block on its own lines.
+#[cfg_attr(windows, allow(dead_code))]
 pub fn replace_managed_block(existing: &str, block: Option<&str>) -> String {
     let start_idx = existing.find(BLOCK_START);
     let end_idx = existing.find(BLOCK_END);
@@ -439,6 +456,7 @@ pub fn replace_managed_block(existing: &str, block: Option<&str>) -> String {
     out
 }
 
+#[cfg(unix)]
 fn crontab_missing(e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::NotFound {
         "crontab is not installed — install the `cron` (or `cronie`) package and make sure the cron service is running".to_string()
@@ -449,6 +467,7 @@ fn crontab_missing(e: &std::io::Error) -> String {
 
 /// `crontab -l` exits 1 with "no crontab for <user>" when none exists yet;
 /// that's an empty file, not an error.
+#[cfg(unix)]
 fn read_crontab() -> Result<String, String> {
     let out = Command::new("crontab").arg("-l").output().map_err(|e| crontab_missing(&e))?;
     if out.status.success() {
@@ -461,6 +480,7 @@ fn read_crontab() -> Result<String, String> {
     Err(format!("crontab -l failed: {}", stderr.trim()))
 }
 
+#[cfg(unix)]
 fn write_crontab(content: &str) -> Result<(), String> {
     let mut child = Command::new("crontab")
         .arg("-")
@@ -481,7 +501,8 @@ fn write_crontab(content: &str) -> Result<(), String> {
 
 /// Regenerates the managed block from the current enabled tasks. Called only
 /// from the commands that change definitions.
-fn sync_crontab(app: &AppHandle, conn: &Connection) -> Result<(), String> {
+#[cfg(unix)]
+fn sync_schedule(app: &AppHandle, conn: &Connection) -> Result<(), String> {
     let tasks = list(conn).map_err(|e| e.to_string())?;
     let log_dir = logs_dir(app)?;
     let block = render_block(&tasks, &log_dir.to_string_lossy());
@@ -491,6 +512,35 @@ fn sync_crontab(app: &AppHandle, conn: &Connection) -> Result<(), String> {
         return Ok(());
     }
     write_crontab(&updated)
+}
+
+/// Windows counterpart: (re)registers every task under `\DevsPro\` and
+/// removes the ones no longer defined here. One bad task doesn't stop the
+/// rest from syncing; the first error is reported.
+#[cfg(windows)]
+fn sync_schedule(app: &AppHandle, conn: &Connection) -> Result<(), String> {
+    let tasks = list(conn).map_err(|e| e.to_string())?;
+    let mut first_err = None;
+    for task in &tasks {
+        let result = parse_cron(&task.schedule)
+            .and_then(|spec| task_scheduler::triggers_for(&spec))
+            .and_then(|triggers| {
+                let log = log_path(app, &task.id)?;
+                task_scheduler::register(task, &triggers, &log.to_string_lossy())
+            });
+        if let Err(e) = result {
+            first_err.get_or_insert(format!("{}: {e}", task.name));
+        }
+    }
+    let wanted: Vec<String> = tasks.iter().map(|t| task_scheduler::task_name(&t.id)).collect();
+    for name in task_scheduler::list_managed()? {
+        if !wanted.iter().any(|w| w.eq_ignore_ascii_case(&name)) {
+            if let Err(e) = task_scheduler::delete(&name) {
+                first_err.get_or_insert(e);
+            }
+        }
+    }
+    first_err.map_or(Ok(()), Err)
 }
 
 // ---------------------------------------------------------------------------
@@ -557,7 +607,13 @@ fn validate_definition(name: &str, schedule: &str, command: &str) -> Result<(Str
         return Err("name cannot be empty".to_string());
     }
     let schedule = schedule.split_whitespace().collect::<Vec<_>>().join(" ");
-    parse_cron(&schedule).map_err(|e| format!("invalid schedule: {e}"))?;
+    let spec = parse_cron(&schedule).map_err(|e| format!("invalid schedule: {e}"))?;
+    // Task Scheduler can't express every cron expression; refuse up front
+    // rather than saving something that would never be registered.
+    #[cfg(windows)]
+    task_scheduler::triggers_for(&spec).map_err(|e| format!("invalid schedule: {e}"))?;
+    #[cfg(not(windows))]
+    let _ = spec;
     let command = command.trim().to_string();
     if command.is_empty() {
         return Err("command cannot be empty".to_string());
@@ -664,18 +720,35 @@ pub fn scheduled_save(
         }
     };
 
-    sync_crontab(&app, &conn).map_err(|e| format!("task saved, but the crontab was not updated: {e}"))?;
+    sync_schedule(&app, &conn).map_err(|e| format!("task saved, but {SCHEDULER} was not updated: {e}"))?;
+    if !enabled {
+        stop_runs(&id);
+    }
     Ok(to_view(&app, find(&conn, &id)?))
+}
+
+/// Ends the task's runs still in progress, after the sync so no new one starts
+/// meanwhile. Off means off: without this a long-running command keeps going
+/// after its task is disabled or deleted. Windows only so far — on Unix cron's
+/// runs aren't tracked either and still finish on their own.
+fn stop_runs(id: &str) {
+    #[cfg(windows)]
+    running::stop_runs(id);
+    #[cfg(not(windows))]
+    let _ = id;
 }
 
 #[tauri::command(async)]
 pub fn scheduled_delete(app: AppHandle, db: State<crate::db::Db>, id: String) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM scheduled_tasks WHERE id = ?1", [&id]).map_err(|e| e.to_string())?;
+    let synced = sync_schedule(&app, &conn).map_err(|e| format!("task deleted, but {SCHEDULER} was not updated: {e}"));
+    // Before the log goes: a run killed mid-write must not recreate it.
+    stop_runs(&id);
     if let Ok(path) = log_path(&app, &id) {
         let _ = std::fs::remove_file(path);
     }
-    sync_crontab(&app, &conn).map_err(|e| format!("task deleted, but the crontab was not updated: {e}"))
+    synced
 }
 
 #[tauri::command(async)]
@@ -689,11 +762,15 @@ pub fn scheduled_set_enabled(
     find(&conn, &id)?;
     conn.execute("UPDATE scheduled_tasks SET enabled = ?1 WHERE id = ?2", (enabled as i64, &id))
         .map_err(|e| e.to_string())?;
-    sync_crontab(&app, &conn).map_err(|e| format!("setting saved, but the crontab was not updated: {e}"))?;
+    sync_schedule(&app, &conn).map_err(|e| format!("setting saved, but {SCHEDULER} was not updated: {e}"))?;
+    if !enabled {
+        stop_runs(&id);
+    }
     Ok(to_view(&app, find(&conn, &id)?))
 }
 
-/// Runs the task once, right now, exactly as cron would (same `sh -c`, same
+/// Runs the task once, right now, exactly as cron would (same `sh -c` — `cmd /c`
+/// on Windows — same
 /// working dir, same log file) — for "did I get the command right?" without
 /// waiting for the next tick. Returns as soon as the process is spawned; the
 /// page polls the log for output, since a task may legitimately take minutes.
@@ -714,15 +791,10 @@ pub fn scheduled_run_now(app: AppHandle, db: State<crate::db::Db>, id: String) -
         .map_err(|e| format!("failed to open log file: {e}"))?;
     // A header so a manual run is distinguishable from cron's in the log.
     let _ = writeln!(log_file, "--- manual run at {} ---", Local::now().format("%Y-%m-%d %H:%M:%S"));
-    let stderr_file = log_file.try_clone().map_err(|e| e.to_string())?;
 
-    let mut child = Command::new("sh")
-        .arg("-c")
-        .arg(&task.command)
+    let mut child = run_now_command(&task, &path, log_file)?
         .current_dir(&task.working_dir)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(log_file))
-        .stderr(Stdio::from(stderr_file))
         .spawn()
         .map_err(|e| format!("failed to start command: {e}"))?;
     // Reap the child in the background so it never lingers as a zombie.
@@ -730,6 +802,33 @@ pub fn scheduled_run_now(app: AppHandle, db: State<crate::db::Db>, id: String) -
         let _ = child.wait();
     });
     Ok(())
+}
+
+/// `sh -c` with both streams going to the log file.
+#[cfg(unix)]
+fn run_now_command(task: &ScheduledTask, _log: &std::path::Path, log_file: std::fs::File) -> Result<Command, String> {
+    let stderr_file = log_file.try_clone().map_err(|e| e.to_string())?;
+    let mut cmd = Command::new("sh");
+    cmd.arg("-c").arg(&task.command).stdout(Stdio::from(log_file)).stderr(Stdio::from(stderr_file));
+    Ok(cmd)
+}
+
+/// The same `cmd` line Task Scheduler runs, redirect included, so the log
+/// path is on this run's command line too and disabling or deleting the task
+/// can find and stop it (see `running`). `raw_arg` so the line reaches cmd
+/// verbatim — Rust's own quoting would escape its inner quotes in a way cmd
+/// doesn't understand. No console window, matching the headless scheduled runs.
+#[cfg(windows)]
+fn run_now_command(task: &ScheduledTask, log: &std::path::Path, log_file: std::fs::File) -> Result<Command, String> {
+    use std::os::windows::process::CommandExt;
+    // cmd appends to the log itself; the header is already in.
+    drop(log_file);
+    let mut cmd = Command::new("cmd");
+    cmd.raw_arg(task_scheduler::cmd_arguments(task, &log.to_string_lossy()))
+        .creation_flags(0x0800_0000)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    Ok(cmd)
 }
 
 #[tauri::command(async)]

@@ -4,8 +4,28 @@
 use super::super::Risk;
 use super::procs::Blocker;
 use std::fs;
+#[cfg(all(test, unix))]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+
+// Where each cache lives differs per OS; everything else in this file is shared.
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix as platform;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as platform;
+
+const JS: &str = "JavaScript";
+const PM: &str = "Package managers";
+const RUST: &str = "Rust";
+const GO: &str = "Go";
+const JVM: &str = "JVM";
+const TEST: &str = "Test tooling";
+const APPS: &str = "Browsers and editors";
+const SMALL: &str = "Small caches";
 
 /// A Laravel log is only worth offering once it is this big.
 pub const LOG_MIN_BYTES: u64 = 50 * 1024 * 1024;
@@ -22,6 +42,13 @@ pub enum Action {
     Remove,
     /// Cut each file to 0 bytes.
     Truncate,
+    /// Like `Empty`, but an item that cannot be removed (a temp file a running
+    /// program still holds open) is skipped rather than failing the entry.
+    #[cfg(windows)]
+    Sweep,
+    /// Empty the Recycle Bin through the shell, which owns its bookkeeping.
+    #[cfg(windows)]
+    RecycleBin,
 }
 
 /// The tool's own clean command: a resolved binary and a fixed argv, never a shell line.
@@ -86,6 +113,8 @@ impl Entry {
         match (&self.tool, self.action) {
             (Some(t), _) => t.display(),
             (None, Action::Truncate) => "truncate".to_string(),
+            #[cfg(windows)]
+            (None, Action::RecycleBin) => "empty Recycle Bin".to_string(),
             (None, _) => "delete".to_string(),
         }
     }
@@ -118,13 +147,26 @@ pub struct Host {
     pub rustup_active: Option<String>,
     /// $RUSTUP_TOOLCHAIN.
     pub rustup_env: Option<String>,
+    /// %LOCALAPPDATA%, where most tools keep their caches on Windows.
+    #[cfg(windows)]
+    pub local: PathBuf,
+    /// %APPDATA% (Roaming): VS Code, nvm-windows and JetBrains settings.
+    #[cfg(windows)]
+    pub roaming: PathBuf,
+    /// %TEMP%.
+    #[cfg(windows)]
+    pub temp: Option<PathBuf>,
+    /// Output of `npm config get cache`, when npm is installed.
+    #[cfg(windows)]
+    pub npm_cache: Option<PathBuf>,
+    /// This user's `$Recycle.Bin\<SID>` folder on each fixed drive.
+    #[cfg(windows)]
+    pub recycle_bins: Vec<PathBuf>,
 }
 
 impl Host {
     pub fn which(&self, name: &str) -> Option<PathBuf> {
-        self.path.iter().map(|d| d.join(name)).find(|p| {
-            fs::metadata(p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
-        })
+        self.path.iter().flat_map(|d| candidates(d, name)).find(|p| crate::modules::fs_compat::is_executable(p))
     }
 
     fn tool(&self, name: &'static str, bins: &[&str], args: &[&'static str]) -> Option<Tool> {
@@ -132,6 +174,18 @@ impl Host {
             .find_map(|b| self.which(b))
             .map(|bin| Tool { name, bin, args: args.to_vec() })
     }
+}
+
+#[cfg(unix)]
+fn candidates(dir: &Path, name: &str) -> Vec<PathBuf> {
+    vec![dir.join(name)]
+}
+
+/// Windows runs `npm` as `npm.cmd`; the bare `npm` beside it is a shell script
+/// for Git Bash that `CreateProcess` refuses, so only real extensions count.
+#[cfg(windows)]
+fn candidates(dir: &Path, name: &str) -> Vec<PathBuf> {
+    ["exe", "cmd", "bat", "com"].iter().map(|ext| dir.join(format!("{name}.{ext}"))).collect()
 }
 
 /// A real directory, not a symlink to one: emptying through a link could reach anywhere.
@@ -154,11 +208,13 @@ fn child_dirs(dir: &Path) -> Vec<(String, PathBuf)> {
     out
 }
 
+#[cfg(unix)]
 fn version_key(name: &str) -> Vec<u64> {
     name.trim_start_matches('v').split('.').map(|p| p.parse().unwrap_or(0)).collect()
 }
 
 /// The Node version nvm treats as default, by directory name ("v20.11.0").
+#[cfg(unix)]
 fn nvm_default(nvm: &Path, versions: &[(String, PathBuf)]) -> Option<String> {
     let highest = || versions.iter().map(|(n, _)| n).max_by_key(|n| version_key(n)).cloned();
     let mut alias = fs::read_to_string(nvm.join("alias/default")).ok()?.trim().to_string();
@@ -187,11 +243,12 @@ fn nvm_default(nvm: &Path, versions: &[(String, PathBuf)]) -> Option<String> {
     None
 }
 
-/// The nvm version directory name of the `node` found on PATH, if it lives under nvm.
-fn nvm_active(host: &Host, nvm: &Path) -> Option<String> {
+/// The name of the version directory under `versions` that holds the `node`
+/// found on PATH, if it lives there.
+fn nvm_active(host: &Host, versions: &Path) -> Option<String> {
     let node = host.which("node")?;
     let node = fs::canonicalize(&node).unwrap_or(node);
-    let root = fs::canonicalize(nvm.join("versions/node")).unwrap_or_else(|_| nvm.join("versions/node"));
+    let root = fs::canonicalize(versions).unwrap_or_else(|_| versions.to_path_buf());
     let rel = node.strip_prefix(&root).ok()?;
     rel.components().next().map(|c| c.as_os_str().to_string_lossy().into_owned())
 }
@@ -228,128 +285,17 @@ fn is_default_toolchain(dir_name: &str, default: &str) -> bool {
 
 /// Every cache that exists on this machine, unsized and in display order.
 pub fn catalog(host: &Host) -> Vec<Entry> {
-    use Risk::{Danger, Review, Safe};
-    let h = &host.home;
-    let cache = h.join(".cache");
     let mut out: Vec<Entry> = Vec::new();
     let mut add = |e: Entry| {
         let mut e = e;
-        e.paths.retain(|p| real_dir(p));
+        // Relative paths come only from an unset base folder (a Windows
+        // known folder missing from the environment); never resolve them.
+        e.paths.retain(|p| p.is_absolute() && real_dir(p));
         if !e.paths.is_empty() {
             out.push(e);
         }
     };
-
-    const JS: &str = "JavaScript";
-    const PM: &str = "Package managers";
-    const RUST: &str = "Rust";
-    const GO: &str = "Go";
-    const JVM: &str = "JVM";
-    const TEST: &str = "Test tooling";
-    const APPS: &str = "Browsers and editors";
-    const SMALL: &str = "Small caches";
-
-    // JavaScript
-    add(Entry::new("npm", JS, "npm cache", "Downloaded packages; npm fetches them again when needed.", Safe, vec![h.join(".npm/_cacache")])
-        .tool(host.tool("npm", &["npm"], &["cache", "clean", "--force"]))
-        .blocked_by(&[Blocker::Installing("npm")]));
-    add(Entry::new("npm-npx", JS, "npx cache", "Packages run once with npx; fetched again on next use.", Safe, vec![h.join(".npm/_npx")])
-        .blocked_by(&[Blocker::Installing("npm")]));
-    if let Some(store) = host.pnpm_store.as_ref().filter(|s| s.starts_with(h) && *s != h) {
-        add(Entry::new("pnpm-store", JS, "pnpm store", "Prune drops only packages no project links to.", Safe, vec![store.clone()])
-            .tool(host.tool("pnpm", &["pnpm"], &["store", "prune"]))
-            .blocked_by(&[Blocker::Installing("pnpm")]));
-    }
-    add(Entry::new("pnpm-cache", JS, "pnpm metadata cache", "Registry metadata; pnpm fetches it again.", Safe, vec![cache.join("pnpm")])
-        .blocked_by(&[Blocker::Installing("pnpm")]));
-    add(Entry::new("yarn-v1", JS, "yarn cache", "Downloaded packages; yarn fetches them again.", Safe, vec![cache.join("yarn")])
-        .tool(host.tool("yarn", &["yarn"], &["cache", "clean"]))
-        .blocked_by(&[Blocker::Installing("yarn")]));
-    add(Entry::new("yarn-berry", JS, "yarn berry cache", "Global package archives; yarn fetches them again.", Safe, vec![h.join(".yarn/berry/cache")])
-        .blocked_by(&[Blocker::Installing("yarn")]));
-    add(Entry::new("bun", JS, "bun cache", "Downloaded packages; bun fetches them again.", Safe, vec![h.join(".bun/install/cache")])
-        .tool(host.tool("bun", &["bun"], &["pm", "cache", "rm"]))
-        .blocked_by(&[Blocker::Installing("bun")]));
-    add(Entry::new("nvm-cache", JS, "nvm download cache", "Node archives nvm downloaded; installed versions are unaffected.", Safe, vec![h.join(".nvm/.cache")]));
-    let nvm = h.join(".nvm");
-    let versions = child_dirs(&nvm.join("versions/node"));
-    if let Some(default) = nvm_default(&nvm, &versions) {
-        let active = nvm_active(host, &nvm);
-        for (name, path) in versions.iter().filter(|(n, _)| *n != default && Some(n) != active.as_ref()) {
-            add(Entry::new(&format!("nvm-node-{name}"), JS, &format!("Node {name}"), "An installed Node version other than the default; reinstalling means downloading it again.", Review, vec![path.clone()])
-                .action(Action::Remove));
-        }
-    }
-
-    // Package managers
-    add(Entry::new("composer", PM, "composer cache", "Downloaded packages; composer fetches them again.", Safe, vec![cache.join("composer"), h.join(".composer/cache")])
-        .tool(host.tool("composer", &["composer"], &["clear-cache"])));
-    add(Entry::new("pip", PM, "pip cache", "Downloaded wheels; pip fetches them again.", Safe, vec![cache.join("pip")])
-        .tool(host.tool("pip", &["pip", "pip3"], &["cache", "purge"])));
-    add(Entry::new("uv", PM, "uv cache", "Downloaded and built packages; uv fetches them again.", Safe, vec![cache.join("uv")])
-        .tool(host.tool("uv", &["uv"], &["cache", "clean"])));
-    add(Entry::new("poetry", PM, "poetry cache", "Downloaded packages; poetry fetches them again.", Safe, vec![cache.join("pypoetry/cache")]));
-
-    // Rust
-    add(Entry::new("cargo-registry", RUST, "cargo registry", "Crate downloads and unpacked sources; re-downloading them is slow.", Review, vec![h.join(".cargo/registry/cache"), h.join(".cargo/registry/src")]));
-    add(Entry::new("cargo-git", RUST, "cargo git checkouts", "Git dependencies; cargo clones them again.", Review, vec![h.join(".cargo/git")]));
-    let rustup = h.join(".rustup");
-    if let Some(default) = rustup_default(&rustup) {
-        let mut keep = vec![default];
-        keep.extend(host.rustup_active.clone());
-        keep.extend(host.rustup_env.clone());
-        keep.extend(rustup_overrides(&rustup));
-        for (name, path) in child_dirs(&rustup.join("toolchains")).into_iter().filter(|(n, _)| !keep.iter().any(|k| is_default_toolchain(n, k))) {
-            add(Entry::new(&format!("rustup-{name}"), RUST, &format!("Rust toolchain {name}"), "A toolchain other than the default; reinstalling it is a large download.", Review, vec![path])
-                .action(Action::Remove));
-        }
-    }
-
-    // Go
-    add(Entry::new("go-build", GO, "Go build cache", "Compiled packages; the next build recompiles them.", Safe, vec![cache.join("go-build")])
-        .tool(host.tool("go", &["go"], &["clean", "-cache"])));
-    add(Entry::new("go-mod", GO, "Go module cache", "Downloaded modules; go fetches them again.", Safe, vec![h.join("go/pkg/mod")])
-        .tool(host.tool("go", &["go"], &["clean", "-modcache"])));
-
-    // JVM
-    add(Entry::new("gradle", JVM, "Gradle caches", "Dependencies and build outputs; re-downloading them is slow.", Review, vec![h.join(".gradle/caches")])
-        .blocked_by(&[Blocker::Gradle]));
-    add(Entry::new("m2", JVM, "Maven repository", "Dependencies; re-downloading them is slow, and locally installed artifacts are lost.", Review, vec![h.join(".m2/repository")]));
-
-    // Test tooling
-    add(Entry::new("playwright", TEST, "Playwright browsers", "Browser builds for tests; each is a large download.", Review, vec![cache.join("ms-playwright")]));
-    add(Entry::new("cypress", TEST, "Cypress binaries", "Cypress app builds; each is a large download.", Review, vec![cache.join("Cypress")]));
-    add(Entry::new("puppeteer", TEST, "Puppeteer browsers", "Browser builds for automation; each is a large download.", Review, vec![cache.join("puppeteer")]));
-
-    // Browsers and editors
-    add(Entry::new("chrome", APPS, "Chrome cache", "Page and media cache; Chrome rebuilds it as you browse.", Safe, vec![cache.join("google-chrome")])
-        .blocked_by(&[Blocker::Comm("Chrome", &["chrome", "google-chrome", "google-chrome-s"])]));
-    add(Entry::new("chromium", APPS, "Chromium cache", "Page and media cache; Chromium rebuilds it as you browse.", Safe, vec![cache.join("chromium")])
-        .blocked_by(&[Blocker::Comm("Chromium", &["chromium", "chromium-browse", "chrome"])]));
-    add(Entry::new("firefox", APPS, "Firefox cache", "Page and media cache; Firefox rebuilds it as you browse.", Safe, vec![cache.join("mozilla/firefox")])
-        .blocked_by(&[Blocker::Comm("Firefox", &["firefox", "firefox-bin", "firefox-esr"])]));
-    let code = h.join(".config/Code");
-    add(Entry::new("vscode", APPS, "VS Code caches", "Compiled-code and extension download caches; VS Code recreates them.", Safe,
-        ["Cache", "CachedData", "CachedExtensionVSIXs", "Code Cache", "GPUCache"].iter().map(|d| code.join(d)).collect())
-        .blocked_by(&[Blocker::Comm("VS Code", &["code"])]));
-    for (name, path) in child_dirs(&cache.join("JetBrains")) {
-        if !real_dir(&h.join(".config/JetBrains").join(&name)) {
-            add(Entry::new(&format!("jetbrains-{name}"), APPS, &format!("JetBrains {name} caches"), "Caches of an IDE version that is no longer installed.", Review, vec![path])
-                .action(Action::Remove));
-        }
-    }
-
-    // Small caches
-    add(Entry::new("thumbnails", SMALL, "Thumbnails", "Image previews; the file manager redraws them.", Safe, vec![cache.join("thumbnails")]));
-    add(Entry::new("node-gyp", SMALL, "node-gyp headers", "Node headers for native builds; downloaded again when needed.", Safe, vec![cache.join("node-gyp")]));
-    add(Entry::new("electron", SMALL, "Electron downloads", "Electron builds; downloaded again when needed.", Safe, vec![cache.join("electron")]));
-    add(Entry::new("typescript", SMALL, "TypeScript cache", "Type-acquisition cache; rebuilt by the editor.", Safe, vec![cache.join("typescript")]));
-    add(Entry::new("deno", SMALL, "Deno cache", "Downloaded modules; deno fetches them again.", Safe, vec![cache.join("deno")]));
-
-    // Trash
-    add(Entry::new("trash", "Trash", "Trash", "Emptying it deletes these files for good.", Danger, vec![h.join(".local/share/Trash")])
-        .tool(host.tool("gio", &["gio"], &["trash", "--empty"])));
-
+    platform::entries(host, &mut add);
     out.extend(laravel_logs(host));
     out
 }
@@ -386,6 +332,8 @@ fn laravel_logs(host: &Host) -> Vec<Entry> {
 pub fn root_for(entry: &Entry, path: &Path) -> PathBuf {
     match entry.action {
         Action::Empty => path.to_path_buf(),
+        #[cfg(windows)]
+        Action::Sweep | Action::RecycleBin => path.to_path_buf(),
         Action::Remove | Action::Truncate => path.parent().map(Path::to_path_buf).unwrap_or_default(),
     }
 }
@@ -425,6 +373,7 @@ mod tests {
         catalog(h).into_iter().find(|e| e.id == id).unwrap_or_else(|| panic!("no entry {id}"))
     }
 
+    #[cfg(unix)]
     #[test]
     fn detects_only_what_exists() {
         let home = scratch("detect");
@@ -439,6 +388,7 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_symlinked_cache_dir_is_not_offered() {
         let home = scratch("symlink");
@@ -450,6 +400,7 @@ mod tests {
         fs::remove_dir_all(&elsewhere).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn risk_levels_follow_the_rules() {
         let home = scratch("risk");
@@ -475,6 +426,7 @@ mod tests {
         assert!(!suggested(Risk::Danger, 10_000 * mib));
     }
 
+    #[cfg(unix)]
     #[test]
     fn nvm_keeps_the_default_version_and_offers_the_rest() {
         let home = scratch("nvm");
@@ -493,6 +445,7 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn nvm_follows_an_alias_to_another_alias() {
         let home = scratch("nvm-alias");
@@ -518,6 +471,7 @@ mod tests {
         fs::remove_dir_all(&home).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn jetbrains_offers_only_versions_without_a_config_dir() {
         let home = scratch("jb");
@@ -563,6 +517,7 @@ mod tests {
     }
 
     /// A PATH directory holding an executable for each name.
+    #[cfg(unix)]
     fn fake_path(names: &[&str]) -> (PathBuf, Vec<PathBuf>) {
         let dir = scratch("fakepath");
         for n in names {
@@ -573,6 +528,7 @@ mod tests {
         (dir.clone(), vec![dir])
     }
 
+    #[cfg(unix)]
     #[test]
     fn each_tool_uses_its_fixed_argv() {
         let home = scratch("argv");
@@ -606,6 +562,7 @@ mod tests {
         fs::remove_dir_all(&fp).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn nvm_never_offers_the_version_on_path() {
         let home = scratch("nvm-active");

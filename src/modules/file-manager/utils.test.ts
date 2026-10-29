@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FileEntry } from "./api";
 import {
+  baseName,
   canGoBack,
   canGoForward,
   clickSelect,
@@ -12,7 +13,13 @@ import {
   historyPush,
   historyStep,
   isEditable,
+  isRootPath,
+  isUnder,
+  isWindowsPath,
+  joinPath,
+  ownerLabel,
   parentPath,
+  permissionsLabel,
   sortEntries,
   splitBreadcrumb,
   THUMB_MAX,
@@ -54,6 +61,67 @@ describe("paths", () => {
     expect(tildePath("/home/u/Projects", "/home/u")).toBe("~/Projects");
     expect(tildePath("/home/u", "/home/u")).toBe("~");
     expect(tildePath("/home/user2", "/home/u")).toBe("/home/user2");
+  });
+});
+
+describe("Windows paths", () => {
+  it("tells a Windows path by its drive or share", () => {
+    expect(isWindowsPath("C:\\Users\\me")).toBe(true);
+    expect(isWindowsPath("d:")).toBe(true);
+    expect(isWindowsPath("\\\\nas\\share\\x")).toBe(true);
+    expect(isWindowsPath("/home/me")).toBe(false);
+    expect(isWindowsPath("C:notes")).toBe(false);
+  });
+
+  it("splits breadcrumbs from the drive", () => {
+    expect(splitBreadcrumb("C:\\Users\\me")).toEqual([
+      { label: "C:", path: "C:\\" },
+      { label: "Users", path: "C:\\Users" },
+      { label: "me", path: "C:\\Users\\me" },
+    ]);
+    expect(splitBreadcrumb("D:\\")).toEqual([{ label: "D:", path: "D:\\" }]);
+    expect(splitBreadcrumb("\\\\nas\\share\\docs").map((c) => c.path)).toEqual(["\\\\nas\\share\\", "\\\\nas\\share\\docs"]);
+  });
+
+  it("walks up to the drive and stops there", () => {
+    expect(parentPath("C:\\Users\\me\\")).toBe("C:\\Users");
+    expect(parentPath("C:\\Users")).toBe("C:\\");
+    expect(parentPath("C:\\")).toBe("C:\\");
+    expect(isRootPath("C:\\")).toBe(true);
+    expect(isRootPath("C:")).toBe(true);
+    expect(isRootPath("C:\\Users")).toBe(false);
+    expect(isRootPath("/")).toBe(true);
+  });
+
+  it("names, joins and nests with backslashes", () => {
+    expect(baseName("C:\\Users\\me\\a.txt")).toBe("a.txt");
+    expect(baseName("C:\\")).toBe("");
+    expect(joinPath("C:\\", "Users")).toBe("C:\\Users");
+    expect(joinPath("C:\\Users", "me")).toBe("C:\\Users\\me");
+    expect(joinPath("/home", "me")).toBe("/home/me");
+    expect(isUnder("C:\\Users\\me\\x", "C:\\Users\\me")).toBe(true);
+    expect(isUnder("C:\\Users\\me2", "C:\\Users\\me")).toBe(false);
+    expect(isUnder("C:\\Users", "C:\\")).toBe(true);
+    expect(tildePath("C:\\Users\\me\\src", "C:\\Users\\me")).toBe("~\\src");
+  });
+
+  it("chains columns from a place or the drive", () => {
+    expect(columnChain("C:\\Users\\me\\src\\app", ["C:\\Users\\me"])).toEqual(["C:\\Users\\me", "C:\\Users\\me\\src", "C:\\Users\\me\\src\\app"]);
+    expect(columnChain("D:\\games\\x", ["C:\\Users\\me"])).toEqual(["D:\\", "D:\\games", "D:\\games\\x"]);
+  });
+
+  it("plans moves by folder, not by string prefix", () => {
+    expect(planMove(["C:\\a\\x", "C:\\c"], "C:\\c\\deep")).toEqual({ moves: ["C:\\a\\x"], skipped: ["C:\\c"] });
+    expect(planMove(["C:\\a\\x"], "C:\\a")).toEqual({ moves: [], skipped: ["C:\\a\\x"] });
+  });
+
+  it("describes permissions and owner the way each OS has them", () => {
+    expect(permissionsLabel("/etc/x", "644", "rw-r--r--")).toBe("0644 (rw-r--r--)");
+    expect(permissionsLabel("/etc/x", "644")).toBe("0644");
+    expect(permissionsLabel("C:\\x.txt", "444")).toBe("Read-only");
+    expect(permissionsLabel("C:\\x.txt", "644")).toBe("Read and write");
+    expect(ownerLabel("me", "staff")).toBe("me:staff");
+    expect(ownerLabel("Administrators", "")).toBe("Administrators");
   });
 });
 

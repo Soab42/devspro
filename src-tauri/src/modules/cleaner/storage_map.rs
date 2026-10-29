@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::os::unix::fs::MetadataExt;
+use crate::modules::fs_compat::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -313,7 +313,8 @@ fn scan_tree(root: &Path, scan: &Scan, max_entries: u64) -> Result<StorageTree, 
         root: Mutex::new(None),
     };
     scan.tick(1, own, root);
-    let name = root.file_name().map_or_else(|| "/".to_string(), |n| n.to_string_lossy().into_owned());
+    // A filesystem root has no name: `/`, or the drive itself (`C:\`) on Windows.
+    let name = root.file_name().map_or_else(|| root.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
     let start = Dir { path: root.to_path_buf(), name, own, parent: None };
     let (per_thread, unread) =
         walk_dirs(start, scan, HashMap::new, |exts, dir, list| tree.read(scan, exts, dir, list));
@@ -450,7 +451,7 @@ mod tests {
         assert_eq!(t.root.bytes, t.total_bytes);
         let sub = t.root.children.iter().find(|c| c.name == "sub").unwrap();
         assert!(sub.is_dir && sub.files == 2);
-        assert!(sub.children.iter().any(|c| c.path == d.join("sub/b.mp4").to_string_lossy()));
+        assert!(sub.children.iter().any(|c| c.path == d.join("sub").join("b.mp4").to_string_lossy()));
         let mp4 = t.extensions.iter().find(|e| e.ext == "mp4").unwrap();
         assert_eq!((mp4.files, mp4.kind.as_str()), (2, "video"));
         assert!(mp4.bytes >= 700_000);
@@ -522,7 +523,18 @@ mod tests {
         let d = scratch("symlink");
         let outside = scratch("symlink-outside");
         write(&outside.join("big.bin"), 1_000_000);
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, d.join("link")).unwrap();
+        // A junction, Windows' directory link that needs no admin rights.
+        #[cfg(windows)]
+        assert!(std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(d.join("link"))
+            .arg(&outside)
+            .output()
+            .unwrap()
+            .status
+            .success());
         let t = scan_tree(&d, &Scan::detached(), 1000).unwrap();
         // The link itself counts as one small entry; what it points at does not.
         assert_eq!(t.files, 1);
@@ -532,6 +544,9 @@ mod tests {
         fs::remove_dir_all(&outside).unwrap();
     }
 
+    // Windows: `fs_compat` reports every file with one link, so a hard link
+    // is counted twice there (see its module comment).
+    #[cfg(unix)]
     #[test]
     fn hard_links_count_once() {
         let d = scratch("hardlink");
@@ -559,11 +574,14 @@ mod tests {
         let a4 = t.root.children.iter().find(|c| c.name == "a4").unwrap();
         assert!(a4.is_dir && a4.files == 5 && a4.path == d.join("a4").to_string_lossy());
         let b4 = a4.children.iter().find(|c| c.name == "b4").unwrap();
-        assert_eq!(b4.children[0].path, d.join("a4/b4/f.dat").to_string_lossy());
+        assert_eq!(b4.children[0].path, d.join("a4").join("b4").join("f.dat").to_string_lossy());
         assert_eq!(t.root.children[0].name, "a4", "largest first");
         fs::remove_dir_all(&d).unwrap();
     }
 
+    // Windows: `fs_compat` reports every file with one link, so a hard link
+    // is counted twice there (see its module comment).
+    #[cfg(unix)]
     #[test]
     fn a_hard_link_in_two_folders_counts_once() {
         let d = scratch("hardlink-dirs");

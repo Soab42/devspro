@@ -5,7 +5,8 @@ export interface HostStats {
   hostname: string;
   /** null until a second sample gives a delta. */
   cpuPercent: number | null;
-  load1: number;
+  /** null for this machine on Windows, which keeps no load average. */
+  load1: number | null;
   memUsedKb: number;
   memTotalKb: number;
   memPercent: number;
@@ -14,7 +15,8 @@ export interface HostStats {
   rxPerSec: number | null;
   txPerSec: number | null;
   uptimeSeconds: number;
-  users: number;
+  /** null for this machine on Windows. */
+  users: number | null;
   disks: HostSample["disks"];
 }
 

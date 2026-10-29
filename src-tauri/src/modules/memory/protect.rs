@@ -22,6 +22,11 @@
 //! `cosmic-*-applet`) are matched against process names here rather than whole
 //! command lines, so a project folder called `bug-tracker-api` doesn't make its
 //! dev server unstoppable; the daemons they were aimed at are all still covered.
+//!
+//! On Windows the same three rules hold, with a keep list of Windows' own: the
+//! kernel's pseudo-processes, session and logon, Explorer and the shell hosts around
+//! it, security, and consoles and shells (as `bash` and the terminals are kept on
+//! Linux). Anything run from the Windows folder itself is kept too.
 
 use super::procfs::{Proc, COMM_MAX};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -144,11 +149,71 @@ pub fn is_session_process(comm: &str, exe_name: &str, cmdline: &str) -> bool {
             return true;
         }
     }
+    #[cfg(windows)]
+    if is_windows_session_process(&names, cmdline) {
+        return true;
+    }
     CMDLINE_FRAGMENTS.iter().any(|f| cmdline.contains(f))
 }
 
+/// Windows' own processes, by name without `.exe`, lowercased. Most of them also live
+/// in the Windows folder, but not every one can be opened to read its path.
+#[cfg(windows)]
+const WINDOWS_NAMES: &[&str] = &[
+    // The kernel and its pseudo-processes.
+    "[system process]", "system", "registry", "memory compression", "secure system", "vmmem", "vmmemwsl",
+    // Session, logon and services.
+    "smss", "csrss", "wininit", "winlogon", "services", "lsass", "lsaiso", "svchost", "logonui", "userinit",
+    "fontdrvhost", "dwm", "sihost", "taskhostw", "ctfmon", "runtimebroker", "dllhost", "wmiprvse", "unsecapp",
+    "spoolsv", "audiodg", "wudfhost", "dashost", "sppsvc", "consent", "credentialuibroker", "werfault",
+    // The shell and what hangs off it.
+    "explorer", "startmenuexperiencehost", "shellexperiencehost", "shellhost", "searchhost", "searchapp",
+    "searchindexer", "searchprotocolhost", "searchfilterhost", "textinputhost", "lockapp",
+    "applicationframehost", "systemsettingsbroker", "backgroundtaskhost", "widgets", "widgetservice",
+    // Security.
+    "msmpeng", "nissrv", "mpdefendercoreservice", "securityhealthservice", "securityhealthsystray",
+    "smartscreen", "sgrmbroker",
+    // Consoles, shells and terminals, and WSL (closing it takes every distro down).
+    "conhost", "openconsole", "windowsterminal", "cmd", "powershell", "pwsh", "mintty",
+    "wsl", "wslhost", "wslservice", "wslrelay",
+    // DevsPro's elevated helper.
+    "ldm-helper",
+];
+
+/// The Windows folder, lowercased, with a trailing backslash.
+#[cfg(windows)]
+fn windows_dir() -> &'static str {
+    static DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+        format!("{}\\", root.trim_end_matches('\\').to_lowercase())
+    })
+}
+
+/// The program a Windows command line runs: the first token, or the quoted path.
+#[cfg(windows)]
+fn windows_program(cmdline: &str) -> String {
+    let line = cmdline.trim_start();
+    let program = match line.strip_prefix('"') {
+        Some(rest) => rest.split('"').next().unwrap_or(rest),
+        None => line.split(' ').next().unwrap_or(line),
+    };
+    program.to_lowercase()
+}
+
+#[cfg(windows)]
+fn is_windows_session_process(names: &[String], cmdline: &str) -> bool {
+    if names.iter().any(|n| WINDOWS_NAMES.contains(&n.as_str())) {
+        return true;
+    }
+    let program = windows_program(cmdline);
+    program.starts_with(windows_dir()) || program.starts_with(r"\systemroot\") || program.starts_with(r"%systemroot%\")
+}
+
+/// On Windows the installed build is `DevsPro.exe`, and names there ignore case.
 fn is_devspro(p: &Proc) -> bool {
-    p.comm == "devspro" || p.exe_name == "devspro"
+    let named = |name: &str| if cfg!(windows) { name.eq_ignore_ascii_case("devspro") } else { name == "devspro" };
+    named(&p.comm) || named(&p.exe_name)
 }
 
 /// One guard per process, parallel to `procs`. `self_pid` is DevsPro's own pid
@@ -224,8 +289,26 @@ const PROTECTED_UNIT_PREFIXES: &[&str] = &[
 ];
 const PROTECTED_UNITS: &[&str] = &["init", "ly"];
 
+/// Windows services the Memory module refuses to stop: the RPC and COM plumbing,
+/// logon and session, the event log, networking, firewall and Defender, audio,
+/// UAC's own `Appinfo`, and Remote Desktop (a remote lockout, like sshd).
+#[cfg(windows)]
+const PROTECTED_WINDOWS_SERVICES: &[&str] = &[
+    "rpcss", "rpceptmapper", "dcomlaunch", "brokerinfrastructure", "systemeventsbroker", "timebrokersvc",
+    "coremessagingregistrar", "staterepository", "lsm", "samss", "keyiso", "vaultsvc", "seclogon",
+    "profsvc", "usermanager", "gpsvc", "sens", "eventsystem", "eventlog", "plugplay", "power", "winmgmt",
+    "schedule", "cryptsvc", "appinfo", "themes", "fontcache", "shellhwdetection", "dhcp", "dnscache",
+    "nsi", "netman", "netprofm", "nlasvc", "lanmanworkstation", "lanmanserver", "wlansvc", "bfe", "mpssvc",
+    "windefend", "wdnissvc", "sense", "wscsvc", "sgrmbroker", "audiosrv", "audioendpointbuilder",
+    "termservice", "sessionenv", "umrdpservice", "trustedinstaller", "msiserver",
+];
+
 pub fn is_protected_unit(unit: &str) -> bool {
     let unit = unit.to_ascii_lowercase();
+    #[cfg(windows)]
+    if PROTECTED_WINDOWS_SERVICES.contains(&unit.as_str()) {
+        return true;
+    }
     let base = match unit.rsplit_once('.') {
         Some((base, kind)) if UNIT_TYPES.contains(&kind) => {
             if NEVER_UNIT_TYPES.contains(&kind) {
@@ -330,6 +413,44 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn windows_own_processes_are_kept() {
+        for (comm, cmdline) in [
+            ("explorer", r"C:\WINDOWS\Explorer.EXE"),
+            ("svchost", r"C:\Windows\system32\svchost.exe -k LocalService -p"),
+            ("csrss", r"%SystemRoot%\system32\csrss.exe ObjectDirectory=\Windows"),
+            ("smss", r"\SystemRoot\System32\smss.exe"),
+            ("notepad", r"C:\Windows\System32\notepad.exe"),
+            ("Memory Compression", "Memory Compression.exe"),
+            ("WindowsTerminal", r#""C:\Program Files\WindowsApps\Microsoft.WindowsTerminal\WindowsTerminal.exe""#),
+            ("pwsh", r#""C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo"#),
+            ("MsMpEng", "MsMpEng.exe"),
+        ] {
+            assert!(is_session_process(comm, comm, cmdline), "{comm} should be kept");
+        }
+        for (comm, cmdline) in [
+            ("chrome", r#""C:\Program Files\Google\Chrome\Application\chrome.exe" --type=renderer"#),
+            ("Code", r"C:\Users\u\AppData\Local\Programs\Microsoft VS Code\Code.exe"),
+            ("node", r"node C:\Windows\Temp\server.js"),
+            ("php", r"php -S 127.0.0.1:8080"),
+        ] {
+            assert!(!is_session_process(comm, comm, cmdline), "{comm} should not be kept");
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_system_services_are_protected() {
+        for unit in ["RpcSs", "EventLog", "Appinfo", "TermService", "WinDefend"] {
+            assert!(is_protected_unit(unit), "{unit}");
+        }
+        for unit in ["MySQL80", "Apache2.4", "postgresql-x64-16", "Redis"] {
+            assert!(!is_protected_unit(unit), "{unit}");
+        }
+    }
+
+    #[test]
+    #[cfg(not(windows))]
     fn truncated_comm_still_matches_a_long_exact_name() {
         // `gnome-terminal-server` arrives as `gnome-terminal-` with an argv[0]
         // that isn't its name.

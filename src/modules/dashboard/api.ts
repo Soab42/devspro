@@ -20,9 +20,11 @@ export interface CpuInfo {
   core_count: number;
   usage_percent: number;
   per_core_percent: number[];
-  load_avg_1: number;
-  load_avg_5: number;
-  load_avg_15: number;
+  /** `null` where the OS has no load average to report — Windows tracks nothing
+   *  equivalent, and a zero there would read as a completely idle machine. */
+  load_avg_1: number | null;
+  load_avg_5: number | null;
+  load_avg_15: number | null;
   /** Package temperature, or the hottest core. Null on hardware with no sensor. */
   temperature: TemperatureReading | null;
   /** Every sensor the CPU's driver exposes — package plus per core. */

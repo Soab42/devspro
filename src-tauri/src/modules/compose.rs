@@ -14,7 +14,7 @@ enum Flavor {
 }
 
 fn detect() -> Result<Flavor, String> {
-    let plugin_ok = Command::new("docker")
+    let plugin_ok = crate::modules::tools::command("docker")
         .args(["compose", "version"])
         .output()
         .map(|o| o.status.success())
@@ -23,13 +23,8 @@ fn detect() -> Result<Flavor, String> {
         return Ok(Flavor::Plugin);
     }
 
-    if let Ok(output) = Command::new("which").arg("docker-compose").output() {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(Flavor::Standalone(path));
-            }
-        }
+    if let Some(path) = crate::modules::tools::find("docker-compose") {
+        return Ok(Flavor::Standalone(path));
     }
 
     Err("neither `docker compose` (v2 plugin) nor `docker-compose` (standalone) was found".to_string())
@@ -40,13 +35,13 @@ fn detect() -> Result<Flavor, String> {
 pub fn build(args: &[&str]) -> Result<Command, String> {
     match detect()? {
         Flavor::Plugin => {
-            let mut cmd = Command::new("docker");
+            let mut cmd = crate::modules::tools::command("docker");
             cmd.arg("compose");
             cmd.args(args);
             Ok(cmd)
         }
         Flavor::Standalone(path) => {
-            let mut cmd = Command::new(path);
+            let mut cmd = crate::modules::tools::command(path);
             cmd.args(args);
             Ok(cmd)
         }

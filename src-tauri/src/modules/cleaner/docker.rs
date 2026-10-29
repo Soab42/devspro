@@ -15,7 +15,6 @@ use ids::{image_argv, is_confirmed, is_protected, plan, DockerId, COMPOSE_PROJEC
 use parse::{cache_totals, parse_containers, parse_df, parse_networks, parse_volumes, reclaimed, short_id, Df};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::process::Command;
 use tauri::{AppHandle, State};
 
 const TAB: &str = "docker";
@@ -34,7 +33,7 @@ pub struct DockerScan {
 type Runner<'a> = &'a dyn Fn(&[&str]) -> Result<String, String>;
 
 fn run_docker(args: &[&str]) -> Result<String, String> {
-    let out = Command::new("docker").args(args).output().map_err(|e| format!("failed to run docker: {e}"))?;
+    let out = crate::modules::tools::command("docker").args(args).output().map_err(|e| format!("failed to run docker: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
@@ -141,11 +140,13 @@ fn scan_with(run: Runner, scan: &Scan, now: DateTime<Utc>) -> Result<Vec<Finding
     Ok(out)
 }
 
-/// The docker data root, when this user may read it.
+/// The docker data root, when it is a folder on this machine. Docker Desktop
+/// on Windows (and macOS) reports `/var/lib/docker` inside its Linux VM, which
+/// is not a path here; the freed space then comes from docker's own sizes.
 fn data_root(run: Runner) -> Option<String> {
     let root = run(&["info", "--format", "{{.DockerRootDir}}"]).ok()?;
     let root = root.trim();
-    (!root.is_empty()).then(|| root.to_string())
+    (!root.is_empty() && Path::new(root).is_absolute()).then(|| root.to_string())
 }
 
 fn project_of(run: Runner, name: &str) -> Result<Option<String>, String> {
@@ -458,6 +459,15 @@ mod tests {
         let out = clean_with(&ids, &[], &run, &|| None).unwrap();
         assert!(!out[0].ok && out[0].message.contains("running"));
         assert!(out[1].ok);
+    }
+
+    #[test]
+    fn a_data_root_inside_docker_desktops_vm_is_not_measured_here() {
+        let run = |_: &[&str]| -> Result<String, String> { Ok("/var/lib/docker\n".to_string()) };
+        // A Linux path is a folder on Linux, but on Windows it names nothing.
+        assert_eq!(data_root(&run).is_some(), cfg!(unix));
+        let empty = |_: &[&str]| -> Result<String, String> { Ok("\n".to_string()) };
+        assert_eq!(data_root(&empty), None);
     }
 
     #[test]

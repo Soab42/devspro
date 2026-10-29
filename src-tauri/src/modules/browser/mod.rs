@@ -57,6 +57,9 @@
 
 pub mod credentials;
 mod focus;
+// Linux hosts each tab in the app window's GTK tree; elsewhere wry parents the
+// view to the native window directly (`build_as_child`), so there is no host.
+#[cfg(target_os = "linux")]
 mod host;
 
 use rusqlite::params;
@@ -67,9 +70,13 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use tauri::{AppHandle, Emitter, Manager, State, Url};
 use wry::dpi::{LogicalPosition, LogicalSize};
+#[cfg(target_os = "linux")]
 use gtk::prelude::*;
+#[cfg(target_os = "linux")]
 use webkit2gtk::WebViewExt;
-use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder, WebViewBuilderExtUnix, WebViewExtUnix};
+use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
+#[cfg(target_os = "linux")]
+use wry::{WebViewBuilderExtUnix, WebViewExtUnix};
 
 pub const TITLE_EVENT: &str = "browser:title";
 pub const LOAD_EVENT: &str = "browser:load";
@@ -239,7 +246,10 @@ pub(crate) fn origin_of(url: &str) -> Option<String> {
     })
 }
 
-/// Runs `f` on the GTK main thread and waits for its answer.
+/// Runs `f` on the GTK main thread and waits for its answer. Called from the
+/// main thread already (any sync command), `f` runs inline — so on Windows
+/// nothing that pumps a nested message loop, like building a WebView2, may be
+/// reached through a sync command. See `browser_open`.
 fn on_main<T, F>(app: &AppHandle, f: F) -> Result<T, String>
 where
     T: Send + 'static,
@@ -353,7 +363,19 @@ fn unique_download_path(dir: &std::path::Path, suggested: &str) -> PathBuf {
         .expect("an unused download name exists")
 }
 
-#[tauri::command]
+// On Windows this must be an async command. Tauri runs a plain (sync) command
+// on the main thread, inside the app webview's WebView2 resource-request
+// callback that carries the IPC call; `run_on_main_thread` then runs `on_main`'s
+// closure inline, right there. wry builds the tab's WebView2 by pumping a nested
+// message loop until the environment and controller callbacks arrive, and
+// WebView2 does not deliver those while one of its own callbacks is still on
+// the stack. The pump waits forever, and the creation is aborted (E_ABORT) as
+// soon as anything tears it down. As an async command the body runs on a
+// worker, so `on_main` posts to the event loop and the view is built outside
+// any WebView2 callback, the same way Tauri builds its own webviews.
+// Linux keeps the sync command: WebKitGTK has no such restriction.
+#[cfg_attr(target_os = "windows", tauri::command(async))]
+#[cfg_attr(not(target_os = "windows"), tauri::command)]
 pub fn browser_open(
     app: AppHandle,
     window: tauri::Window,
@@ -508,12 +530,21 @@ fn browser_open_inner(
                 builder = builder.with_user_agent(ua);
             }
 
-            let fixed = host::container_for(&window)?;
+            #[cfg(target_os = "linux")]
+            let wv = {
+                let fixed = host::container_for(&window)?;
+                let wv = builder
+                    .build_gtk(&fixed)
+                    .map_err(|e| format!("could not create the browser view: {e}"))?;
+                host::place(&fixed, wv.webview().upcast_ref(), bounds.x, bounds.y, bounds.width, bounds.height);
+                wv.webview().show_all();
+                wv
+            };
+            // A native child window (WebView2 on Windows) positioned by `with_bounds`.
+            #[cfg(not(target_os = "linux"))]
             let wv = builder
-                .build_gtk(&fixed)
+                .build_as_child(&window)
                 .map_err(|e| format!("could not create the browser view: {e}"))?;
-            host::place(&fixed, wv.webview().upcast_ref(), bounds.x, bounds.y, bounds.width, bounds.height);
-            wv.webview().show_all();
             Ok::<WebView, String>(wv)
         })?;
         TABS.with(|tabs| tabs.borrow_mut().insert(id, webview));
@@ -549,13 +580,16 @@ pub fn browser_stop(app: AppHandle, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn browser_set_bounds(app: AppHandle, id: String, bounds: Bounds) -> Result<(), String> {
-    with_tab(&app, id, move |wv| {
+    #[cfg(target_os = "linux")]
+    return with_tab(&app, id, move |wv| {
         let widget = wv.webview();
         if let Some(fixed) = widget.parent().and_then(|p| p.downcast::<gtk::Fixed>().ok()) {
             host::place(&fixed, widget.upcast_ref(), bounds.x, bounds.y, bounds.width, bounds.height);
         }
         Ok(())
-    })
+    });
+    #[cfg(not(target_os = "linux"))]
+    return with_tab(&app, id, move |wv| wv.set_bounds(Rect::from(&bounds)));
 }
 
 #[tauri::command]
@@ -587,7 +621,17 @@ pub fn browser_focus(app: AppHandle, id: String) -> Result<(), String> {
 /// dialog. The frontend calls this on every click outside a page.
 #[tauri::command]
 pub fn browser_focus_parent(app: AppHandle, window: tauri::Window) -> Result<(), String> {
-    on_main(&app, move || focus::focus_app_window(&window))
+    on_main(&app, move || {
+        #[cfg(not(target_os = "linux"))]
+        TABS.with(|tabs| {
+            if let Ok(tabs) = tabs.try_borrow() {
+                if let Some(wv) = tabs.values().next() {
+                    let _ = wv.focus_parent();
+                }
+            }
+        });
+        focus::focus_app_window(&window)
+    })
 }
 
 /// Web Inspector for one tab. WebKitGTK opens it in its own window, docked or
@@ -654,10 +698,15 @@ pub fn browser_close(app: AppHandle, id: String) -> Result<(), String> {
                 // the WebKit view alive, and with it the page — audio kept
                 // playing and the remote inspector kept listing closed tabs.
                 // Closing the page itself ends it regardless of the widget.
-                let widget = wv.webview();
-                widget.stop_loading();
-                widget.try_close();
-                host::remove(widget.upcast_ref());
+                #[cfg(target_os = "linux")]
+                {
+                    let widget = wv.webview();
+                    widget.stop_loading();
+                    widget.try_close();
+                    host::remove(widget.upcast_ref());
+                }
+                // Elsewhere dropping the WebView tears down the native child.
+                drop(wv);
             }
         });
         Ok(())
@@ -841,6 +890,7 @@ pub struct SystemBrowser {
 
 /// Real engines installed on this machine, for the moments a UA switch isn't
 /// enough. Only ones actually on PATH are listed.
+#[cfg(not(windows))]
 const KNOWN_BROWSERS: &[(&str, &str, &[&str])] = &[
     ("chrome", "Google Chrome", &["google-chrome", "google-chrome-stable", "google-chrome-beta"]),
     ("chromium", "Chromium", &["chromium", "chromium-browser"]),
@@ -850,11 +900,13 @@ const KNOWN_BROWSERS: &[(&str, &str, &[&str])] = &[
     ("epiphany", "GNOME Web", &["epiphany"]),
 ];
 
+#[cfg(not(windows))]
 fn on_path(cmd: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else { return false };
     std::env::split_paths(&path).any(|dir| dir.join(cmd).is_file())
 }
 
+#[cfg(not(windows))]
 #[tauri::command(async)]
 pub fn browser_system_browsers() -> Vec<SystemBrowser> {
     KNOWN_BROWSERS
@@ -869,6 +921,84 @@ pub fn browser_system_browsers() -> Vec<SystemBrowser> {
         .collect()
 }
 
+/// Windows browsers don't put themselves on PATH, so the Linux lookup finds none of them.
+/// Each is looked for where its installer puts it — per-machine under Program Files or
+/// per-user under LocalAppData — and then through its `App Paths` registration, which is
+/// how Windows itself finds `msedge.exe` from the Run box wherever it was installed.
+/// `command` is the full path to the executable.
+#[cfg(windows)]
+const WINDOWS_BROWSERS: &[(&str, &str, &str, Option<&str>)] = &[
+    ("chrome", "Google Chrome", r"Google\Chrome\Application\chrome.exe", Some("chrome.exe")),
+    // Chromium's executable is also chrome.exe, so its App Paths entry would be Chrome's.
+    ("chromium", "Chromium", r"Chromium\Application\chrome.exe", None),
+    ("brave", "Brave", r"BraveSoftware\Brave-Browser\Application\brave.exe", Some("brave.exe")),
+    ("edge", "Microsoft Edge", r"Microsoft\Edge\Application\msedge.exe", Some("msedge.exe")),
+    ("firefox", "Firefox", r"Mozilla Firefox\firefox.exe", Some("firefox.exe")),
+];
+
+#[cfg(windows)]
+#[tauri::command(async)]
+pub fn browser_system_browsers() -> Vec<SystemBrowser> {
+    let roots: Vec<std::path::PathBuf> = ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"]
+        .iter()
+        .filter_map(|var| std::env::var_os(var).map(std::path::PathBuf::from))
+        .collect();
+    WINDOWS_BROWSERS
+        .iter()
+        .filter_map(|(id, label, relative, app_path)| {
+            let found = roots
+                .iter()
+                .map(|root| root.join(relative))
+                .find(|path| path.is_file())
+                .or_else(|| app_path.and_then(registered_app_path))?;
+            Some(SystemBrowser {
+                id: id.to_string(),
+                label: label.to_string(),
+                command: found.to_string_lossy().into_owned(),
+            })
+        })
+        .collect()
+}
+
+/// The executable `exe` is registered at under `App Paths`, per-user first, if that file
+/// still exists.
+#[cfg(windows)]
+fn registered_app_path(exe: &str) -> Option<std::path::PathBuf> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+
+    let subkey: Vec<u16> = format!(r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}")
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    for root in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        let mut buf = [0u16; 1024];
+        let mut size = std::mem::size_of_val(&buf) as u32;
+        // SAFETY: `subkey` is NUL-terminated, a null value name reads the key's default
+        // value, and `size` tells the call how many bytes `buf` holds.
+        let status = unsafe {
+            RegGetValueW(
+                root,
+                subkey.as_ptr(),
+                std::ptr::null(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                buf.as_mut_ptr().cast(),
+                &mut size,
+            )
+        };
+        if status != 0 {
+            continue;
+        }
+        let len = (size as usize / 2).saturating_sub(1).min(buf.len());
+        let value = String::from_utf16_lossy(&buf[..len]);
+        let path = std::path::PathBuf::from(value.trim().trim_matches('"'));
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
 #[tauri::command(async)]
 pub fn browser_open_in(browser: String, url: String) -> Result<(), String> {
     let url = checked_url(&url)?;
@@ -876,7 +1006,7 @@ pub fn browser_open_in(browser: String, url: String) -> Result<(), String> {
         .into_iter()
         .find(|b| b.id == browser)
         .ok_or_else(|| format!("{browser} is not installed"))?;
-    std::process::Command::new(found.command)
+    crate::modules::tools::command(found.command)
         .arg(url.as_str())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

@@ -28,7 +28,7 @@ use crate::modules::nginx_ssl::sites;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::io::BufRead;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 
 /// Exposed so the Apps catalog can assert it installs cloudflared under exactly
@@ -69,14 +69,6 @@ pub struct TunnelStatus {
     /// running" and shows `last_log` instead of a stop button.
     pub exited: bool,
     pub last_log: Option<String>,
-}
-
-fn which(bin: &str) -> bool {
-    Command::new("which")
-        .arg(bin)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
 }
 
 /// Strips ANSI CSI escape sequences (`ESC '[' ... <letter>`), which is all
@@ -136,7 +128,7 @@ fn parse_quick_tunnel_url(text: &str) -> Option<String> {
 }
 
 fn require_binary() -> Result<(), String> {
-    if which(BINARY) {
+    if crate::modules::tools::is_available(BINARY) {
         Ok(())
     } else {
         Err(format!(
@@ -166,7 +158,7 @@ fn spawn_reader<R: std::io::Read + Send + 'static>(reader: R, info: Arc<Mutex<Ru
 }
 
 fn spawn_quick_tunnel(target_url: &str) -> Result<(Child, Arc<Mutex<RuntimeInfo>>), String> {
-    let mut child = Command::new(BINARY)
+    let mut child = crate::modules::tools::command(BINARY)
         .args(["tunnel", "--no-tls-verify", "--url", target_url])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -186,7 +178,7 @@ fn spawn_quick_tunnel(target_url: &str) -> Result<(Child, Arc<Mutex<RuntimeInfo>
 
 #[tauri::command(async)]
 pub fn tunnel_detect() -> TunnelDetection {
-    TunnelDetection { found: which(BINARY) }
+    TunnelDetection { found: crate::modules::tools::is_available(BINARY) }
 }
 
 #[tauri::command(async)]

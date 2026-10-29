@@ -25,8 +25,10 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri`, plus the extra Cargo target
+      //    dirs and agent worktrees at the root (gigabytes of files, none of it
+      //    frontend source)
+      ignored: ["**/src-tauri/**", "**/target-agents/**", "**/target-main/**", "**/.claude/**"],
     },
   },
 }));

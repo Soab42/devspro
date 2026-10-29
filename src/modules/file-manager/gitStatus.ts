@@ -1,5 +1,5 @@
 import type { GitCode, GitStatus } from "./api";
-import { parentPath } from "./utils";
+import { isRootPath, parentPath } from "./utils";
 
 /** What a row shows for git: the file's letter, or for a folder the most pressing change inside it. */
 export interface GitMark {
@@ -23,13 +23,13 @@ export function gitMarks(status: GitStatus | null): GitMarkFor {
   if (!status || status.files.length === 0) return () => null;
   const files = new Map<string, GitCode>();
   const folders = new Map<string, GitCode>();
-  const root = status.root.replace(/\/+$/, "");
+  const root = isRootPath(status.root) ? status.root : status.root.replace(/[\\/]+$/, "");
   for (const f of status.files) {
     files.set(f.path, f.code);
     for (let dir = parentPath(f.path); dir.length >= root.length && dir !== f.path; dir = parentPath(dir)) {
       const had = folders.get(dir);
       if (!had || RANK[f.code] > RANK[had]) folders.set(dir, f.code);
-      if (dir === root || dir === "/") break;
+      if (dir === root || isRootPath(dir)) break;
     }
   }
   return (path, isDir) => {
@@ -37,7 +37,7 @@ export function gitMarks(status: GitStatus | null): GitMarkFor {
     if (own) return { code: own, inside: false };
     for (let dir = parentPath(path); dir.length >= root.length; dir = parentPath(dir)) {
       if (files.get(dir) === "U") return { code: "U", inside: false };
-      if (dir === root || dir === "/") break;
+      if (dir === root || isRootPath(dir)) break;
     }
     const below = isDir ? folders.get(path) : undefined;
     return below ? { code: below, inside: true } : null;

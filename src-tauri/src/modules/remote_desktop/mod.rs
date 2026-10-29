@@ -7,8 +7,9 @@
 //!     for each session and pipes it byte-for-byte to the VNC server's TCP
 //!     port. The RFB protocol itself — encodings, auth, input — is entirely
 //!     noVNC's business; Rust never inspects a frame.
-//!   - **RDP** launches an installed client (FreeRDP, Remmina, rdesktop) in
-//!     its own window (`rdp.rs`). An RDP session needs TLS, CredSSP and a
+//!   - **RDP** launches an installed client (FreeRDP, Remmina, rdesktop; on
+//!     Windows, Remote Desktop Connection or FreeRDP) in its own window
+//!     (`rdp.rs`, `mstsc.rs`). An RDP session needs TLS, CredSSP and a
 //!     bitmap codec stack; wrapping the system client gives all of it, with
 //!     the client's own dialogs for certificates and credentials, for the
 //!     cost of building an argument list.
@@ -17,6 +18,8 @@
 //! they are asked for at connect time and travel straight to the session.
 
 pub mod connections;
+#[cfg(windows)]
+mod mstsc;
 pub mod rdp;
 pub mod vnc;
 

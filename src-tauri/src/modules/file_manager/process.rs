@@ -6,7 +6,7 @@
 
 use std::ffi::OsStr;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -22,10 +22,74 @@ pub(crate) fn installed(program: &str) -> bool {
 }
 
 fn installed_in(program: &str, path_var: &str) -> bool {
-    if program.contains('/') {
+    if is_path(program) {
         return Path::new(program).is_file();
     }
-    std::env::split_paths(path_var).any(|dir| dir.join(program).is_file())
+    find_on_path(program, path_var).is_some()
+}
+
+/// A program named by its location rather than looked up on `$PATH`.
+fn is_path(program: &str) -> bool {
+    program.contains('/') || (cfg!(windows) && program.contains('\\'))
+}
+
+/// The file `$PATH` resolves the bare name `bin` to, without running anything.
+///
+/// On Windows a tool is `git.exe`, `prettier.cmd` or `code.cmd`, never the
+/// bare name, so each `PATHEXT` extension is tried in turn — the same order
+/// `cmd.exe` uses. A name that already carries one of them is taken as is.
+pub(crate) fn find_on_path(bin: &str, path_var: &str) -> Option<PathBuf> {
+    let names = candidate_names(bin);
+    std::env::split_paths(path_var).find_map(|dir| names.iter().map(|n| dir.join(n)).find(|p| p.is_file()))
+}
+
+#[cfg(unix)]
+fn candidate_names(bin: &str) -> Vec<String> {
+    vec![bin.to_string()]
+}
+
+#[cfg(windows)]
+fn candidate_names(bin: &str) -> Vec<String> {
+    let exts: Vec<String> = std::env::var("PATHEXT")
+        .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
+        .split(';')
+        .map(|e| e.trim().to_ascii_lowercase())
+        .filter(|e| e.starts_with('.'))
+        .collect();
+    let lower = bin.to_ascii_lowercase();
+    if exts.iter().any(|e| lower.ends_with(e.as_str())) {
+        return vec![bin.to_string()];
+    }
+    exts.iter().map(|e| format!("{bin}{e}")).collect()
+}
+
+/// `Command::new(program)`, made to work the same on every OS.
+///
+/// On Windows the name is resolved through `PATHEXT` first — `CreateProcess`
+/// only appends `.exe` itself, so `prettier` (really `prettier.cmd`) would
+/// not start — and the child gets no console window, which would otherwise
+/// flash up for every `git status` the editor runs.
+pub(crate) fn command(program: &str) -> Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let resolved = if is_path(program) {
+            None
+        } else {
+            find_on_path(program, &std::env::var("PATH").unwrap_or_default())
+        };
+        let mut cmd = match resolved {
+            Some(path) => Command::new(path),
+            None => Command::new(program),
+        };
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        Command::new(program)
+    }
 }
 
 /// Runs `program args` with no shell, killed after `timeout`. `stdin` bytes
@@ -51,7 +115,7 @@ pub(crate) fn run_bytes<S: AsRef<OsStr>>(
     stdin: Option<&[u8]>,
     timeout: Duration,
 ) -> Result<Vec<u8>, String> {
-    let mut cmd = Command::new(program);
+    let mut cmd = command(program);
     cmd.args(args)
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
@@ -116,6 +180,36 @@ pub(crate) fn run_bytes<S: AsRef<OsStr>>(
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_finds_tools_by_their_pathext_extension() {
+        let dir = std::env::temp_dir().join(format!("devspro-proc-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("prettier.cmd"), "").unwrap();
+        std::fs::write(dir.join("git.exe"), "").unwrap();
+        // An extensionless shim (Git Bash's) is not something Windows can run.
+        std::fs::write(dir.join("shim"), "").unwrap();
+        let path_var = dir.to_string_lossy().into_owned();
+        assert_eq!(find_on_path("prettier", &path_var), Some(dir.join("prettier.cmd")));
+        assert_eq!(find_on_path("git", &path_var), Some(dir.join("git.exe")));
+        assert_eq!(find_on_path("git.exe", &path_var), Some(dir.join("git.exe")));
+        assert_eq!(find_on_path("shim", &path_var), None);
+        assert!(installed_in(&dir.join("git.exe").to_string_lossy(), ""));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_runs_through_cmd_with_stdin_and_stderr() {
+        let out = run("cmd", &["/C", "more"], None, Some(b"hello\r\n"), Duration::from_secs(10)).unwrap();
+        assert_eq!(out.trim_end(), "hello");
+        let err = run("cmd", &["/C", "echo boom 1>&2 & exit 3"], None, None, Duration::from_secs(10)).unwrap_err();
+        assert_eq!(err, "boom");
+        let err = run("ping", &["-n", "5", "127.0.0.1"], None, None, Duration::from_millis(200)).unwrap_err();
+        assert!(err.contains("no answer"), "{err}");
+    }
+
+    #[cfg(unix)]
     #[test]
     fn finds_programs_on_a_given_path_and_by_absolute_path() {
         assert!(installed_in("sh", "/bin:/usr/bin"));
@@ -124,12 +218,14 @@ mod tests {
         assert!(!installed_in("/nonexistent/tool", "/bin"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn stdin_reaches_the_tool_and_stdout_comes_back() {
         let out = run("cat", &[] as &[&str], None, Some(b"hello"), Duration::from_secs(5)).unwrap();
         assert_eq!(out, "hello");
     }
 
+    #[cfg(unix)]
     #[test]
     fn failure_returns_stderr_or_the_status() {
         let err = run("sh", &["-c", "echo boom >&2; exit 3"], None, None, Duration::from_secs(5)).unwrap_err();
@@ -138,6 +234,7 @@ mod tests {
         assert!(err.starts_with("sh exited with"), "{err}");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_hung_tool_is_killed_at_the_timeout() {
         let err = run("sleep", &["5"], None, None, Duration::from_millis(100)).unwrap_err();

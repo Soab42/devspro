@@ -1,6 +1,7 @@
 import type { PageStatus } from "../../ui";
 import { Mono } from "../../ui";
 import { PackageX, PlugZap } from "../../ui/icons";
+import { isWindows } from "../../app/platform";
 import type { DockerDetection } from "./api";
 
 /**
@@ -26,9 +27,13 @@ export function dockerBlockedStatus(
       title: "Docker isn't installed",
       message: (
         <>
-          Install it from{" "}
+          Install {isWindows ? "Docker Desktop" : "it"} from{" "}
           <a
-            href="https://docs.docker.com/engine/install/"
+            href={
+              isWindows
+                ? "https://docs.docker.com/desktop/setup/install/windows-install/"
+                : "https://docs.docker.com/engine/install/"
+            }
             target="_blank"
             rel="noreferrer"
           >
@@ -50,12 +55,21 @@ export function dockerBlockedStatus(
       message: (
         <>
           <p>{detection.error ?? "Could not reach the Docker daemon."}</p>
-          <p>
-            If that mentions permission denied, make sure your user is in the{" "}
-            <Mono variant="chip">docker</Mono> group — run{" "}
-            <Mono variant="chip">sudo usermod -aG docker $USER</Mono>, then log out and
-            back in. DevsPro never runs Docker commands elevated.
-          </p>
+          {isWindows ? (
+            // No docker group on Windows: the daemon lives inside Docker Desktop,
+            // and it is unreachable because Docker Desktop isn't running yet.
+            <p>
+              Start Docker Desktop and wait until it reports the engine as running,
+              then recheck. DevsPro never runs Docker commands elevated.
+            </p>
+          ) : (
+            <p>
+              If that mentions permission denied, make sure your user is in the{" "}
+              <Mono variant="chip">docker</Mono> group — run{" "}
+              <Mono variant="chip">sudo usermod -aG docker $USER</Mono>, then log out and
+              back in. DevsPro never runs Docker commands elevated.
+            </p>
+          )}
         </>
       ),
       action: { label: "Recheck", onClick: onRecheck },

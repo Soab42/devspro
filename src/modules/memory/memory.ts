@@ -1,4 +1,13 @@
-import type { AppDef, AppKind, AppRow, AppState, ResetTarget, WatchdogConfig, WatchdogEvent } from "./api";
+import type {
+  AppDef,
+  AppKind,
+  AppRow,
+  AppState,
+  ResetTarget,
+  Support,
+  WatchdogConfig,
+  WatchdogEvent,
+} from "./api";
 
 /** Megabytes as people read them: GB from 1 GB up, whole MB below that. */
 export function formatMb(mb: number): string {
@@ -27,6 +36,11 @@ export const isRunning = (row: AppRow) => row.state !== "off";
 export const canStop = (row: AppRow) => isRunning(row) && !row.protected;
 
 export const ADMIN_NOTE = "This asks for your admin password.";
+
+/** Everything available: what the page assumes until a snapshot says otherwise. */
+export const FULL_SUPPORT: Support = { os: "linux", flatpak: true, reclaim_swap: true };
+
+export const isWindows = (support: Support) => support.os === "windows";
 
 export function processCount(n: number): string {
   return n === 1 ? "1 process" : `${n} processes`;
@@ -80,7 +94,7 @@ export function groupTargets(targets: ResetTarget[]): TargetGroup[] {
 
 /* ------------------------------------------------------------- catalog -- */
 
-/** systemd unit names, as the elevated helper accepts them. */
+/** systemd unit (or Windows service) names, as the elevated helper accepts them. */
 export const UNIT_PATTERN = /^[A-Za-z0-9@._:-]{1,128}$/;
 
 export function slugify(name: string): string {

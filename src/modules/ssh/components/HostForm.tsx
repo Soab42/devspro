@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button, Callout, Field, Form, FormGrid, FormRow, Select, Stack, TextInput } from "../../../ui";
-import { AuthMethod, SshHost, SshKey, keyPermissions, restrictKey, saveHost } from "../api";
+import { AuthMethod, KeyPermissions, SshHost, SshKey, keyPermissions, restrictKey, saveHost } from "../api";
 import { errorMessage, validateHostForm } from "../utils";
 
 const AUTH_OPTIONS: { value: AuthMethod; label: string }[] = [
@@ -33,16 +33,16 @@ export default function HostForm({
   const localKeys = keys.filter((k) => k.has_private);
 
   // The terminal's ssh refuses a key others can read, though SFTP doesn't
-  // mind; say so here rather than leave it to a failed terminal. The mode
-  // while the chosen key is too open, else null.
+  // mind; say so here rather than leave it to a failed terminal. The key's
+  // permissions while it is too open, else null.
   const keyToCheck = auth === "key" ? keyPath.trim() : "";
-  const [openMode, setOpenMode] = useState<number | null>(null);
+  const [openMode, setOpenMode] = useState<KeyPermissions | null>(null);
   useEffect(() => {
     setOpenMode(null);
     if (!keyToCheck) return;
     let live = true;
     keyPermissions(keyToCheck).then(
-      (p) => live && setOpenMode(p.too_open ? p.mode : null),
+      (p) => live && setOpenMode(p.too_open ? p : null),
       () => undefined,
     );
     return () => {
@@ -183,8 +183,17 @@ export default function HostForm({
                     </Button>
                   }
                 >
-                  Other users can read this key (mode {openMode.toString(8)}), so ssh will refuse it in the terminal. Fix
-                  restricts it to you (chmod 600).
+                  {openMode.others?.length ? (
+                    <>
+                      This key is open to {openMode.others.join(", ")}, so ssh will refuse it in the terminal. Fix
+                      restricts it to you.
+                    </>
+                  ) : (
+                    <>
+                      Other users can read this key (mode {openMode.mode.toString(8)}), so ssh will refuse it in the
+                      terminal. Fix restricts it to you (chmod 600).
+                    </>
+                  )}
                 </Callout>
               )}
             </Stack>

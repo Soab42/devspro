@@ -432,32 +432,84 @@ fn client_image(kind: DbKind) -> &'static str {
 enum Runner {
     /// Inside an existing container, via `docker exec`.
     Exec { container: String },
-    /// A binary on this machine's PATH.
-    Host { host: String, port: u16 },
+    /// A binary installed on this machine. `program` is what to execute: the bare name
+    /// on Unix, where PATH finds it, and a full path on Windows, where a client that
+    /// came with a server install usually isn't on PATH at all.
+    Host { program: String, host: String, port: u16 },
     /// A throwaway `docker run --rm` container, for a TCP connection on a
     /// machine that has no client installed — which is the normal state of a
     /// machine whose databases all live in Docker.
     Image { image: String, host: String, port: u16 },
 }
 
-/// Whether `program` is on PATH. Uses `which`, as the rest of the app does for
-/// nginx/docker-compose/php, rather than a second PATH-walking implementation.
-fn on_path(program: &str) -> bool {
-    Command::new("which")
-        .arg(program)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+/// How to run `program` on this machine, if it is installed. PATH first, through `tools`
+/// as the rest of the app does for nginx/docker-compose/php, then wherever this OS's
+/// installers put database clients without adding them to PATH.
+fn host_client(program: &str) -> Option<String> {
+    crate::modules::tools::program(program).or_else(|| installed_client(program))
+}
+
+/// Unix packages put the clients on PATH, so there is nowhere else to look.
+#[cfg(not(windows))]
+fn installed_client(_program: &str) -> Option<String> {
+    None
+}
+
+/// The MySQL, MariaDB and PostgreSQL installers for Windows, and the Laragon and XAMPP
+/// bundles, all leave their `bin` folder off PATH — so a machine with a perfectly good
+/// local `psql` would otherwise fall through to pulling a Docker image for one. Each root
+/// holds one folder per installed version (`MySQL Server 8.0`, `16`); the newest wins, as
+/// it would if the user had put it on PATH themselves.
+#[cfg(windows)]
+fn installed_client(program: &str) -> Option<String> {
+    let program_files = std::env::var("ProgramFiles").unwrap_or_else(|_| r"C:\Program Files".to_string());
+    let program_files = Path::new(&program_files);
+    let versioned_roots = [
+        program_files.join("MySQL"),
+        program_files.join("MariaDB"),
+        program_files.join("PostgreSQL"),
+        PathBuf::from(r"C:\laragon\bin\mysql"),
+        PathBuf::from(r"C:\laragon\bin\postgresql"),
+    ];
+    let direct_dirs = [PathBuf::from(r"C:\xampp\mysql\bin")];
+    let exe = format!("{program}.exe");
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for root in &versioned_roots {
+        let Ok(entries) = std::fs::read_dir(root) else { continue };
+        let mut versions: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        versions.sort_by_key(|dir| std::cmp::Reverse(version_digits(dir)));
+        candidates.extend(versions.into_iter().map(|dir| dir.join("bin").join(&exe)));
+    }
+    candidates.extend(direct_dirs.iter().map(|dir| dir.join(&exe)));
+    candidates
+        .into_iter()
+        .find(|path| path.is_file())
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// The numbers in a version folder's name, in order — `MySQL Server 8.0` is `[8, 0]`.
+/// Compared as numbers so PostgreSQL `16` outranks `9.6`, which comparing the names as
+/// text would get backwards.
+#[cfg(any(windows, test))]
+fn version_digits(dir: &Path) -> Vec<u32> {
+    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    name.split(|c: char| !c.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse().ok())
+        .collect()
 }
 
 fn runner_for(conn: &Conn, program: &str) -> Runner {
     match &conn.transport {
         Transport::Container(container) => Runner::Exec { container: container.clone() },
-        Transport::Tcp { host, port } if on_path(program) => Runner::Host { host: host.clone(), port: *port },
-        Transport::Tcp { host, port } => Runner::Image {
-            image: client_image(conn.kind).to_string(),
-            host: if is_loopback(host) { HOST_GATEWAY.to_string() } else { host.clone() },
-            port: *port,
+        Transport::Tcp { host, port } => match host_client(program) {
+            Some(program) => Runner::Host { program, host: host.clone(), port: *port },
+            None => Runner::Image {
+                image: client_image(conn.kind).to_string(),
+                host: if is_loopback(host) { HOST_GATEWAY.to_string() } else { host.clone() },
+                port: *port,
+            },
         },
     }
 }
@@ -530,10 +582,10 @@ fn invocation(conn: &Conn, runner: &Runner, client: &str, tail: &[String], stdin
             args.extend(tail.iter().cloned());
             Invocation { program: "docker".to_string(), args, env: Vec::new() }
         }
-        Runner::Host { host, port } => {
+        Runner::Host { program, host, port } => {
             let mut args = connect_args(conn.kind, &conn.user, Some((host, *port)));
             args.extend(tail.iter().cloned());
-            Invocation { program: client.to_string(), args, env: vec![(var, value)] }
+            Invocation { program: program.clone(), args, env: vec![(var, value)] }
         }
         Runner::Image { image, host, port } => {
             let mut args = vec!["run".to_string(), "--rm".to_string()];
@@ -555,7 +607,7 @@ fn invocation(conn: &Conn, runner: &Runner, client: &str, tail: &[String], stdin
 }
 
 fn command_for(inv: &Invocation) -> Command {
-    let mut cmd = Command::new(&inv.program);
+    let mut cmd = crate::modules::tools::command(&inv.program);
     cmd.args(&inv.args);
     for (key, value) in &inv.env {
         cmd.env(key, value);
@@ -1382,7 +1434,7 @@ mod tests {
     #[test]
     fn a_host_client_gets_the_password_from_the_environment_not_argv() {
         let conn = tcp_conn(DbKind::Postgres);
-        let runner = Runner::Host { host: "db.example.com".to_string(), port: 3307 };
+        let runner = Runner::Host { program: "psql".to_string(), host: "db.example.com".to_string(), port: 3307 };
         let inv = invocation(&conn, &runner, "psql", &["--csv".to_string()], false);
         assert_eq!(inv.program, "psql");
         assert_eq!(inv.args, vec!["-U", "app", "-h", "db.example.com", "-p", "3307", "--csv"]);
@@ -1431,6 +1483,22 @@ mod tests {
         let runner = runner_for_tcp_without_a_host_client(&conn);
         let inv = invocation(&conn, &runner, "mysql", &[], false);
         assert!(inv.args.contains(&"-hdb.example.com".to_string()), "{:?}", inv.args);
+    }
+
+    #[test]
+    fn a_host_client_found_off_path_is_run_by_its_full_path() {
+        let conn = tcp_conn(DbKind::Postgres);
+        let program = r"C:\Program Files\PostgreSQL\16\bin\psql.exe".to_string();
+        let runner = Runner::Host { program: program.clone(), host: "db.example.com".to_string(), port: 5432 };
+        assert_eq!(invocation(&conn, &runner, "psql", &[], false).program, program);
+    }
+
+    #[test]
+    fn version_folders_compare_as_numbers_not_text() {
+        let mut dirs = vec![PathBuf::from("9.6"), PathBuf::from("16"), PathBuf::from("12")];
+        dirs.sort_by_key(|dir| std::cmp::Reverse(version_digits(dir)));
+        assert_eq!(dirs, vec![PathBuf::from("16"), PathBuf::from("12"), PathBuf::from("9.6")]);
+        assert_eq!(version_digits(Path::new("MySQL Server 8.0")), vec![8, 0]);
     }
 
     #[test]

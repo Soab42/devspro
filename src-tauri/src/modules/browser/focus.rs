@@ -6,16 +6,35 @@
 //! the address bar and shortcuts. No X11 involvement, and it works on
 //! Wayland too.
 
-use gtk::prelude::*;
-use wry::{WebView, WebViewExtUnix};
+//!
+//! Off Linux each tab is a native child window (WebView2 on Windows), and focus
+//! is the OS's window focus: wry's own `focus` / `focus_parent`.
 
+#[cfg(target_os = "linux")]
+use gtk::prelude::*;
+use wry::WebView;
+#[cfg(target_os = "linux")]
+use wry::WebViewExtUnix;
+
+#[cfg(target_os = "linux")]
 pub fn focus_child(wv: &WebView) -> Result<(), String> {
     wv.webview().grab_focus();
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 pub fn focus_app_window(window: &tauri::Window) -> Result<(), String> {
     let widget = super::host::app_webview(window)?;
     widget.grab_focus();
     Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn focus_child(wv: &WebView) -> Result<(), String> {
+    wv.focus().map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn focus_app_window(window: &tauri::Window) -> Result<(), String> {
+    window.set_focus().map_err(|e| e.to_string())
 }

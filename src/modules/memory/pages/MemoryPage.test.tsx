@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfirmProvider } from "../../../app/ConfirmContext";
-import type { AppDef, AppRow, MemorySnapshot, ResetPreview, WatchdogConfig, WatchdogEvent } from "../api";
+import type { AppDef, AppRow, MemorySnapshot, ResetPreview, Support, WatchdogConfig, WatchdogEvent } from "../api";
 import MemoryPage from "./MemoryPage";
 
 const invoke = vi.fn();
@@ -73,6 +73,7 @@ const PREVIEW: ResetPreview = {
 };
 
 let watchdog: WatchdogConfig;
+let support: Support;
 
 function snapshot(): MemorySnapshot {
   return {
@@ -80,6 +81,7 @@ function snapshot(): MemorySnapshot {
     memory: { total_mb: 32768, available_mb: 5222, used_pct: 84, swap_total_mb: 8192, swap_used_mb: 6758 },
     apps: APPS,
     watchdog,
+    support,
   };
 }
 
@@ -149,6 +151,7 @@ beforeEach(() => {
   cleanup();
   hidden = false;
   watchdog = { enabled: true, threshold_pct: 95, prefer_idle: true };
+  support = { os: "linux", flatpak: true, reclaim_swap: true };
   invoke.mockReset();
   invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => route(cmd, args));
 });
@@ -279,6 +282,23 @@ describe("MemoryPage", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Drop cache and reclaim swap" }));
     await screen.findByText("Dropped the cache and reclaimed swap.");
     expect(calls("memory_drop_caches")).toEqual([{ reclaimSwap: true }]);
+  });
+
+  it("on Windows, offers no swap reclaim and calls swap the page file", async () => {
+    support = { os: "windows", flatpak: false, reclaim_swap: false };
+    renderPage();
+    await screen.findByText("Chrome");
+
+    expect(screen.queryByRole("button", { name: "Reclaim swap" })).toBeNull();
+    expect(screen.getByText("Page file: 6.6 GB used of 8.0 GB")).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Drop cache" }));
+    const dialog = screen.getByRole("dialog", { name: "Drop the cache?" });
+    expect(dialog.textContent).toContain("standby cache");
+
+    fireEvent.click(screen.getByRole("button", { name: "Full reset…" }));
+    const reset = screen.getByRole("dialog", { name: "Full reset" });
+    expect(await within(reset).findByRole("checkbox", { name: "Also drop the cache" })).toBeDefined();
   });
 
   it("runs a full reset only once YES is typed, and leaves out what was unticked", async () => {

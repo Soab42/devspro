@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export interface HostsEntry {
-  /** 1-based line number in /etc/hosts; the handle for edit and delete. */
+  /** 1-based line number in the hosts file; the handle for edit and delete. */
   line_no: number;
   ip: string;
   hostnames: string[];
@@ -13,6 +13,8 @@ export interface HostsEntry {
 export interface HostsView {
   entries: HostsEntry[];
   raw: string;
+  /** Where the hosts file lives on this OS (`/etc/hosts`, or under System32 on Windows). */
+  path: string;
 }
 
 export const readHosts = () => invoke<HostsView>("hosts_file_read");

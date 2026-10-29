@@ -241,7 +241,7 @@ export default function RemoteDesktopPage() {
                   </Stack>
                   {selected.protocol === "rdp" && (
                     <Callout tone="info">
-                      RDP sessions open in your system's client (FreeRDP or Remmina) in a window of their own.
+                      RDP sessions open in your system's client (FreeRDP, Remmina or Remote Desktop Connection) in a window of their own.
                     </Callout>
                   )}
                 </Stack>

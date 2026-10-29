@@ -604,6 +604,7 @@ pub fn sftp_download_zip(
 /// cache dir, keyed by session so two hosts' `/etc/nginx/nginx.conf` don't
 /// collide. The remote path is kept whole so the editor's tab shows a
 /// recognisable name and the file's real extension.
+#[cfg(not(windows))]
 pub fn edit_cache_path(cache_root: &Path, session: &str, remote: &str) -> PathBuf {
     cache_root
         .join("devspro")
@@ -612,11 +613,40 @@ pub fn edit_cache_path(cache_root: &Path, session: &str, remote: &str) -> PathBu
         .join(remote.trim_start_matches('/'))
 }
 
+/// On Windows the remote path is rebuilt one segment at a time, so it gets
+/// native separators, and each segment is made a legal Windows file name: a
+/// Linux name may hold `:` `*` `?` `"` `<` `>` `|` or end in a dot or space,
+/// none of which NTFS will create. `.` and `..` are dropped so a remote path
+/// can't climb out of the cache.
+#[cfg(windows)]
+pub fn edit_cache_path(cache_root: &Path, session: &str, remote: &str) -> PathBuf {
+    let mut path = cache_root.join("devspro").join("sftp-edit").join(session);
+    for segment in remote.split('/').filter(|s| !s.is_empty() && *s != "." && *s != "..") {
+        let clean: String = segment
+            .chars()
+            .map(|c| if matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\\') || c < ' ' { '_' } else { c })
+            .collect();
+        let clean = clean.trim_end_matches(['.', ' ']);
+        path.push(if clean.is_empty() { "_" } else { clean });
+    }
+    path
+}
+
+#[cfg(not(windows))]
 fn cache_root() -> Result<PathBuf, String> {
     if let Some(dir) = std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
         return Ok(dir);
     }
     Ok(super::home_dir()?.join(".cache"))
+}
+
+/// `%LOCALAPPDATA%`, Windows' per-user cache location.
+#[cfg(windows)]
+fn cache_root() -> Result<PathBuf, String> {
+    match std::env::var_os("LOCALAPPDATA").map(PathBuf::from).filter(|p| p.is_absolute()) {
+        Some(dir) => Ok(dir),
+        None => Ok(super::home_dir()?.join("AppData").join("Local")),
+    }
 }
 
 /// Downloads a remote file to the edit cache and opens it in the user's
@@ -777,6 +807,15 @@ mod tests {
     fn edit_cache_path_keeps_the_remote_layout_under_the_session() {
         let p = edit_cache_path(Path::new("/home/me/.cache"), "abc", "/etc/nginx/nginx.conf");
         assert_eq!(p, Path::new("/home/me/.cache/devspro/sftp-edit/abc/etc/nginx/nginx.conf"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn edit_cache_path_makes_every_segment_a_legal_windows_name() {
+        let root = Path::new(r"C:\Users\me\AppData\Local");
+        let p = edit_cache_path(root, "abc", "/srv/../logs/app:2024?.log");
+        assert_eq!(p, root.join(r"devspro\sftp-edit\abc\srv\logs\app_2024_.log"));
+        assert_eq!(edit_cache_path(root, "abc", "/tmp/trailing. "), root.join(r"devspro\sftp-edit\abc\tmp\trailing"));
     }
 
     #[test]

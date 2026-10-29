@@ -17,10 +17,10 @@
 use super::env_patch;
 use crate::modules::databases;
 use crate::modules::hosts_file;
-use crate::modules::nginx_ssl::{laravel, sites};
+use crate::modules::nginx_ssl::{laravel, php_fpm, sites};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use tauri::{AppHandle, State};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -179,13 +179,14 @@ fn step_site(ctx: &mut Ctx) -> Result<String, String> {
 /// module, so the folder is at least reachable by name once a site exists.
 fn step_hosts(ctx: &mut Ctx) -> Result<String, String> {
     let domain = ctx.plan.domain.trim().to_lowercase();
-    let contents = std::fs::read_to_string(hosts_file::HOSTS_PATH)
-        .map_err(|e| format!("could not read {}: {e}", hosts_file::HOSTS_PATH))?;
+    let path = hosts_file::hosts_path();
+    let contents = std::fs::read_to_string(&path)
+        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
     if hosts_file::parse(&contents).loopback_hostnames().contains(&domain) {
         return Ok(format!("{domain} resolves to 127.0.0.1"));
     }
     hosts_file::hosts_file_add(ctx.app.clone(), "127.0.0.1".to_string(), domain.clone())?;
-    Ok(format!("added {domain} to {}", hosts_file::HOSTS_PATH))
+    Ok(format!("added {domain} to {}", path.display()))
 }
 
 fn step_database(ctx: &mut Ctx) -> Result<String, String> {
@@ -226,18 +227,15 @@ fn step_env(ctx: &mut Ctx) -> Result<String, String> {
     Ok(format!("wrote {} ({})", env_path.display(), keys.join(", ")))
 }
 
-/// Prefers the version-suffixed binary (`php8.3`) when the plan pins a PHP
-/// version and Debian/Ubuntu's alternatives layout provides one, so artisan
-/// runs under the same PHP the site is served with.
+/// The PHP the site is served with, so artisan runs under the same version:
+/// `php8.3` on Debian/Ubuntu, the `php.exe` beside the site's `php-cgi.exe` on
+/// Windows. Resolved by `php_fpm`, which already knows where each version lives.
 fn php_binary(php_version: Option<&str>) -> String {
-    php_version
-        .map(|v| format!("php{}", v.trim()))
-        .filter(|bin| super::which(bin))
-        .unwrap_or_else(|| "php".to_string())
+    php_fpm::cli_binary(php_version)
 }
 
 fn run_artisan(project_dir: &Path, php: &str, args: &[&str]) -> Result<(), String> {
-    let output = Command::new(php)
+    let output = crate::modules::tools::command(php)
         .arg("artisan")
         .args(args)
         .arg("--no-interaction")
@@ -275,7 +273,11 @@ fn step_artisan(ctx: &mut Ctx) -> Result<String, String> {
 
 fn step_editor(ctx: &mut Ctx) -> Result<String, String> {
     let editor = ctx.plan.open_in_editor.clone().unwrap_or_default().trim().to_string();
-    Command::new(&editor)
+    // Resolved through `tools` because the usual answers are shims on Windows —
+    // VS Code's `code` is `code.cmd` — which a bare name can't start there. A full
+    // path, or a name not on PATH, is passed through as typed.
+    let program = crate::modules::tools::program(&editor).unwrap_or_else(|| editor.clone());
+    crate::modules::tools::command(&program)
         .arg(&ctx.project_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -406,9 +408,19 @@ mod tests {
         assert_eq!(plan.php_version, None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn php_binary_falls_back_to_plain_php() {
         assert_eq!(php_binary(None), "php");
         assert_eq!(php_binary(Some("0.0-does-not-exist")), "php");
+    }
+
+    // Windows resolves to whichever installed php.exe it finds (Laragon, XAMPP,
+    // PATH), so the exact answer depends on the machine; what must hold is that a
+    // version that doesn't exist falls back to the same default as no version.
+    #[cfg(windows)]
+    #[test]
+    fn php_binary_with_an_unknown_version_falls_back_to_the_default() {
+        assert_eq!(php_binary(Some("0.0-does-not-exist")), php_binary(None));
     }
 }
