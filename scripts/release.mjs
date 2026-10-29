@@ -92,10 +92,10 @@ function bumpVersion(next) {
     writeJson(lockPath, lock);
   }
 
+  // Edited in place: re-serialising would reflow the file's inline arrays.
   const confPath = join(ROOT, "src-tauri/tauri.conf.json");
-  const conf = readJson(confPath);
-  conf.version = next;
-  writeJson(confPath, conf);
+  writeFileSync(confPath, read(confPath).replace(/^(  "version": ")[^"]+"/m, `$1${next}"`));
+  if (readJson(confPath).version !== next) fail("couldn't update the version in src-tauri/tauri.conf.json");
 
   const cargoPath = join(ROOT, "src-tauri/Cargo.toml");
   writeFileSync(cargoPath, read(cargoPath).replace(/(\[package\][^[]*?\nversion = ")[^"]+"/, `$1${next}"`));
@@ -106,8 +106,9 @@ function bumpVersion(next) {
 
   const md = read(CHANGELOG_MD);
   const today = new Date().toISOString().slice(0, 10);
-  if (/^## Unreleased\s*$/m.test(md)) {
-    writeFileSync(CHANGELOG_MD, md.replace(/^## Unreleased\s*$/m, `## ${next} — ${today}`));
+  // [ \t], not \s: \s would also take the blank line after the heading.
+  if (/^## Unreleased[ \t]*$/m.test(md)) {
+    writeFileSync(CHANGELOG_MD, md.replace(/^## Unreleased[ \t]*$/m, `## ${next} — ${today}`));
   } else {
     console.warn(`release: CHANGELOG.md has no "## Unreleased" section; add notes under "## ${next} — ${today}" by hand`);
   }
