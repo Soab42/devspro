@@ -471,7 +471,7 @@ export default function TerminalSidebar({
       danger: true,
     });
     if (!ok) return;
-    await mutate(() => (isLocal ? fmTrash(row.path) : sftpDelete(sftpId as string, row.path)));
+    await mutate(() => (isLocal ? fmTrash(row.path) : sftpDelete(sftpId as string, row.path, row.is_dir)));
   }
 
   async function pasteInto(dir: string) {

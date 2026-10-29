@@ -88,6 +88,18 @@ mod session {
         }
     }
 
+    /// Every process in the session, signalled and killed at once, in this
+    /// thread.
+    pub fn kill_now(sid: u32) {
+        let mut pids = members(sid);
+        if !pids.contains(&sid) {
+            pids.push(sid);
+        }
+        signal(&pids, libc::SIGHUP);
+        signal(&pids, libc::SIGTERM);
+        signal(&pids, libc::SIGKILL);
+    }
+
     /// Asks the session's processes to exit now, and kills whatever is still
     /// there after `grace` from a background thread so callers never block.
     pub fn terminate(sid: u32, grace: Duration) {
@@ -545,11 +557,11 @@ pub fn pty_close(state: State<SshState>, id: String) -> Result<(), String> {
 pub fn kill_all(state: &SshState) {
     if let Ok(mut map) = state.pty.lock() {
         for (_, mut handle) in map.drain() {
-            // The app is exiting, so a background SIGKILL thread may never run:
-            // wait out the grace here instead.
+            // The app is exiting, so a background SIGKILL thread may never
+            // run: no grace period here.
             #[cfg(unix)]
             if let Some(pid) = handle.child.process_id() {
-                session::terminate(pid, std::time::Duration::ZERO);
+                session::kill_now(pid);
             }
             let _ = handle.child.kill();
             let _ = handle.child.wait();

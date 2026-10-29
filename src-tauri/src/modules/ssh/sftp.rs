@@ -229,15 +229,15 @@ pub fn sftp_rename(state: State<SshState>, session: String, from: String, to: St
     })
 }
 
-/// Removes a file, or a directory that is already empty. Recursive deletion is
-/// deliberately not offered: over SFTP it is slow, non-atomic, and the kind of
-/// thing that should be typed into the terminal tab with intent.
 /// The few remote file operations a recursive delete needs, so the walk can be
 /// tested without a server.
 trait RemoteTree {
     /// Children of a folder with whether each is a real folder (a symlink to
     /// one is not: it must be unlinked, never followed).
     fn children(&self, dir: &Path) -> Result<Vec<(PathBuf, bool)>, String>;
+    /// Asked again right before entering a folder: the listing can be stale
+    /// by then, and a folder swapped for a symlink must not be walked into.
+    fn is_real_dir(&self, path: &Path) -> Result<bool, String>;
     fn unlink(&self, path: &Path) -> Result<(), String>;
     fn rmdir(&self, dir: &Path) -> Result<(), String>;
 }
@@ -249,6 +249,12 @@ impl RemoteTree for Sftp {
             .map_err(|e| format!("could not list {}: {}", dir.display(), e.message()))?;
         Ok(list.into_iter().map(|(path, stat)| (path, stat.is_dir())).collect())
     }
+    fn is_real_dir(&self, path: &Path) -> Result<bool, String> {
+        let stat = self
+            .lstat(path)
+            .map_err(|e| format!("could not stat {}: {}", path.display(), e.message()))?;
+        Ok(stat.is_dir())
+    }
     fn unlink(&self, path: &Path) -> Result<(), String> {
         Sftp::unlink(self, path).map_err(|e| format!("could not delete {}: {}", path.display(), e.message()))
     }
@@ -257,15 +263,29 @@ impl RemoteTree for Sftp {
     }
 }
 
+/// Deeper than any real project tree; past it the walk stops rather than
+/// trusting a server that keeps producing folders.
+const MAX_DELETE_DEPTH: usize = 256;
+
 /// Deletes a folder and everything under it. SFTP's `rmdir` refuses a folder
-/// that has anything in it, so the contents go first.
+/// that has anything in it, so the contents go first. Symlinks are unlinked,
+/// never followed — including a folder that turns into one between the
+/// listing and the walk, which narrows that race to the instant between the
+/// re-check and the next listing (SFTP has no way to list a folder by handle).
 fn remove_tree(fs: &impl RemoteTree, dir: &Path) -> Result<(), String> {
+    remove_tree_at(fs, dir, 0)
+}
+
+fn remove_tree_at(fs: &impl RemoteTree, dir: &Path, depth: usize) -> Result<(), String> {
+    if depth > MAX_DELETE_DEPTH {
+        return Err(format!("{} is nested too deeply to delete from here", dir.display()));
+    }
     for (child, is_dir) in fs.children(dir)? {
         if matches!(child.file_name().and_then(|n| n.to_str()), Some("." | "..")) {
             continue;
         }
-        if is_dir {
-            remove_tree(fs, &child)?;
+        if is_dir && fs.is_real_dir(&child)? {
+            remove_tree_at(fs, &child, depth + 1)?;
         } else {
             fs.unlink(&child)?;
         }
@@ -273,17 +293,28 @@ fn remove_tree(fs: &impl RemoteTree, dir: &Path) -> Result<(), String> {
     fs.rmdir(dir)
 }
 
-/// Deletes a file, or a folder with its contents. The caller confirms first;
-/// there is no trash over SFTP.
+/// Removes a file, or a folder: with `recursive`, everything in it too (the
+/// Terminal's file browser asks for that, after saying so); without it, only
+/// an empty one, which the SFTP module's own prompts promise. The caller
+/// confirms first; there is no trash over SFTP.
 #[tauri::command(async)]
-pub fn sftp_delete(state: State<SshState>, session: String, path: String) -> Result<(), String> {
+pub fn sftp_delete(
+    state: State<SshState>,
+    session: String,
+    path: String,
+    recursive: Option<bool>,
+) -> Result<(), String> {
     with_session(&state, &session, |s| {
         let target = Path::new(&path);
         let stat = s.sftp.lstat(target).map_err(|e| format!("could not stat {path}: {}", e.message()))?;
-        if stat.is_dir() {
+        if !stat.is_dir() {
+            RemoteTree::unlink(&s.sftp, target)
+        } else if recursive.unwrap_or(false) {
             remove_tree(&s.sftp, target)
         } else {
-            RemoteTree::unlink(&s.sftp, target)
+            s.sftp
+                .rmdir(target)
+                .map_err(|e| format!("could not remove directory {path} (is it empty?): {}", e.message()))
         }
     })
 }
@@ -727,13 +758,17 @@ mod tests {
     use super::*;
 
     /// In-memory folder tree: path -> is_dir, with the real server's rule that
-    /// `rmdir` fails on a folder that still has children.
-    struct Fake(std::cell::RefCell<std::collections::BTreeMap<PathBuf, bool>>);
+    /// `rmdir` fails on a folder that still has children. Paths in `swapped`
+    /// are listed as folders but are symlinks by the time they're re-checked.
+    struct Fake(std::cell::RefCell<std::collections::BTreeMap<PathBuf, bool>>, Vec<PathBuf>);
 
     impl RemoteTree for Fake {
         fn children(&self, dir: &Path) -> Result<Vec<(PathBuf, bool)>, String> {
             let all = self.0.borrow();
             Ok(all.iter().filter(|(p, _)| p.parent() == Some(dir)).map(|(p, d)| (p.clone(), *d)).collect())
+        }
+        fn is_real_dir(&self, path: &Path) -> Result<bool, String> {
+            Ok(!self.1.iter().any(|s| s == path) && self.0.borrow().get(path).copied().unwrap_or(false))
         }
         fn unlink(&self, path: &Path) -> Result<(), String> {
             self.0.borrow_mut().remove(path).map(|_| ()).ok_or_else(|| "missing".to_string())
@@ -759,10 +794,29 @@ mod tests {
         .into_iter()
         .map(|(p, d)| (PathBuf::from(p), d))
         .collect();
-        let fake = Fake(std::cell::RefCell::new(tree));
+        let fake = Fake(std::cell::RefCell::new(tree), Vec::new());
         remove_tree(&fake, Path::new("/site")).unwrap();
         let left: Vec<_> = fake.0.borrow().keys().map(|p| p.to_string_lossy().into_owned()).collect();
         assert_eq!(left, ["/other", "/other/keep"]);
+    }
+
+    #[test]
+    fn a_folder_swapped_for_a_symlink_mid_delete_is_unlinked_not_walked() {
+        // "/site/app" was a folder when listed; by the re-check it is a link,
+        // standing for one to "/other" — whose contents must survive.
+        let tree: std::collections::BTreeMap<PathBuf, bool> =
+            [("/site", true), ("/site/app", true), ("/site/app/x", false), ("/other", true), ("/other/keep", false)]
+                .into_iter()
+                .map(|(p, d)| (PathBuf::from(p), d))
+                .collect();
+        let fake = Fake(std::cell::RefCell::new(tree), vec![PathBuf::from("/site/app")]);
+        // The fake's unlink of a "folder" leaves its children orphaned; what
+        // matters is that the walk never went into it.
+        let _ = remove_tree(&fake, Path::new("/site"));
+        let all = fake.0.borrow();
+        assert!(!all.contains_key(Path::new("/site/app")), "the link itself is removed");
+        assert!(all.contains_key(Path::new("/site/app/x")), "nothing behind the link was touched");
+        assert!(all.contains_key(Path::new("/other/keep")));
     }
 
     #[test]
