@@ -2,7 +2,7 @@ import { PointerEvent as ReactPointerEvent, Suspense, lazy, useEffect, useRef, u
 import { invoke } from "@tauri-apps/api/core";
 import { Button, IconButton, Spinner } from "../ui";
 import { OctagonX, PanelRightClose, RotateCw } from "../ui/icons";
-import { clampDock } from "./terminalDock";
+import { clampDock } from "./terminalDockState";
 import "./TerminalDock.css";
 
 // xterm is a few hundred kB; it loads the first time the dock opens.

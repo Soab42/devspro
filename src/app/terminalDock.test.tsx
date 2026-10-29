@@ -10,7 +10,7 @@ import {
   dockMax,
   isDockShortcut,
   useTerminalDock,
-} from "./terminalDock";
+} from "./terminalDockState";
 
 const invoke = vi.fn(async (_cmd: string, _args?: unknown): Promise<unknown> => null);
 vi.mock("@tauri-apps/api/core", () => ({
