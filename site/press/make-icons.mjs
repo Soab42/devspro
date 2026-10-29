@@ -6,13 +6,13 @@
 //
 // then use it as <svg class="i"><use href="assets/icons.svg#name"/></svg>.
 import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const iconsDir = join(root, "node_modules/lucide-react/dist/esm/icons");
 const out = join(root, "site/assets/icons.svg");
-const names = `layout-dashboard globe container database table-2 mail workflow calendar-clock database-zap network memory-stick eraser scroll-text send app-window package files file-diff book-user square-terminal bot terminal folder-sync screen-share settings download shield-check lock refresh-cw check arrow-right copy chevron-down rocket badge-check monitor circle-check cpu hard-drive gauge activity search file-signature ban layers`.split(" ");
+const names = `layout-dashboard globe container database table-2 mail workflow calendar-clock database-zap network memory-stick eraser scroll-text send app-window package files file-diff book-user square-terminal bot terminal folder-sync screen-share settings download shield-check lock refresh-cw check arrow-right copy chevron-down rocket badge-check monitor circle-check cpu hard-drive gauge activity search file-signature ban layers minus square x panel-left-close square-arrow-out-up-right panel-right sun moon clock server triangle-alert`.split(" ");
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 let symbols = [];
 for (const n of names) {
@@ -24,7 +24,7 @@ for (const n of names) {
     if (!m) break;
     file = m[1];
   }
-  const mod = await import(`${iconsDir}/${file}`);
+  const mod = await import(pathToFileURL(`${iconsDir}/${file}`).href);
   const inner = mod.__iconNode
     .map(([tag, attrs]) => {
       const a = Object.entries(attrs).filter(([k]) => k !== "key").map(([k, v]) => `${k}="${esc(v)}"`).join(" ");

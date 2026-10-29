@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DevsPro: your local dev stack in one window</title>
-  <meta name="description" content="Run nginx sites with trusted HTTPS, Docker, databases, workers, mail and logs from one app for Linux and Windows. Elevation only through a small helper. MIT licensed.">
+  <meta name="description" content="Run nginx or Apache sites with trusted HTTPS, Docker, databases, workers, mail and logs from one app for Linux and Windows. Elevation only through a small helper. MIT licensed.">
   <link rel="canonical" href="https://soab42.github.io/devspro/">
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="DevsPro">
   <meta property="og:title" content="DevsPro: your local dev stack in one window">
-  <meta property="og:description" content="nginx sites with trusted HTTPS, Docker, databases, workers, mail, logs and ports in one desktop app for Linux and Windows. Free and MIT licensed.">
+  <meta property="og:description" content="nginx or Apache sites with trusted HTTPS, Docker, databases, workers, mail, logs and ports in one desktop app for Linux and Windows. Free and MIT licensed.">
   <meta property="og:url" content="https://soab42.github.io/devspro/">
   <meta property="og:image" content="https://soab42.github.io/devspro/assets/og.png">
   <meta property="og:image:width" content="1200">
@@ -18,7 +18,7 @@
   <meta property="og:image:alt" content="DevsPro: your local dev stack in one window. A desktop app for Linux and Windows.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="DevsPro: your local dev stack in one window">
-  <meta name="twitter:description" content="nginx sites with trusted HTTPS, Docker, databases, workers, mail, logs and ports in one desktop app for Linux and Windows.">
+  <meta name="twitter:description" content="nginx or Apache sites with trusted HTTPS, Docker, databases, workers, mail, logs and ports in one desktop app for Linux and Windows.">
   <meta name="twitter:image" content="https://soab42.github.io/devspro/assets/og.png">
 
   <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)">
@@ -37,7 +37,7 @@
     "name": "DevsPro",
     "operatingSystem": "Linux, Windows",
     "applicationCategory": "DeveloperApplication",
-    "description": "A local development environment manager for Linux and Windows: nginx sites with locally-trusted HTTPS, Docker, databases, workers, a mail catcher, logs and ports in one window.",
+    "description": "A local development environment manager for Linux and Windows: nginx or Apache sites with locally-trusted HTTPS, Docker, databases, workers, a mail catcher, logs and ports in one window.",
     "url": "https://soab42.github.io/devspro/",
     "license": "https://opensource.org/licenses/MIT",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
@@ -111,8 +111,8 @@
           </a>
           <h1>Your local dev stack, <span class="grad">in one window.</span></h1>
           <p class="hero-sub">
-            DevsPro runs nginx sites with trusted HTTPS, Docker, databases, queue workers,
-            mail, logs and ports from one desktop app for Linux and Windows. Anything that
+            DevsPro runs nginx or Apache sites with trusted HTTPS, Docker, databases, queue
+            workers, mail, logs and ports from one desktop app for Linux and Windows. Anything that
             needs root or administrator rights goes through one small helper that can only
             do a fixed list of things.
           </p>
@@ -163,21 +163,31 @@
         <!-- The product picture. To use a real screenshot instead, set
              screenshots.hero in assets/config.js; site.js swaps it in. -->
         <figure class="shot" data-shot="hero" data-shot-alt="The DevsPro window, showing the Dashboard">
-          <div class="win" role="img" aria-label="Illustration of the DevsPro window: the module sidebar grouped into Services, Monitoring and System, beside the Dashboard with CPU, memory, storage, network, disk cleanup and port conflict cards.">
+          <!-- Drawn after the app's own Shell and Dashboard (src/app/Shell.tsx,
+               src/modules/dashboard): same sidebar order, topbar and cards. -->
+          <div class="win" role="img" aria-label="Illustration of the DevsPro window: the module sidebar grouped into Services, Monitoring and System, beside the Dashboard with a health summary, CPU, memory, disk and network cards, and per-core CPU usage.">
             <div class="win-titlebar" aria-hidden="true">
-              DevsPro
-              <div class="win-controls"><span></span><span></span><span></span></div>
+              <img src="assets/icon.svg" alt="">
+              <span>DevsPro</span>
+              <div class="win-controls">
+                <svg class="i"><use href="assets/icons.svg#minus"/></svg>
+                <svg class="i"><use href="assets/icons.svg#square"/></svg>
+                <svg class="i"><use href="assets/icons.svg#x"/></svg>
+              </div>
             </div>
             <div class="win-body" aria-hidden="true">
               <aside class="win-sidebar">
-                <div class="win-brand"><img src="assets/icon.svg" alt=""><span>DevsPro</span></div>
+                <div class="win-brand">
+                  <img src="assets/icon.svg" alt=""><span>DevsPro</span>
+                  <svg class="i win-collapse"><use href="assets/icons.svg#panel-left-close"/></svg>
+                </div>
                 <div class="win-nav">
                   <div class="win-group">
                     <div class="win-link is-active"><svg class="i"><use href="assets/icons.svg#layout-dashboard"/></svg><span>Dashboard</span></div>
                   </div>
                   <div class="win-group">
                     <div class="win-group-label">Services</div>
-                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#globe"/></svg><span>Nginx &amp; SSL</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#globe"/></svg><span>Web Server &amp; SSL</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#container"/></svg><span>Docker</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#database"/></svg><span>Databases</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#table-2"/></svg><span>Data browser</span></div>
@@ -199,76 +209,102 @@
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#eraser"/></svg><span>Cleaner</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#package"/></svg><span>Apps</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#files"/></svg><span>Files</span></div>
-                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#square-terminal"/></svg><span>Terminal</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#file-diff"/></svg><span>Env Diff</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#book-user"/></svg><span>Hosts file</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#square-terminal"/></svg><span>SSH</span></div>
                   </div>
                 </div>
               </aside>
               <div class="win-main">
                 <div class="win-topbar">
-                  <span class="win-tab"><svg class="i"><use href="assets/icons.svg#layout-dashboard"/></svg>Dashboard</span>
-                  <span class="win-tab is-muted"><svg class="i"><use href="assets/icons.svg#globe"/></svg>Nginx &amp; SSL</span>
-                  <span class="win-tab is-muted win-hide-md"><svg class="i"><use href="assets/icons.svg#container"/></svg>Docker</span>
                   <span class="win-search"><svg class="i"><use href="assets/icons.svg#search"/></svg><span>Search modules</span><kbd>Ctrl K</kbd></span>
+                  <span class="win-ibtn win-hide-sm"><svg class="i"><use href="assets/icons.svg#square-arrow-out-up-right"/></svg></span>
+                  <span class="win-ibtn win-hide-sm"><svg class="i"><use href="assets/icons.svg#panel-right"/></svg></span>
+                  <span class="win-seg win-hide-sm"><span><svg class="i"><use href="assets/icons.svg#sun"/></svg></span><span class="is-on"><svg class="i"><use href="assets/icons.svg#monitor"/></svg></span><span><svg class="i"><use href="assets/icons.svg#moon"/></svg></span></span>
+                  <span class="win-profile"><span class="win-avatar">DE</span><span class="win-hide-sm">dev</span></span>
                 </div>
                 <div class="win-content">
-                  <div class="win-page-title"><svg class="i"><use href="assets/icons.svg#layout-dashboard"/></svg>Dashboard</div>
-                  <div class="win-page-desc">System health, resource usage and port conflicts at a glance.</div>
-                  <div class="win-grid">
-                    <div class="win-card">
-                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#cpu"/></svg>CPU</div>
-                      <div class="win-kpi">23<small>%</small></div>
-                      <svg class="win-spark" viewBox="0 0 120 34" preserveAspectRatio="none"><path class="area" d="M0 26 L10 24 L20 27 L30 20 L40 22 L50 14 L60 18 L70 12 L80 19 L90 16 L100 21 L110 17 L120 19 L120 34 L0 34 Z"/><path d="M0 26 L10 24 L20 27 L30 20 L40 22 L50 14 L60 18 L70 12 L80 19 L90 16 L100 21 L110 17 L120 19"/></svg>
-                      <div class="win-sub">16 threads · load 0.84</div>
+                  <div class="win-page-head">
+                    <span class="win-page-icon"><svg class="i"><use href="assets/icons.svg#layout-dashboard"/></svg></span>
+                    <span class="win-page-title">Dashboard</span>
+                    <span class="win-page-meta"><span class="mono">DEVBOX</span><span>·</span><span>Windows 11 Pro</span><span class="win-hide-md">·</span><span class="win-hide-md"><svg class="i"><use href="assets/icons.svg#clock"/></svg>up 1d 4h 58m</span></span>
+                    <span class="win-seg win-facets win-hide-md"><span class="is-on">All</span><span>CPU</span><span>Memory</span><span>GPU</span><span>Storage</span></span>
+                  </div>
+                  <div class="win-health">
+                    <span class="win-health-icon"><svg class="i"><use href="assets/icons.svg#shield-check"/></svg></span>
+                    <div class="win-health-text">
+                      <b>All systems nominal</b>
+                      <span>CPU, memory and disk are all within normal range.</span>
                     </div>
+                    <div class="win-badges win-hide-sm"><span>CPU</span><span>Memory</span><span>C:\</span></div>
+                  </div>
+                  <div class="win-kpis">
+                    <div class="win-kpi">
+                      <div class="win-kpi-head"><svg class="i"><use href="assets/icons.svg#cpu"/></svg>CPU</div>
+                      <div class="win-kpi-value">18%</div>
+                      <svg class="win-spark" viewBox="0 0 120 30" preserveAspectRatio="none"><path class="area" d="M0 24 L6 23 L12 25 L18 24 L24 21 L30 23 L36 22 L42 24 L48 19 L54 13 L60 20 L66 22 L72 21 L78 23 L84 20 L90 22 L96 23 L102 18 L108 15 L114 21 L120 19 L120 30 L0 30 Z"/><path d="M0 24 L6 23 L12 25 L18 24 L24 21 L30 23 L36 22 L42 24 L48 19 L54 13 L60 20 L66 22 L72 21 L78 23 L84 20 L90 22 L96 23 L102 18 L108 15 L114 21 L120 19"/></svg>
+                      <div class="win-kpi-sub">12 cores</div>
+                    </div>
+                    <div class="win-kpi">
+                      <div class="win-kpi-head"><svg class="i"><use href="assets/icons.svg#memory-stick"/></svg>Memory</div>
+                      <div class="win-kpi-value">58%</div>
+                      <svg class="win-spark" viewBox="0 0 120 30" preserveAspectRatio="none"><path class="area" d="M0 13 L20 13 L40 12.5 L60 12.5 L80 12 L100 12.5 L120 12.5 L120 30 L0 30 Z"/><path d="M0 13 L20 13 L40 12.5 L60 12.5 L80 12 L100 12.5 L120 12.5"/></svg>
+                      <div class="win-kpi-sub">8.9 GB / 15.3 GB</div>
+                    </div>
+                    <div class="win-kpi win-hide-sm">
+                      <div class="win-kpi-head"><svg class="i"><use href="assets/icons.svg#hard-drive"/></svg>C:\</div>
+                      <div class="win-kpi-value">47%</div>
+                      <div class="win-meter"><span style="width: 47%"></span></div>
+                      <div class="win-kpi-sub">141.7 GB / 299.7 GB</div>
+                    </div>
+                    <div class="win-kpi win-hide-sm">
+                      <div class="win-kpi-head"><svg class="i"><use href="assets/icons.svg#activity"/></svg>Network</div>
+                      <div class="win-kpi-value">37.9 KB/s</div>
+                      <svg class="win-spark" viewBox="0 0 120 30" preserveAspectRatio="none"><path class="area" d="M0 27 L8 26 L14 22 L20 27 L28 26 L34 27 L40 24 L46 27 L52 26 L58 27 L64 8 L70 25 L76 26 L82 24 L88 27 L94 26 L100 15 L106 27 L112 26 L120 25 L120 30 L0 30 Z"/><path d="M0 27 L8 26 L14 22 L20 27 L28 26 L34 27 L40 24 L46 27 L52 26 L58 27 L64 8 L70 25 L76 26 L82 24 L88 27 L94 26 L100 15 L106 27 L112 26 L120 25"/></svg>
+                      <div class="win-kpi-sub">up and down, all interfaces</div>
+                    </div>
+                  </div>
+                  <div class="win-card">
+                    <div class="win-card-head">
+                      <span class="win-card-icon"><svg class="i"><use href="assets/icons.svg#cpu"/></svg></span>
+                      <div><b>CPU</b><span>AMD Ryzen 5 PRO 5650U with Radeon Graphics · 12 cores</span></div>
+                    </div>
+                    <div class="win-card-body">
+                      <div class="win-meter-row"><span>Overall</span><div class="win-meter"><span style="width: 18%"></span></div><b>18%</b></div>
+                      <div class="win-cores">
+                        <div><span>Core 0</span><span>21%</span><i style="--p: 21%"></i></div>
+                        <div><span>Core 1</span><span>9%</span><i style="--p: 9%"></i></div>
+                        <div><span>Core 2</span><span>34%</span><i style="--p: 34%"></i></div>
+                        <div><span>Core 3</span><span>12%</span><i style="--p: 12%"></i></div>
+                        <div><span>Core 4</span><span>27%</span><i style="--p: 27%"></i></div>
+                        <div><span>Core 5</span><span>15%</span><i style="--p: 15%"></i></div>
+                        <div><span>Core 6</span><span>8%</span><i style="--p: 8%"></i></div>
+                        <div><span>Core 7</span><span>22%</span><i style="--p: 22%"></i></div>
+                        <div><span>Core 8</span><span>6%</span><i style="--p: 6%"></i></div>
+                        <div><span>Core 9</span><span>19%</span><i style="--p: 19%"></i></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="win-pair">
                     <div class="win-card">
-                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#memory-stick"/></svg>Memory</div>
-                      <div class="win-kpi">9.8 <small>/ 31.2 GB</small></div>
-                      <div class="win-meter"><span style="width: 31%"></span></div>
-                      <div class="win-sub">Swap 0 B used</div>
+                      <div class="win-card-head">
+                        <span class="win-card-icon"><svg class="i"><use href="assets/icons.svg#server"/></svg></span>
+                        <div><b>System</b></div>
+                      </div>
+                      <div class="win-card-body win-stats">
+                        <div><small>Hostname</small><b class="mono">DEVBOX</b></div>
+                        <div><small>OS</small><b>Windows 11 Pro</b></div>
+                        <div><small>Kernel</small><b class="mono">10.0.26200</b></div>
+                      </div>
                     </div>
                     <div class="win-card win-hide-sm">
-                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#hard-drive"/></svg>Storage</div>
-                      <div class="win-kpi">412 <small>/ 931 GB</small></div>
-                      <div class="win-meter"><span style="width: 44%"></span></div>
-                      <div class="win-sub">/ · ext4</div>
-                    </div>
-                    <div class="win-card win-hide-sm">
-                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#activity"/></svg>Network</div>
-                      <div class="win-kpi">1.2 <small>MB/s down</small></div>
-                      <svg class="win-spark" viewBox="0 0 120 34" preserveAspectRatio="none"><path class="area" d="M0 30 L10 29 L20 22 L30 28 L40 25 L50 30 L60 12 L70 24 L80 27 L90 20 L100 26 L110 23 L120 28 L120 34 L0 34 Z"/><path d="M0 30 L10 29 L20 22 L30 28 L40 25 L50 30 L60 12 L70 24 L80 27 L90 20 L100 26 L110 23 L120 28"/></svg>
-                      <div class="win-sub">84 KB/s up</div>
-                    </div>
-                    <div class="win-card win-span-2">
-                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#eraser"/></svg>Disk cleanup <span class="pill pill-info">Suggested</span></div>
-                      <div class="win-free">14.2 GB <small style="font-size:11px;color:var(--w-muted);font-weight:500">can be freed</small></div>
-                      <div class="win-stack"><span style="width:48%;background:#6e8ef2"></span><span style="width:30%;background:#a78bfa"></span><span style="width:22%;background:#22d3ee"></span></div>
-                      <div class="win-rows">
-                        <div class="win-row"><span>Docker build cache</span><b>6.8 GB</b></div>
-                        <div class="win-row"><span>node_modules in idle projects</span><b>4.3 GB</b></div>
-                        <div class="win-row win-hide-sm"><span>npm and pnpm caches</span><b>3.1 GB</b></div>
+                      <div class="win-card-head">
+                        <span class="win-card-icon"><svg class="i"><use href="assets/icons.svg#memory-stick"/></svg></span>
+                        <div><b>Memory</b></div>
                       </div>
-                    </div>
-                    <div class="win-card win-span-2">
-                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#network"/></svg>Port conflicts <span class="pill pill-ok">None</span></div>
-                      <div class="win-rows">
-                        <div class="win-row"><span class="mono">:443</span><b>nginx</b></div>
-                        <div class="win-row"><span class="mono">:3306</span><b>devspro-mysql</b></div>
-                        <div class="win-row"><span class="mono">:8025</span><b>mailpit</b></div>
-                        <div class="win-row win-hide-sm"><span class="mono">:6379</span><b>redis</b></div>
-                      </div>
-                    </div>
-                    <div class="win-card win-span-2 win-hide-sm">
-                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#monitor"/></svg>System <span class="pill pill-ok">Healthy</span></div>
-                      <div class="win-rows">
-                        <div class="win-row"><span>OS</span><b>Pop!_OS 24.04 LTS</b></div>
-                        <div class="win-row"><span>Kernel</span><b>6.16.3</b></div>
-                      </div>
-                    </div>
-                    <div class="win-card win-span-2 win-hide-sm">
-                      <div class="win-card-head"><svg class="i"><use href="assets/icons.svg#gauge"/></svg>GPU</div>
-                      <div class="win-rows">
-                        <div class="win-row"><span>Usage</span><b>12%</b></div>
-                        <div class="win-row"><span>GPU temp</span><b>47 °C</b></div>
+                      <div class="win-card-body">
+                        <div class="win-meter-row"><span>RAM</span><div class="win-meter"><span style="width: 58%"></span></div><b>8.9 GB / 15.3 GB</b></div>
+                        <div class="win-meter-row"><span>Swap</span><div class="win-meter"><span style="width: 12%"></span></div><b>1.8 GB / 15.3 GB</b></div>
                       </div>
                     </div>
                   </div>
@@ -276,7 +312,7 @@
               </div>
             </div>
           </div>
-          <figcaption>Illustration of the DevsPro window. The figures are examples.</figcaption>
+          <figcaption>Illustration of the DevsPro Dashboard, drawn from the app. The figures are examples.</figcaption>
         </figure>
       </div>
     </section>
@@ -294,7 +330,7 @@
           <article class="highlight">
             <div class="highlight-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#layers"/></svg></div>
             <h3>Services with a start button</h3>
-            <p>Containers, compose stacks, databases with admin UIs, queue workers, cron tasks and a mail catcher, each with its logs.</p>
+            <p>Containers, compose stacks, databases with admin UIs, queue workers, scheduled tasks and a mail catcher, each with its logs.</p>
           </article>
           <article class="highlight">
             <div class="highlight-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#gauge"/></svg></div>
@@ -304,7 +340,7 @@
           <article class="highlight">
             <div class="highlight-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#square-terminal"/></svg></div>
             <h3>The tools you keep switching to</h3>
-            <p>Terminal, SSH and SFTP, a database browser, an HTTP client, a browser and terminal AI agents, in tabs.</p>
+            <p>Terminal, SSH and SFTP, a database browser, an HTTP client, a browser and terminal AI agents, with a terminal docked beside any page.</p>
           </article>
         </div>
       </div>
@@ -316,7 +352,7 @@
         <div class="section-head">
           <span class="kicker">Modules</span>
           <h2 id="modules-title">25 modules. Switch off the ones you don't use.</h2>
-          <p>Every module opens in its own tab and is found from the launcher with Ctrl+K. A module you switch off in Settings isn't loaded at all.</p>
+          <p>Open a module from the sidebar or the launcher (Ctrl+K), or Ctrl+click it to open it in a window of its own. A module you switch off in Settings isn't loaded at all.</p>
         </div>
 
         <div class="module-groups">
@@ -324,13 +360,13 @@
             <h3>Services <small>8</small></h3>
             <p class="module-group-desc">Things with a lifecycle you start, stop and remove.</p>
             <ul class="modules">
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#globe"/></svg></span><div><h4>Nginx &amp; SSL</h4><p>Proxy-to-port and Laravel sites with trusted HTTPS, PHP versions, an optional Cloudflare tunnel, and a New Project wizard.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#container"/></svg></span><div><h4>Docker</h4><p>Containers and compose stacks: start, stop, restart, logs and published ports.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#globe"/></svg></span><div><h4>Web Server &amp; SSL</h4><p>Proxy-to-port and Laravel sites with trusted HTTPS, served by nginx or Apache, including XAMPP, WAMP and Laragon installs. PHP versions, an optional Cloudflare tunnel, and a New Project wizard.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#container"/></svg></span><div><h4>Docker</h4><p>Containers and compose stacks: start, stop, restart, logs, bulk actions and published ports. If Docker isn't running, start it from the page.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#database"/></svg></span><div><h4>Databases</h4><p>MySQL, PostgreSQL, MongoDB and Redis in their own compose project, each with an admin UI, users, backup and restore.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#table-2"/></svg></span><div><h4>Data browser</h4><p>Browse and edit rows in any MySQL or PostgreSQL database, local or remote, with a SQL console and export.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#mail"/></svg></span><div><h4>Mail Catcher</h4><p>Outgoing mail from local apps lands in Mailpit, where you can read it.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#workflow"/></svg></span><div><h4>Workers</h4><p>Any command kept running in the background, like a Laravel queue worker, with its output.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#calendar-clock"/></svg></span><div><h4>Scheduled tasks</h4><p>Recurring commands on a schedule, with each run's output.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#mail"/></svg></span><div><h4>Mail Catcher</h4><p>Outgoing mail from local apps lands in Mailpit, built in or in Docker. No Docker needed, and it can start with DevsPro.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#workflow"/></svg></span><div><h4>Workers</h4><p>Any command kept running in the background, like a Laravel queue worker, with its output as a console or a table.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#calendar-clock"/></svg></span><div><h4>Scheduled tasks</h4><p>Recurring commands on a schedule, with each run's output and, for a failed run, the matching Laravel log entry.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#database-zap"/></svg></span><div><h4>Redis</h4><p>Browse keys by pattern and watch Laravel queues: pending, delayed and reserved.</p></div></li>
             </ul>
           </div>
@@ -339,12 +375,12 @@
             <h3>Dashboard &amp; monitoring <small>6</small></h3>
             <p class="module-group-desc">The home screen, and read-mostly views onto the machine.</p>
             <ul class="modules">
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#layout-dashboard"/></svg></span><div><h4>Dashboard</h4><p>Live CPU, memory, GPU, storage and network, with a health summary and port conflicts.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#layout-dashboard"/></svg></span><div><h4>Dashboard</h4><p>Live CPU per core, memory, GPU, storage, network and temperatures, with a health summary, and port conflicts when there are any.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#network"/></svg></span><div><h4>Processes</h4><p>What is listening on which port, and stop it.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#memory-stick"/></svg></span><div><h4>Memory</h4><p>See which apps use your RAM, stop them, and let a watchdog close idle ones when memory runs out.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#scroll-text"/></svg></span><div><h4>Logs</h4><p>Tail nginx access and error logs and Laravel logs per site.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#send"/></svg></span><div><h4>HTTP client</h4><p>Send any request to your local sites, trusted through the app's own CA, with a history to rerun.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#app-window"/></svg></span><div><h4>Browser</h4><p>Tabs, bookmarks, saved logins, history, device presets and the Web Inspector, in a native webview.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#app-window"/></svg></span><div><h4>Browser</h4><p>Tabs, split view, bookmarks, saved logins, history, device presets and the Web Inspector, in a native webview.</p></div></li>
             </ul>
           </div>
 
@@ -352,17 +388,17 @@
             <h3>System <small>11</small></h3>
             <p class="module-group-desc">The machine, your files and servers, and the app itself.</p>
             <ul class="modules">
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#eraser"/></svg></span><div><h4>Cleaner</h4><p>Find what is eating disk space (caches, Docker, large files, project junk) and clear it after a review.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#package"/></svg></span><div><h4>Apps</h4><p>Install common dev tooling: nginx, Docker, PHP, Node and nvm, cloudflared and more.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#files"/></svg></span><div><h4>Files</h4><p>A Finder-style explorer with your drives, and editor tabs with syntax highlighting, git blame and diffs.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#square-terminal"/></svg></span><div><h4>Terminal</h4><p>Local and SSH shells with split panes, windows, pop-out, and a file browser that follows the shell.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#bot"/></svg></span><div><h4>AI agents</h4><p>Run Claude Code, Codex, Gemini CLI, OpenCode and other terminal coding agents in a project folder.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#terminal"/></svg></span><div><h4>SSH</h4><p>Saved hosts, key generation, and installing a key on a host.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#folder-sync"/></svg></span><div><h4>SFTP</h4><p>A two-pane file browser and transfers for a saved host.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#screen-share"/></svg></span><div><h4>Remote Desktop</h4><p>VNC screens viewed in-app, and RDP sessions in your system's RDP client.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#book-user"/></svg></span><div><h4>Hosts file</h4><p>Edit the hosts file entry by entry, with DevsPro's own lines told apart from the system's.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#eraser"/></svg></span><div><h4>Cleaner</h4><p>Find what is eating disk space (caches, Docker, large files, project junk) with a storage map, and clear it after a review.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#package"/></svg></span><div><h4>Apps</h4><p>Install dev tooling: nginx, Docker, PHP, Node and nvm, MySQL, PostgreSQL, Python, Git, Claude Code, Codex CLI, cloudflared and more. On Windows, pick the Docker Desktop version.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#files"/></svg></span><div><h4>Files</h4><p>A Finder-style explorer with your drives and devices, and editor tabs with syntax highlighting, git blame and diffs.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#file-diff"/></svg></span><div><h4>Env Diff</h4><p>Compare two <code>.env</code> files by variable and copy values across.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#settings"/></svg></span><div><h4>Settings</h4><p>Theme, interface size, autostart and tray, updates, and backup and restore.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#book-user"/></svg></span><div><h4>Hosts file</h4><p>Edit the hosts file entry by entry, with DevsPro's own lines told apart from the system's.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#square-terminal"/></svg></span><div><h4>SSH</h4><p>Saved hosts, key generation, and installing a key on a host.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#bot"/></svg></span><div><h4>AI agents</h4><p>Run Claude Code, Codex, Gemini CLI, OpenCode and other terminal coding agents in a project folder.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#terminal"/></svg></span><div><h4>Terminal</h4><p>Local and SSH shells with split panes, windows and pop-out, a file browser that follows the shell, and a terminal docked beside any page.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#folder-sync"/></svg></span><div><h4>SFTP</h4><p>A two-pane file browser for a saved host, with favourite folders, multi-select and Download as zip.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#screen-share"/></svg></span><div><h4>Remote Desktop</h4><p>VNC screens viewed in-app, and RDP sessions in your system's RDP client.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#settings"/></svg></span><div><h4>Settings</h4><p>Theme and interface size, which modules load, autostart and tray, your external editor, updates, and backup and restore.</p></div></li>
             </ul>
           </div>
         </div>
@@ -376,30 +412,38 @@
       <div class="container spotlights">
         <article class="spotlight">
           <div class="spotlight-copy">
-            <span class="kicker">Nginx &amp; SSL</span>
+            <span class="kicker">Web Server &amp; SSL</span>
             <h3>A new Laravel project, served over HTTPS, in one go.</h3>
             <p>The New Project wizard scaffolds Laravel, adds the site, creates a database, writes <code>.env</code> and runs migrations, reporting each step as it goes.</p>
             <ul class="checks">
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>Served by nginx or Apache, including the one in XAMPP, WAMP or Laragon</li>
               <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>Proxy-to-port sites for anything that listens on a port</li>
               <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>A locally-trusted certificate per site from a CA DevsPro manages</li>
               <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>An optional public Cloudflare tunnel, per site</li>
             </ul>
           </div>
           <div data-shot="wizard" data-shot-alt="The New Project wizard in DevsPro">
-            <div class="panel" role="img" aria-label="Illustration of the New Project wizard's progress list.">
-              <div class="panel-head" aria-hidden="true">
-                <svg class="i"><use href="assets/icons.svg#rocket"/></svg>New project: shop
-                <span class="pill pill-info">Running</span>
+            <!-- Drawn after the wizard's Review & run step (src/modules/nginx-ssl/components/NewProjectForm.tsx). -->
+            <div class="app-view av-framed" role="img" aria-label="Illustration of the New Project wizard running: project files, site and certificate, hosts entry, database and .env are done, and migrations are running.">
+              <div class="av-card-head av-modal-head" aria-hidden="true">
+                <div><b>New project</b></div>
+                <svg class="i av-close"><use href="assets/icons.svg#x"/></svg>
               </div>
-              <ol class="steps" aria-hidden="true">
-                <li><svg class="i"><use href="assets/icons.svg#circle-check"/></svg><span>Scaffold Laravel in <code>~/code/shop</code></span></li>
-                <li><svg class="i"><use href="assets/icons.svg#circle-check"/></svg><span>Add site <code>shop.test</code> with a trusted certificate</span></li>
-                <li><svg class="i"><use href="assets/icons.svg#circle-check"/></svg><span>Create database <code>shop</code></span></li>
-                <li><svg class="i"><use href="assets/icons.svg#circle-check"/></svg><span>Write <code>.env</code></span></li>
-                <li><span class="spin"></span><span>Run migrations</span></li>
-              </ol>
+              <div class="av-body" aria-hidden="true">
+                <span class="win-seg av-steps"><span>1. Project</span><span>2. Services</span><span class="is-on">3. Review &amp; run</span></span>
+                <ul class="av-run">
+                  <li><span class="av-pill av-pill-ok">Done</span>Project files</li>
+                  <li><span class="av-pill av-pill-ok">Done</span>Nginx site + certificate</li>
+                  <li><span class="av-pill av-pill-ok">Done</span>Hosts entry</li>
+                  <li><span class="av-pill av-pill-ok">Done</span>Database</li>
+                  <li><span class="av-pill av-pill-ok">Done</span><span class="mono">.env</span></li>
+                  <li><span class="av-pill"><span class="spin"></span>Running</span>Artisan key:generate + migrate</li>
+                  <li><span class="av-pill">Waiting</span>Open in editor</li>
+                </ul>
+                <div class="av-foot"><span class="spin"></span><span class="av-muted">This can take a minute — Composer and your admin password may be needed.</span></div>
+              </div>
             </div>
-            <p class="panel-caption">Illustration</p>
+            <p class="panel-caption">Illustration drawn from the app.</p>
           </div>
         </article>
 
@@ -407,32 +451,117 @@
           <div class="spotlight-copy">
             <span class="kicker">Cleaner</span>
             <h3>Find the gigabytes. Then decide.</h3>
-            <p>See how much space you can free, grouped by risk: package caches, Docker leftovers, large files and the biggest folders, and <code>node_modules</code> or <code>target</code> in projects you haven't touched in a while.</p>
+            <p>See how much space you can free, grouped by risk: package caches, Docker leftovers, large files and the biggest folders, and <code>node_modules</code> or <code>target</code> in projects you haven't touched in a while. The Storage map shows any folder or drive as a treemap you can zoom into.</p>
             <ul class="checks">
               <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>Scans change nothing; every clean goes through a review list</li>
               <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>Each cache is cleaned with its own tool's command</li>
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>Removed files go to the Trash unless you choose otherwise</li>
               <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>DevsPro's own database volumes are protected</li>
             </ul>
           </div>
           <div data-shot="cleaner" data-shot-alt="The Cleaner's Storage map in DevsPro">
-            <div class="panel" role="img" aria-label="Illustration of the Cleaner: a storage map treemap and space grouped by risk.">
-              <div class="panel-head" aria-hidden="true">
-                <svg class="i"><use href="assets/icons.svg#hard-drive"/></svg>Storage map
+            <!-- Drawn after the app's Storage map (src/modules/cleaner/components/StorageMapTab.tsx).
+                 The cells are the app's own treemap layout (storage-map/treemap.ts) run at
+                 560x291 over example sizes, in its colours. -->
+            <div class="app-view" role="img" aria-label="Illustration of the Cleaner's Storage map: a treemap of a home folder, where folders open into their contents and files are coloured by kind, with one folder selected for removal.">
+              <div class="av-tabs" aria-hidden="true">
+                <span>Overview</span><span>Caches</span><span class="av-hide-sm">Docker</span><span class="av-hide-sm">Large files</span><span class="is-on">Storage map</span><span class="av-hide-sm">Project junk</span>
               </div>
-              <div class="treemap" aria-hidden="true">
-                <div class="tm-a"><b>~/code</b><span>148 GB</span></div>
-                <div class="tm-b"><b>Docker</b><span>61 GB</span></div>
-                <div class="tm-c"><b>~/.cache</b><span>22 GB</span></div>
-                <div class="tm-d"><b>~/Videos</b><span>54 GB</span></div>
-                <div class="tm-e"><b>~/.local/share</b><span>19 GB</span></div>
-                <div class="tm-f"><b>~/.npm</b><span>9 GB</span></div>
-              </div>
-              <div class="risk-list" aria-hidden="true">
-                <div><span class="pill pill-ok">Safe</span><span>Package caches and build cache</span><b>9.9 GB</b></div>
-                <div><span class="pill pill-warn">Review</span><span>Idle projects' node_modules</span><b>4.3 GB</b></div>
+              <div class="av-body" aria-hidden="true">
+                <div class="av-toolbar">
+                  <span class="av-select"><span class="mono">/home/you</span><svg class="i"><use href="assets/icons.svg#chevron-down"/></svg></span>
+                  <span class="av-btn av-btn-primary">Scan</span>
+                </div>
+                <div class="av-muted">Scanned 2 minutes ago.</div>
+                <div class="av-card">
+                  <div class="av-card-head">
+                    <div><b>you</b><span>261 GB in 327,989 files; 261 GB mapped in all</span></div>
+                    <span class="av-btn"><svg class="i"><use href="assets/icons.svg#files"/></svg><span class="av-hide-sm">Reveal in Files</span></span>
+                    <span class="av-btn av-btn-danger"><svg class="i"><use href="assets/icons.svg#eraser"/></svg>Remove</span>
+                  </div>
+                  <svg class="av-treemap" viewBox="0 0 560 291">
+                    <rect x="0" y="0" width="259.3" height="291" fill="#5b6b7f"/>
+                    <text x="4" y="11">code</text>
+                    <rect x="2" y="14" width="149.4" height="187" fill="#5b6b7f"/>
+                    <text x="6" y="25">shop</text>
+                    <rect class="is-selected" x="4" y="28" width="145.4" height="110.4" fill="#5b6b7f"/>
+                    <text x="8" y="39">node_modules</text>
+                    <text class="s" x="8" y="53">31.0 GB</text>
+                    <rect x="4" y="138.4" width="77" height="60.6" fill="#5b6b7f"/>
+                    <text x="8" y="149.4">vendor</text>
+                    <text class="s" x="8" y="163.4">9.0 GB</text>
+                    <rect x="81" y="138.4" width="68.4" height="60.6" fill="#5b6b7f"/>
+                    <text x="85" y="149.4">storage</text>
+                    <text class="s" x="85" y="163.4">8.0 GB</text>
+                    <rect x="151.4" y="14" width="105.8" height="187" fill="#5b6b7f"/>
+                    <text x="155.4" y="25">devspro</text>
+                    <rect x="153.4" y="28" width="101.8" height="130.8" fill="#5b6b7f"/>
+                    <text x="157.4" y="39">target</text>
+                    <text class="s" x="157.4" y="53">26.0 GB</text>
+                    <rect x="153.4" y="158.8" width="101.8" height="40.2" fill="#5b6b7f"/>
+                    <text x="157.4" y="169.8">node_modules</text>
+                    <text class="s" x="157.4" y="183.8">8.0 GB</text>
+                    <rect x="2" y="201" width="205.7" height="88" fill="#5b6b7f"/>
+                    <text x="6" y="212">api</text>
+                    <rect x="4" y="215" width="188" height="72" fill="#5b6b7f"/>
+                    <text x="8" y="226">target</text>
+                    <text class="s" x="8" y="240">29.0 GB</text>
+                    <rect x="192" y="215" width="13.6" height="72" fill="#5b6b7f"/>
+                    <rect x="207.7" y="201" width="49.6" height="88" fill="#8a8f98" fill-opacity=".55"/>
+                    <rect x="259.3" y="0" width="172.6" height="168.5" fill="#5b6b7f"/>
+                    <text x="263.3" y="11">Videos</text>
+                    <rect x="261.3" y="14" width="76.2" height="152.5" fill="#c0504d"/>
+                    <text x="265.3" y="25">conferenc…</text>
+                    <text class="s" x="265.3" y="39">21.0 GB</text>
+                    <rect x="337.4" y="14" width="92.5" height="83.7" fill="#c0504d"/>
+                    <text x="341.4" y="25">screencast.…</text>
+                    <text class="s" x="341.4" y="39">14.0 GB</text>
+                    <rect x="337.4" y="97.7" width="67.5" height="68.8" fill="#c0504d"/>
+                    <text x="341.4" y="108.7">demo.webm</text>
+                    <text class="s" x="341.4" y="122.7">8.4 GB</text>
+                    <rect x="405" y="97.7" width="24.9" height="68.8" fill="#8a8f98" fill-opacity=".55"/>
+                    <rect x="259.3" y="168.5" width="172.6" height="122.5" fill="#5b6b7f"/>
+                    <text x="263.3" y="179.5">Downloads</text>
+                    <rect x="261.3" y="182.5" width="54.9" height="106.5" fill="#4472c4"/>
+                    <rect x="316.1" y="182.5" width="83.3" height="59.3" fill="#23857a"/>
+                    <text x="320.1" y="193.5">dataset.zip</text>
+                    <text class="s" x="320.1" y="207.5">9.3 GB</text>
+                    <rect x="316.1" y="241.8" width="83.3" height="47.2" fill="#8c7a3a"/>
+                    <text x="320.1" y="252.8">prod-backu…</text>
+                    <text class="s" x="320.1" y="266.8">7.4 GB</text>
+                    <rect x="399.4" y="182.5" width="30.4" height="106.5" fill="#4472c4"/>
+                    <rect x="431.9" y="0" width="128.1" height="98.1" fill="#5b6b7f"/>
+                    <text x="435.9" y="11">.cache</text>
+                    <rect x="433.9" y="14" width="56.8" height="82.1" fill="#5b6b7f"/>
+                    <rect x="490.7" y="14" width="67.3" height="51.2" fill="#5b6b7f"/>
+                    <text x="494.7" y="25">yarn</text>
+                    <text class="s" x="494.7" y="39">6.8 GB</text>
+                    <rect x="490.7" y="65.2" width="67.3" height="30.9" fill="#5b6b7f"/>
+                    <text x="494.7" y="76.2">pip</text>
+                    <rect x="431.9" y="98.1" width="128.1" height="77.1" fill="#5b6b7f"/>
+                    <text x="435.9" y="109.1">.local</text>
+                    <rect x="433.9" y="112.1" width="124.1" height="61.1" fill="#5b6b7f"/>
+                    <text x="437.9" y="123.1">share</text>
+                    <rect x="435.9" y="126.1" width="86.7" height="45.1" fill="#5b6b7f"/>
+                    <text x="439.9" y="137.1">containers</text>
+                    <text class="s" x="439.9" y="151.1">11.4 GB</text>
+                    <rect x="522.5" y="126.1" width="33.5" height="45.1" fill="#5b6b7f"/>
+                    <rect x="431.9" y="175.3" width="60" height="115.7" fill="#5b6b7f"/>
+                    <text x="435.9" y="186.3">Pictures</text>
+                    <rect x="433.9" y="189.3" width="56" height="56.6" fill="#5b6b7f"/>
+                    <rect x="433.9" y="245.9" width="56" height="43.1" fill="#5b6b7f"/>
+                    <rect x="491.9" y="175.3" width="68.1" height="82.7" fill="#5b6b7f"/>
+                    <text x="495.9" y="186.3">.npm</text>
+                    <text class="s" x="495.9" y="200.3">9.0 GB</text>
+                    <rect x="491.9" y="257.9" width="68.1" height="33.1" fill="#8a8f98" fill-opacity=".55"/>
+                    <text x="495.9" y="268.9">28 small…</text>
+                    <text class="s" x="495.9" y="282.9">3.6 GB</text>
+                  </svg>
+                  <div class="av-status">Selected <span class="mono">/home/you/code/shop/node_modules</span> 31.0 GB, 11.9% of the map</div>
+                </div>
               </div>
             </div>
-            <p class="panel-caption">Illustration</p>
+            <p class="panel-caption">Illustration drawn from the app. The sizes are examples.</p>
           </div>
         </article>
 
@@ -440,7 +569,7 @@
           <div class="spotlight-copy">
             <span class="kicker">Terminal and AI agents</span>
             <h3>Your shells, your servers and your agents, side by side.</h3>
-            <p>A tmux-style terminal with split panes and windows, saved SSH hosts and SFTP, and a launcher for terminal coding agents. Each agent opens in its own tab in the project folder you pick; DevsPro sees which are installed and installs the missing ones.</p>
+            <p>A tmux-style terminal with split panes and windows, docked beside any page with Ctrl+`, saved SSH hosts and SFTP, and a launcher for terminal coding agents. Each agent opens in its own tab in the project folder you pick; DevsPro sees which are installed and installs the missing ones.</p>
             <ul class="agents" aria-label="Agents DevsPro can launch">
               <li>Claude Code</li><li>Codex CLI</li><li>Gemini CLI</li><li>OpenCode</li><li>Copilot CLI</li><li>Aider</li><li>Goose</li><li>Amp</li><li>and more, or your own command</li>
             </ul>
@@ -475,7 +604,7 @@ server: nginx</div>
           <h2 id="security-title">Root only where it's needed. Never for arbitrary commands.</h2>
           <p class="security-lead">
             DevsPro itself never runs elevated. Anything that needs root or administrator
-            rights (nginx config, the hosts file, the certificate trust store, package
+            rights (web server config, the hosts file, the certificate trust store, package
             installs) goes through one small helper binary that applies a declared manifest
             of operations and exits. On Linux it is started with <code>pkexec</code>; on
             Windows, through a UAC prompt.
@@ -484,8 +613,9 @@ server: nginx</div>
             <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Write a file under one allowed prefix</li>
             <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Sync a marker-delimited block</li>
             <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Install named packages</li>
-            <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Test and reload nginx</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Test and reload nginx or Apache</li>
             <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Trust the local root CA</li>
+            <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Start or stop a system service</li>
             <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#check"/></svg>Install a verified DevsPro update</li>
             <li class="is-absent"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#ban"/></svg><span>There is no <q>run this command</q></span></li>
           </ul>
@@ -541,7 +671,11 @@ server: nginx</div>
               <tr role="row"><th scope="row" role="rowheader">nginx wiring</th><td role="cell" data-label="Linux">A drop-in file in <code>conf.d</code></td><td role="cell" data-label="Windows">One <code>include</code> added inside <code>http{}</code>, since Windows nginx has no <code>conf.d</code></td></tr>
               <tr role="row"><th scope="row" role="rowheader">Trusting the local CA</th><td role="cell" data-label="Linux">The OS store and NSS, so Firefox and Chrome both trust it</td><td role="cell" data-label="Windows">The Windows Root store: Chrome and Edge trust it; Firefox needs <code>security.<wbr>enterprise_roots.<wbr>enabled</code></td></tr>
               <tr role="row"><th scope="row" role="rowheader">Stopping a worker</th><td role="cell" data-label="Linux">SIGTERM, so it can finish the job it's on</td><td role="cell" data-label="Windows">Forced, because Windows gives a GUI app no way to ask a console program to wind down</td></tr>
+              <tr role="row"><th scope="row" role="rowheader">Apache wiring</th><td role="cell" data-label="Linux">A drop-in file in <code>conf.d</code> or <code>conf-enabled</code></td><td role="cell" data-label="Windows">One <code>Include</code> added to <code>httpd.conf</code></td></tr>
+              <tr role="row"><th scope="row" role="rowheader">Apache reload</th><td role="cell" data-label="Linux"><code>systemctl reload</code>, else <code>apachectl -k graceful</code></td><td role="cell" data-label="Windows">A running Apache (Laragon, XAMPP) is restarted without elevation</td></tr>
               <tr role="row"><th scope="row" role="rowheader">nginx not running</th><td role="cell" data-label="Linux">Reloaded through systemd</td><td role="cell" data-label="Windows">DevsPro writes the config and tells you to start nginx; it won't start it for you</td></tr>
+              <tr role="row"><th scope="row" role="rowheader">Scheduled tasks</th><td role="cell" data-label="Linux">A block in your crontab</td><td role="cell" data-label="Windows">Task Scheduler</td></tr>
+              <tr role="row"><th scope="row" role="rowheader">Installing tools</th><td role="cell" data-label="Linux">apt, dnf or pacman</td><td role="cell" data-label="Windows">winget, which can also install a chosen version</td></tr>
               <tr role="row"><th scope="row" role="rowheader">Listening ports</th><td role="cell" data-label="Linux"><code>ss</code> and <code>/proc</code></td><td role="cell" data-label="Windows"><code>GetExtendedTcpTable</code>; the full command line isn't shown, as Windows keeps it out of reach</td></tr>
             </tbody>
           </table>
@@ -555,7 +689,7 @@ server: nginx</div>
         <div class="section-head">
           <span class="kicker">Updates</span>
           <h2 id="updates-title">Updates itself, and checks the signature twice.</h2>
-          <p>DevsPro looks for a new version when it starts and whenever you ask in Settings&nbsp;→&nbsp;Updates. An update installs only if it was signed with the DevsPro release key, and never one older than what you have.</p>
+          <p>DevsPro looks for a new version when it starts, every six hours after that, and whenever you ask in Settings&nbsp;→&nbsp;Updates. When one is out, the top bar says so. An update installs only if it was signed with the DevsPro release key, and never one older than what you have.</p>
         </div>
         <ol class="flow">
           <li>
@@ -691,7 +825,7 @@ server: nginx</div>
           </details>
           <details>
             <summary>What can DevsPro do with root or administrator rights?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
-            <div class="answer"><p>Only the operations the helper knows: write files under one allowed prefix, sync a marked block in a file like <code>/etc/hosts</code>, install named packages, test and reload nginx, trust the local CA, fix a Laravel project's storage permissions, start or stop a system service, a few memory and disk cleanup tasks, and install a signed DevsPro update. Some of these exist only on Linux. Each run asks first: for your password through <code>pkexec</code> on Linux, with a UAC prompt on Windows. There is no operation that runs an arbitrary command.</p></div>
+            <div class="answer"><p>Only the operations the helper knows: write files under one allowed prefix, sync a marked block in a file like <code>/etc/hosts</code>, install named packages, test and reload nginx or Apache, trust the local CA, fix a Laravel project's storage permissions, start or stop a system service, a few memory and disk cleanup tasks (the apt cache, journal and old snaps on Linux; Windows Temp, the Update and Delivery Optimization caches and crash dumps on Windows), and install a signed DevsPro update. Each run asks first: for your password through <code>pkexec</code> on Linux, with a UAC prompt on Windows. There is no operation that runs an arbitrary command.</p></div>
           </details>
           <details>
             <summary>Does it send anything anywhere?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
@@ -707,7 +841,7 @@ server: nginx</div>
           </details>
           <details>
             <summary>Do I need Docker?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
-            <div class="answer"><p>Only for the modules built on it: Docker, Databases and the Mail Catcher. Sites, workers, scheduled tasks, the terminal, Files and the rest work without it. The Apps module installs common tooling such as nginx, Docker, PHP and Node.</p></div>
+            <div class="answer"><p>Only for the modules built on it: Docker, Databases and the Data browser, plus the Cleaner's Docker tab. The Mail Catcher runs Mailpit without Docker, and sites, workers, scheduled tasks, Redis, the terminal, Files and the rest work without it too.</p><p>If Docker isn't installed, those pages offer to install it from the Apps module (on Windows you can pick the Docker Desktop version). If it's installed but not running, a Start Docker button starts it and waits until it's ready.</p></div>
           </details>
         </div>
       </div>

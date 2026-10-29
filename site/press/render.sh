@@ -9,7 +9,9 @@
 #   site/press/gallery/*.png           1270×760  Product Hunt gallery
 #   site/press/thumbnail.png           240×240   Product Hunt thumbnail
 #   site/assets/apple-touch-icon.png   180×180
-#   site/assets/icon-192.png, icon-512.png, favicon-32.png
+#   site/assets/icon-256.png, icon-512.png, favicon-32.png
+#                                      copied from the app's own icons in
+#                                      src-tauri/icons, so they can't drift
 set -euo pipefail
 
 PRESS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,6 +59,9 @@ shot press/gallery-5-updates.html 1270 760 "$PRESS/gallery/5-updates.png"
 shot press/gallery-6-platforms.html 1270 760 "$PRESS/gallery/6-platforms.png"
 shot "press/icon.html?bleed" 240 240 "$PRESS/thumbnail.png"
 shot "press/icon.html?bleed" 180 180 "$SITE/assets/apple-touch-icon.png"
-shot press/icon.html 512 512 "$SITE/assets/icon-512.png" transparent
-shot press/icon.html 192 192 "$SITE/assets/icon-192.png" transparent
-shot press/icon.html 32 32 "$SITE/assets/favicon-32.png" transparent
+# Headless Chrome drops the transparent background, so the plain icons are
+# the app's own PNGs rather than screenshots.
+ICONS="$(dirname "$SITE")/src-tauri/icons"
+cp "$ICONS/icon.png" "$SITE/assets/icon-512.png" && echo "  $SITE/assets/icon-512.png"
+cp "$ICONS/128x128@2x.png" "$SITE/assets/icon-256.png" && echo "  $SITE/assets/icon-256.png"
+cp "$ICONS/32x32.png" "$SITE/assets/favicon-32.png" && echo "  $SITE/assets/favicon-32.png"
