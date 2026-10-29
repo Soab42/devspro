@@ -41,7 +41,7 @@ pub fn install_plan(id: &str) -> Option<InstallPlan> {
         // every other vendor's naming — does not exist; `freenginx.nginx` is the fork.)
         "nginx" => InstallPlan::packages(PackageManager, &["nginxinc.nginx"]),
         "docker" => InstallPlan::packages(PackageManager, &["Docker.DockerDesktop"]).describe(
-            "Docker Desktop — container runtime and Compose. Needs to be running before the Docker, Databases and Mail Catcher pages can do anything.",
+            "Docker Desktop — container runtime and Compose. Needs to be running before the Docker and Databases pages can do anything.",
         ),
         "node" => InstallPlan::packages(PackageManager, &["OpenJS.NodeJS"]),
         // nvm-windows is a different program from the nvm this catalog installs on Linux —

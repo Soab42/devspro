@@ -7,7 +7,7 @@ import type { DockerDetection } from "./api";
 /**
  * Docker's two precondition failures, as a PageStatus.
  *
- * Shared because the Docker and Mail Catcher pages both gate on exactly the
+ * Shared because the Docker page and the Cleaner's Docker tab both gate on exactly the
  * same conditions and previously carried their own near-identical copies of
  * this markup — including the group-membership guidance below, which is
  * load-bearing security information and must not be dropped or reworded away.

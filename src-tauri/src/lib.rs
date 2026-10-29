@@ -88,6 +88,7 @@ pub fn run() {
             app.manage(system::SystemState::default());
             app.manage(tunnel::TunnelState::default());
             app.manage(workers::WorkersState::default());
+            app.manage(mailcatcher::MailcatcherState::default());
             app.manage(ssh::SshState::default());
             app.manage(remote_desktop::RemoteDesktopState::default());
             app.manage(memory::MemoryState::default());
@@ -97,6 +98,8 @@ pub fn run() {
             memory::watchdog::start(app.handle().clone());
 
             tray::setup(app.handle())?;
+
+            mailcatcher::on_startup(app.handle());
 
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = app.handle().clone();
@@ -245,11 +248,13 @@ pub fn run() {
             http_client::http_history_clear,
             logs::logs_list_sources,
             logs::logs_tail,
-            mailcatcher::mailcatcher_detect_docker,
             mailcatcher::mailcatcher_status,
             mailcatcher::mailcatcher_start,
             mailcatcher::mailcatcher_stop,
-            mailcatcher::mailcatcher_remove,
+            mailcatcher::mailcatcher_remove_container,
+            mailcatcher::mailcatcher_install,
+            mailcatcher::mailcatcher_uninstall,
+            mailcatcher::mailcatcher_set_options,
             cleaner::cleaner_settings_get,
             cleaner::cleaner_settings_set,
             cleaner::cleaner_history_list,
@@ -400,6 +405,7 @@ pub fn run() {
                     tunnel::kill_all(app_handle.state::<tunnel::TunnelState>());
                     ssh::pty::kill_all(&app_handle.state::<ssh::SshState>());
                     remote_desktop::vnc::kill_all(&app_handle.state::<remote_desktop::RemoteDesktopState>());
+                    mailcatcher::on_exit(app_handle);
                 }
                 // A popped-out terminal window owns its shells; closing the
                 // window is closing those terminals.
