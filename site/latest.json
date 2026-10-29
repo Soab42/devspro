@@ -1,6 +1,15 @@
 {
-  "version": "0.1.1",
-  "notes": "",
-  "pub_date": "2026-10-05T00:00:00Z",
-  "platforms": {}
+  "version": "0.2.0",
+  "notes": "### New\n- **Windows.** DevsPro now runs on Windows as well as Linux, from a per-machine installer. Elevation goes through UAC, scheduled tasks through Task Scheduler, terminals through ConPTY; the README lists what still differs.\n- **In-app updates.** DevsPro checks for a new version on start and in Settings → Updates, downloads it, checks its signature, and installs it through the elevation helper with one password or UAC prompt, then restarts. The helper checks the signature again before installing anything.\n- **Docked terminal.** A terminal on the right of any page, from the top bar or Ctrl+`. Hiding it keeps the shell running.\n- **Memory page.** RAM per app with start and stop, a RAM watchdog, dropping caches and a full reset.\n- **Cleaner.** See how much space you can free, grouped by risk: package caches, Docker leftovers, large files and folders, idle projects' `node_modules` and `target`, and the apt cache, journal and old snaps. Includes a Storage map treemap and a history of past cleans.\n- **Devices in Files.** USB drives, memory cards, phones, cameras, Google Drive and network shares, mounted on a click.\n- **Files editor tabs.** Syntax highlighting, folding, Format document, and git status, change bars, inline diff, blame and file history.\n- **Log Table view** for workers and scheduled tasks, with the matching Laravel log entries for a failed run.\n- **PostgreSQL schema picker** in the database browser.\n\n### Improved\n- Zoom the whole interface with Ctrl+Plus, Ctrl+Minus, Ctrl+0 and Ctrl+wheel.\n- Cleaner scans read folders on several threads.\n- SFTP favourite folders, multi-select actions and Download as zip.\n- SSH checks a private key's permissions before connecting, and imports pasted keys.\n\n### Fixed\n- Closing a terminal now ends everything started in it, including background jobs, instead of leaving them running.\n- Deleting a remote folder that isn't empty from the Terminal's file browser works, and removes what is in it.\n- On Linux, disabling or deleting a scheduled task stops its run in progress, as it already did on Windows.\n- On Linux, stopping a worker stops everything it started, and one that ignores the stop request is ended after two seconds.",
+  "pub_date": "2026-10-29T06:20:47Z",
+  "platforms": {
+    "linux-x86_64-deb": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSZlhMQm9KUWpjNHpsU0NLYkR2Lzh0cmk0WHJZdnpNNkpOcDlUSXA0WnluUGNaZVIzc0JMSVVnYlNwR09YVEc1ekVaTlIwU05VT0VGZVpadTMrL1lnbnRhSzJHK1ZsbXcwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMjU0ODQ2CWZpbGU6RGV2c1Byb18wLjIuMF9hbWQ2NC5kZWIKTjhYZHFTK3kzVkF6NnZrTDdJYVVoaXNaUjkrUVNCb29FZXdOYlRJTFZVeXdsQ1ZtNUtQUWlyTjYyZTFmWWMzRmtyUUNkMVozcVpNcmRrVjlmM1h5QlE9PQo=",
+      "url": "https://github.com/Soab42/devspro/releases/download/v0.2.0/DevsPro_0.2.0_amd64.deb"
+    },
+    "linux-x86_64-rpm": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSZlhMQm9KUWpjNDhNVFd6WG4rMGJIemVwdFhELzFVNlc0Q0w4WjlmYmpuS3RyZzNQZm5uSjl5QXczaXE4VlZMaTlFY3hUZWdjWmJOdE5xZ2NHNEdlaTdMaWYxMWQ5U1FVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMjU0ODQ3CWZpbGU6RGV2c1Byby0wLjIuMC0xLng4Nl82NC5ycG0KMlVGelRnaUZYWitZYnpmdzN6R3ZhcWhpMEVXOVNjSm5ZOUl3b0Y0L0tyRlNOdUZoeFllcGJLdFIwM25kZHpCZUljZTZkdVpzQ1lDYjJudStUMitCREE9PQo=",
+      "url": "https://github.com/Soab42/devspro/releases/download/v0.2.0/DevsPro-0.2.0-1.x86_64.rpm"
+    }
+  }
 }
