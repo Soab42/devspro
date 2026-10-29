@@ -26,6 +26,7 @@ import {
 } from "./api";
 import BackupRestoreSection from "./components/BackupRestoreSection";
 import ModulesSection from "./components/ModulesSection";
+import UpdatesSection from "./components/UpdatesSection";
 
 export default function SettingsPage() {
   const module = useModule("settings");
@@ -193,6 +194,8 @@ export default function SettingsPage() {
         </Section>
 
         <BackupRestoreSection />
+
+        <UpdatesSection />
 
         <Section title="About">
           <Stack gap={4}>

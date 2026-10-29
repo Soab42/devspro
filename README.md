@@ -48,6 +48,14 @@ per-machine and asks for administrator rights, which is deliberate — see
 [PACKAGING.md](docs/PACKAGING.md#the-installer-is-per-machine-on-purpose). The
 installer is unsigned, so SmartScreen will interpose once.
 
+### Updates
+
+Once installed, DevsPro updates itself: it checks for a new version on start
+and in Settings → Updates, and installs it through the elevation helper with
+one password (or UAC) prompt. Packages are signed, and the helper checks the
+signature itself before installing anything. Release notes:
+**[soab42.github.io/devspro](https://soab42.github.io/devspro/changelog.html)**.
+
 ## Platform support
 
 Every module works on both, but a few things genuinely differ, and the app says
@@ -100,7 +108,9 @@ trust store, installing apt packages — goes through one small helper binary
 *operation manifest*. The manifest's operations are a fixed enum: write a file
 under one allowed prefix, sync a marker-delimited block, install named
 packages, reload nginx, clean the apt cache, vacuum the journal, remove a
-disabled snap revision. There is no "run this command" operation.
+disabled snap revision, install a DevsPro update — and only one carrying a
+valid signature from the release key compiled into the helper. There is no
+"run this command" operation.
 
 Everything that does not genuinely need root deliberately does not get it —
 nvm installs into `~/.nvm`, npm globals go to your own npm prefix, and

@@ -56,6 +56,10 @@ base64 = "0.23.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["native-tls"] }
 tokio = { version = "1.53.1", features = ["net", "io-util", "sync", "macros", "time", "rt"] }
 tokio-tungstenite = "0.30"
+# The updater: checks a download's signature as it streams in (the helper checks
+# it again, as root), and compares the feed's version with this build's.
+minisign-verify = "0.3"
+semver = "1"
 futures-util = "0.3.34"
 
 # The Browser module hosts each tab's WebKit widget inside the app window's

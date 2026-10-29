@@ -58,6 +58,7 @@ enum Operation {
     ClearWindowsUpdateCache,
     ClearDeliveryOptimizationCache,
     RemoveSystemCrashDumps,
+    InstallUpdate { package_path: String, signature: String },
 }
 
 #[derive(Debug, Deserialize)]
@@ -730,6 +731,77 @@ fn failed(message: String) -> OpResult {
     OpResult { success: false, message }
 }
 
+/// The updater's public key, exactly as `tauri signer generate` writes it:
+/// base64 of a minisign public key file. Compiled in, never read from the
+/// manifest — a caller who could pass the key could sign anything.
+const UPDATE_PUBLIC_KEY: &str = include_str!("../../updater.pub");
+const MAX_UPDATE_BYTES: u64 = 512 * 1024 * 1024;
+
+/// `public_key` and `signature` are both in the base64 form `tauri signer`
+/// produces. Only prehashed (BLAKE2b) signatures are accepted, which is all
+/// `tauri signer sign` makes.
+fn verify_update(public_key: &str, bytes: &[u8], signature: &str) -> Result<(), String> {
+    use base64::Engine;
+    let decode = |b64: &str, what: &str| -> Result<String, String> {
+        let raw = base64::engine::general_purpose::STANDARD
+            .decode(b64.trim())
+            .map_err(|e| format!("{what} is not valid base64: {e}"))?;
+        String::from_utf8(raw).map_err(|_| format!("{what} is not text"))
+    };
+    let key = minisign_verify::PublicKey::decode(&decode(public_key, "the update key")?)
+        .map_err(|e| format!("the update key is malformed: {e}"))?;
+    let sig = minisign_verify::Signature::decode(&decode(signature, "the signature")?)
+        .map_err(|e| format!("the signature is malformed: {e}"))?;
+    key.verify(bytes, &sig, false)
+        .map_err(|e| format!("the package's signature does not match DevsPro's update key: {e}"))
+}
+
+/// Checks everything that can be checked without reading the file. Returns
+/// the package kind, taken from the extension: a .deb or .rpm on Linux, the
+/// NSIS installer (.exe) on Windows. `platform::install_update` refuses a kind
+/// that isn't its own.
+fn check_update_path(package_path: &str) -> Result<&'static str, String> {
+    let path = Path::new(package_path);
+    if !path.is_absolute() || path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err(format!("{package_path} is not an absolute path without .. — refusing"));
+    }
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("deb") => Ok("deb"),
+        Some("rpm") => Ok("rpm"),
+        Some("exe") => Ok("exe"),
+        _ => Err(format!("{package_path} is not a .deb, .rpm or .exe — refusing")),
+    }
+}
+
+/// Installs a DevsPro update only if it carries a valid signature from the key
+/// compiled into this binary, so this is not a way to install an arbitrary
+/// package or run an arbitrary program. The file is read once and those bytes
+/// are what get verified and handed on: the original sits in a user-writable
+/// folder, so `platform::install_update` stages its own copy where only
+/// root / Administrators can write.
+fn install_update(package_path: &str, signature: &str) -> OpResult {
+    let kind = match check_update_path(package_path) {
+        Ok(kind) => kind,
+        Err(message) => return failed(message),
+    };
+    match fs::symlink_metadata(package_path) {
+        Ok(meta) if !meta.is_file() => return failed(format!("{package_path} is not a regular file — refusing")),
+        Ok(meta) if meta.len() > MAX_UPDATE_BYTES => {
+            return failed(format!("{package_path} is larger than any DevsPro package — refusing"))
+        }
+        Ok(_) => {}
+        Err(e) => return failed(format!("could not read {package_path}: {e}")),
+    }
+    let bytes = match fs::read(package_path) {
+        Ok(bytes) => bytes,
+        Err(e) => return failed(format!("could not read {package_path}: {e}")),
+    };
+    if let Err(message) = verify_update(UPDATE_PUBLIC_KEY, &bytes, signature) {
+        return failed(format!("{message} — refusing to install"));
+    }
+    platform::install_update(kind, &bytes)
+}
+
 fn run_fixed(program: &str, args: &[&str], done: String) -> OpResult {
     match Command::new(program).args(args).output() {
         Ok(out) if out.status.success() => OpResult { success: true, message: done },
@@ -857,6 +929,7 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
         Operation::ClearWindowsUpdateCache => platform::clear_windows_update_cache(),
         Operation::ClearDeliveryOptimizationCache => platform::clear_delivery_optimization_cache(),
         Operation::RemoveSystemCrashDumps => platform::remove_system_crash_dumps(),
+        Operation::InstallUpdate { package_path, signature } => install_update(&package_path, &signature),
     }
 }
 
@@ -1255,5 +1328,62 @@ firefox 123.0    3836  latest/stable  mozilla**   -\n";
         assert!(matches!(manifest.operations[1], Operation::ClearWindowsUpdateCache));
         assert!(matches!(manifest.operations[2], Operation::ClearDeliveryOptimizationCache));
         assert!(matches!(manifest.operations[3], Operation::RemoveSystemCrashDumps));
+    }
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    // A throwaway key made with `tauri signer generate`, and its signature of
+    // TEST_PACKAGE made with `tauri signer sign` — the release key isn't
+    // needed to test the check.
+    const TEST_KEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY3QjIwQjg0QTA1NjBCQzEKUldUQkMxYWdoQXV5WjRlWGpUelg3aTlyYllRRTRTb21SNkx2QldvSC91dkM1WUhtUlVVS3FQNXoK";
+    const TEST_PACKAGE: &[u8] = b"devspro update fixture";
+    const TEST_SIGNATURE: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUQkMxYWdoQXV5Wis4YVlPWEk1MXQyZ3RacFZtQXh0M2RoeEVzL1QzZjZBUDFjU01JQkJPbnBYVm9EYXlSakNvMXVFdmcxK0c0V3kzdWFvWDlQNjlRTkd3V0dHY1NDcXdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkzMjM4ODQzCWZpbGU6Zml4dHVyZS5kZWIKSmhyaW9mODd6WXVqaFZIeURxVmd6YnkzWHFqZkduWFlGSWxIV2g5WW85ZTBZeWdvZ1FFeGUxbEkzQVhrM1hqVnJZUFAvN2s5T2FQQzNhOWw5WFNBQ3c9PQo=";
+
+    #[test]
+    fn only_packages_signed_by_the_update_key_verify() {
+        assert_eq!(verify_update(TEST_KEY, TEST_PACKAGE, TEST_SIGNATURE), Ok(()));
+        let tampered = verify_update(TEST_KEY, b"devspro update fixturE", TEST_SIGNATURE).unwrap_err();
+        assert!(tampered.contains("does not match"), "{tampered}");
+        // The real key didn't make TEST_SIGNATURE.
+        let other_key = verify_update(UPDATE_PUBLIC_KEY, TEST_PACKAGE, TEST_SIGNATURE).unwrap_err();
+        assert!(other_key.contains("does not match"), "{other_key}");
+        let garbage = verify_update(TEST_KEY, TEST_PACKAGE, "not a signature").unwrap_err();
+        assert!(garbage.contains("not valid base64"), "{garbage}");
+    }
+
+    #[test]
+    fn update_paths_are_checked_before_anything_is_read() {
+        let abs = |p: &str| std::env::temp_dir().join(p).to_string_lossy().into_owned();
+        assert_eq!(check_update_path(&abs("DevsPro_0.2.0_amd64.deb")), Ok("deb"));
+        assert_eq!(check_update_path(&abs("DevsPro-0.2.0-1.x86_64.rpm")), Ok("rpm"));
+        assert_eq!(check_update_path(&abs("DevsPro_0.2.0_x64-setup.exe")), Ok("exe"));
+        let parent = std::env::temp_dir().join("..").join("x.deb").to_string_lossy().into_owned();
+        for bad in ["relative/DevsPro.deb".to_string(), parent, abs("DevsPro.tar.gz"), abs("deb"), String::new()] {
+            let r = install_update(&bad, TEST_SIGNATURE);
+            assert!(!r.success);
+            assert!(r.message.contains("refusing"), "{bad}: {}", r.message);
+        }
+    }
+
+    #[test]
+    fn a_package_with_a_bad_signature_is_refused_before_staging() {
+        let path = std::env::temp_dir().join(format!("devspro-update-test-{}.deb", std::process::id()));
+        fs::write(&path, b"not what was signed").unwrap();
+        let r = install_update(&path.to_string_lossy(), TEST_SIGNATURE);
+        fs::remove_file(&path).unwrap();
+        assert!(!r.success);
+        assert!(r.message.contains("refusing to install"), "{}", r.message);
+    }
+
+    #[test]
+    fn install_update_deserializes_from_the_apps_manifest_shape() {
+        let raw = r#"{"allowed_write_prefix":"","operations":[
+            {"type":"InstallUpdate","package_path":"/tmp/DevsPro_0.2.0_amd64.deb","signature":"c2ln"}
+        ]}"#;
+        let manifest: Manifest = serde_json::from_str(raw).unwrap();
+        assert!(matches!(&manifest.operations[0], Operation::InstallUpdate { package_path, signature } if package_path == "/tmp/DevsPro_0.2.0_amd64.deb" && signature == "c2ln"));
     }
 }

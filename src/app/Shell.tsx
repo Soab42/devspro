@@ -14,6 +14,7 @@ import {
 } from "./ModuleRegistry";
 import { useModules } from "./ModulesContext";
 import { ThemeControl } from "./ThemeControl";
+import { UpdateIndicator } from "./UpdateIndicator";
 import { useLayoutMode } from "./useLayoutMode";
 import { CommandPalette } from "./CommandPalette";
 import { TerminalDock } from "./TerminalDock";
@@ -322,6 +323,7 @@ function MainShell() {
             </kbd>
           </button>
           <div className="topbar-spacer" />
+          <UpdateIndicator />
           {current && (
             <IconButton
               icon={SquareArrowOutUpRight}

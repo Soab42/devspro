@@ -29,6 +29,7 @@ use modules::settings;
 use modules::ssh;
 use modules::system;
 use modules::tunnel;
+use modules::updater;
 use modules::workers;
 use tauri::Manager;
 
@@ -92,9 +93,11 @@ pub fn run() {
             app.manage(remote_desktop::RemoteDesktopState::default());
             app.manage(memory::MemoryState::default());
             app.manage(cleaner::CleanerState::default());
+            app.manage(updater::UpdaterState::default());
             // After the Db and MemoryState it reads are managed. Runs for the
             // life of the process, window open or not.
             memory::watchdog::start(app.handle().clone());
+            updater::start_background_checks(app.handle().clone());
 
             tray::setup(app.handle())?;
 
@@ -381,6 +384,10 @@ pub fn run() {
             scheduled::scheduled_run_now,
             scheduled::scheduled_logs,
             laravel_log::laravel_log_errors,
+            updater::updater_status,
+            updater::updater_check,
+            updater::updater_download,
+            updater::updater_install,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

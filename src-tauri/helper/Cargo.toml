@@ -9,5 +9,11 @@ name = "ldm-helper"
 path = "src/main.rs"
 
 [dependencies]
+# InstallUpdate checks an update's signature here, as root, against a key compiled into
+# this binary. minisign-verify does that (Ed25519 over a BLAKE2b hash) and base64 decodes
+# the key and signature from the form `tauri signer` writes them in. Both are pure Rust
+# with no dependencies of their own.
+base64 = "0.23"
+minisign-verify = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

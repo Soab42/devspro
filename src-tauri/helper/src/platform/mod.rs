@@ -10,6 +10,7 @@
 //! | `install_package()` | Install named packages with the manager the caller detected. |
 //! | `fix_laravel_permissions()` | Give the PHP process write access to `storage/` and `bootstrap/cache/`. |
 //! | `clear_windows_temp()` and the other Cleaner System-tab cleanups | Windows only; refused elsewhere. |
+//! | `install_update()` | Install an update `main.rs` has verified: apt-get / rpm on Linux, the NSIS installer on Windows. |
 //!
 //! Each returns an `OpResult` rather than a `Result`, because a manifest records an
 //! outcome per operation; and each is honest about doing nothing when there is nothing to

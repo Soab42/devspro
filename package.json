@@ -16,7 +16,12 @@
     "app": "tauri dev",
     "//package": "Builds the privileged helper in release FIRST — skip that and the bundle silently ships a placeholder that breaks every elevated action. See docs/PACKAGING.md.",
     "package": "cargo build --release -p ldm-helper --manifest-path src-tauri/Cargo.toml && tauri build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "//release": "In-app update releases: bump every version field, sign this machine's bundles into site/latest.json, upload to the GitHub release. See docs/PACKAGING.md, Releasing an update.",
+    "release:version": "node scripts/release.mjs version",
+    "release:feed": "node scripts/release.mjs feed",
+    "release:changelog": "node scripts/release.mjs changelog",
+    "release:publish": "node scripts/release.mjs publish"
   },
   "description": "Local development environment manager.",
   "license": "MIT",

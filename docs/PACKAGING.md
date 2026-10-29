@@ -175,6 +175,57 @@ After installing, open Settings → Elevation helper → **Test elevation**. It
 round-trips a harmless Ping through the real UAC prompt, which is the fastest
 way to confirm the helper is where the app expects and that elevation works.
 
+## Releasing an update
+
+Installed copies check `https://soab42.github.io/devspro/latest.json` (the
+`site/` folder, deployed by `.github/workflows/pages.yml`) a little after they
+start and every six hours, and from Settings → Updates. The feed is in the
+shape Tauri's updater reads; each package in it is a GitHub release asset with
+a minisign signature.
+
+```sh
+npm run release:version 0.2.0   # every version field, and dates CHANGELOG's "Unreleased"
+npm run package                 # on each platform: .deb + .rpm on Linux, the .exe on Windows
+npm run release:feed            # signs this machine's bundles into site/latest.json
+npm run release:publish         # creates the GitHub release v0.2.0, or adds to it
+git add -A && git commit -m "Release 0.2.0" && git push   # Pages publishes the feed
+```
+
+Run `release:feed` and `release:publish` on the Linux machine and again on the
+Windows one; the feed keeps both platforms' entries for the same version. Push
+`site/latest.json` only after every package it names is uploaded — a copy that
+sees the feed downloads at once.
+
+### The signing key
+
+`src-tauri/updater.pub` is compiled into both the app and the helper. The
+private key it pairs with is `~/.tauri/devspro-updater.key` (or
+`TAURI_SIGNING_PRIVATE_KEY_PATH`, with `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if
+it has one). Back it up somewhere safe: **every installed copy trusts only
+that key, so losing it means no more in-app updates for them** — those users
+would have to install the next version by hand. To replace it before the first
+release that ships it: `npx tauri signer generate -w ~/.tauri/devspro-updater.key`,
+then copy the `.pub` over `src-tauri/updater.pub`.
+
+`release:feed` checks every signature against `updater.pub` with Node's own
+Ed25519 and BLAKE2b before it writes the feed, so a key that doesn't match is
+caught there rather than by users' copies refusing the update.
+
+### What an installed copy does
+
+- Downloads the package for how it was installed (`dpkg-query -S` /
+  `rpm -qf` on its own binary; NSIS on Windows) and checks the signature as
+  it streams in.
+- Hands it to the helper as `InstallUpdate`. The helper reads the file once,
+  checks the signature again with the key compiled into it, and works from
+  its own copy: Linux installs from `/var/cache/devspro-update` with
+  `apt-get install -y` or `rpm -U`, both of which refuse a downgrade, then the
+  app restarts itself; Windows starts the installer from a fresh
+  Administrators-only folder under `%SystemRoot%\Temp` with `/P /UPDATE /R`
+  (passive, keep data, relaunch as the user) and the app exits so it can be
+  replaced.
+- A development build never checks on its own, and can't install.
+
 ## Release profile
 
 `[profile.release]` in `src-tauri/Cargo.toml` sets `lto = "thin"`,

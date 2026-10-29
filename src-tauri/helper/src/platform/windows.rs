@@ -459,3 +459,62 @@ mod tests {
         fs::remove_dir_all(&target).unwrap();
     }
 }
+
+/// The installer is staged under `%SystemRoot%\Temp`, in a folder created fresh
+/// by this (elevated) process. Users may add files there but not open or
+/// replace an Administrators-owned file, so the verified bytes are what runs.
+const UPDATE_DIR_PREFIX: &str = "devspro-update-";
+
+/// Starts the verified NSIS installer `main.rs` hands over, and returns without
+/// waiting: it has to replace `devspro.exe` and this very binary, so both must
+/// have exited first. `/P` is passive (a progress bar, no questions), and in
+/// passive mode the installer itself ends a DevsPro still running; `/UPDATE`
+/// keeps the app's data and skips first-install steps; `/R` relaunches DevsPro
+/// afterwards through `RunAsUser`, as the signed-in user rather than elevated.
+/// The installer inherits this process's elevation, so there is no second UAC
+/// prompt. Downgrades: the app only offers a newer version, and the signature
+/// check means only a release DevsPro published can get this far.
+pub fn install_update(kind: &str, bytes: &[u8]) -> OpResult {
+    if kind != "exe" {
+        return OpResult {
+            success: false,
+            message: format!("a .{kind} update is not installable on Windows — refusing"),
+        };
+    }
+    let temp = match windows_dir() {
+        Ok(dir) => dir.join("Temp"),
+        Err(message) => return OpResult { success: false, message },
+    };
+    // Earlier updates' folders: their installers have long finished.
+    for old in entries(&temp) {
+        if old.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(UPDATE_DIR_PREFIX)) {
+            let _ = fs::remove_dir_all(&old);
+        }
+    }
+    let nanos = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let dir = temp.join(format!("{UPDATE_DIR_PREFIX}{}-{nanos}", std::process::id()));
+    // create_dir, not create_dir_all: a folder someone made in advance is refused.
+    if let Err(e) = fs::create_dir(&dir) {
+        return OpResult {
+            success: false,
+            message: format!("could not create {}: {e}", dir.display()),
+        };
+    }
+    let installer = dir.join("DevsPro-update-setup.exe");
+    if let Err(e) = fs::write(&installer, bytes) {
+        return OpResult {
+            success: false,
+            message: format!("could not write {}: {e}", installer.display()),
+        };
+    }
+    match Command::new(&installer).args(["/P", "/UPDATE", "/R"]).spawn() {
+        Ok(_) => OpResult {
+            success: true,
+            message: "started the DevsPro installer".to_string(),
+        },
+        Err(e) => OpResult {
+            success: false,
+            message: format!("could not start the installer: {e}"),
+        },
+    }
+}

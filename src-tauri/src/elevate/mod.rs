@@ -149,6 +149,15 @@ pub enum Operation {
     /// `%SystemRoot%\Minidump` and of `%ProgramData%\Microsoft\Windows\WER`'s
     /// ReportArchive and ReportQueue.
     RemoveSystemCrashDumps,
+    /// Updater: installs a downloaded DevsPro update. The helper reads the file
+    /// once, checks `signature` (base64, as `tauri signer` writes it) against
+    /// the update key compiled into the helper itself, and refuses anything
+    /// else — so this can't install an arbitrary package. Linux: a .deb through
+    /// `apt-get install -y` or an .rpm through `rpm -U`, from a root-only copy
+    /// under /var/cache; both refuse a downgrade. Windows: starts the NSIS
+    /// installer (`/P /UPDATE /R`) from an Administrators-only copy and returns
+    /// at once, since the installer must replace the running app and helper.
+    InstallUpdate { package_path: String, signature: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
