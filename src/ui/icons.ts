@@ -125,6 +125,8 @@ export {
   Menu, // sidebar drawer toggle
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRight, // top bar: show / hide the docked terminal
+  PanelRightClose, // docked terminal: hide it
   Sun, // light theme
   Monitor, // system theme
   Moon, // dark theme
