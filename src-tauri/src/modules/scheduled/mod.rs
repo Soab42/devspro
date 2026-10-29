@@ -21,7 +21,7 @@
 //! On Windows there is no cron; the same definitions are registered as Task
 //! Scheduler tasks under `\DevsPro\` instead — see `task_scheduler`.
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 mod running;
 mod task_scheduler;
 
@@ -729,12 +729,12 @@ pub fn scheduled_save(
 
 /// Ends the task's runs still in progress, after the sync so no new one starts
 /// meanwhile. Off means off: without this a long-running command keeps going
-/// after its task is disabled or deleted. Windows only so far — on Unix cron's
-/// runs aren't tracked either and still finish on their own.
+/// after its task is disabled or deleted. Windows and Linux; on other Unix
+/// systems cron's runs aren't tracked and still finish on their own.
 fn stop_runs(id: &str) {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     running::stop_runs(id);
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     let _ = id;
 }
 
