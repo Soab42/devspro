@@ -304,6 +304,7 @@ pub fn run() {
             ai::ai_custom_agent_save,
             ai::ai_custom_agent_delete,
             apps::apps_list,
+            apps::apps_live_versions,
             apps::apps_install_batch,
             apps::apps_list_nvm_versions,
             apps::apps_write_nvmrc,

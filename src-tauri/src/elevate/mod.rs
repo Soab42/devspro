@@ -106,7 +106,18 @@ pub enum Operation {
     /// Linux only: `manager` is one of "apt", "dnf", "pacman" — whichever
     /// `nginx::linux_package_manager()` detected on this machine. macOS/Windows
     /// never build this op (brew must not run as root; Windows has no such step).
-    InstallPackage { manager: String, packages: Vec<String> },
+    ///
+    /// `pinned` maps a package in `packages` to the exact version to install, for
+    /// the Apps page's version picker. Winget only — the helper refuses it for any
+    /// other manager rather than silently installing the default. Left out of the
+    /// manifest when empty, so an install that pins nothing looks exactly as it
+    /// always has.
+    InstallPackage {
+        manager: String,
+        packages: Vec<String>,
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        pinned: std::collections::BTreeMap<String, String>,
+    },
     /// PHP-FPM's pool runs as `www-data` by default on Debian/RHEL, but a project
     /// folder picked from the user's home dir is owned by the desktop user — so
     /// `storage/` and `bootstrap/cache/` need group-write for www-data before

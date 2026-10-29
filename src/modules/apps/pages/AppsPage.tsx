@@ -24,6 +24,7 @@ import {
 } from "../../../ui";
 import { Download, ExternalLink, Package, RefreshCw, SearchX } from "../../../ui/icons";
 import { AppStatus, InstallOutcome, installBatch, listApps } from "../api";
+import LiveVersionPicker, { LiveVersionChoice } from "../components/LiveVersionPicker";
 
 type StatusFilter = "all" | "installed" | "not_installed";
 
@@ -46,6 +47,7 @@ export default function AppsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [query, setQuery] = useState("");
   const [versions, setVersions] = useState<Record<string, string>>({});
+  const [liveChoices, setLiveChoices] = useState<Record<string, LiveVersionChoice>>({});
 
   const rows = apps.data ?? [];
 
@@ -64,10 +66,32 @@ export default function AppsPage() {
 
   async function handleInstall() {
     if (selected.size === 0) return;
-    const names = rows.filter((a) => selected.has(a.id)).map((a) => a.name);
+    const chosen = rows.filter((a) => selected.has(a.id));
+
+    // A typed version that isn't published would only fail inside the elevated
+    // install, after the admin prompt — so it's caught here, before either.
+    const unavailable = chosen.find((a) => a.live_versions && liveChoices[a.id]?.valid === false);
+    if (unavailable) {
+      const typed = liveChoices[unavailable.id]?.version;
+      setError(
+        typed
+          ? `${unavailable.name} ${typed} isn't available. Pick a version from the list, or Latest.`
+          : `Type the ${unavailable.name} version to install, or pick Latest.`,
+      );
+      return;
+    }
+
+    const names = chosen.map((a) => {
+      const pinned = a.live_versions ? liveChoices[a.id]?.version : null;
+      return pinned ? `${a.name} ${pinned}` : a.name;
+    });
+    const pinsDocker = chosen.some((a) => a.id === "docker" && liveChoices[a.id]?.version);
 
     const ok = await confirmAction(
-      `${names.join(", ")} will be installed.`,
+      `${names.join(", ")} will be installed.` +
+        (pinsDocker
+          ? " Docker Desktop updates itself later unless you turn automatic updates off in its settings."
+          : ""),
       {
         title: `Install ${names.length} tool${names.length === 1 ? "" : "s"}?`,
         confirmLabel: "Install",
@@ -78,9 +102,9 @@ export default function AppsPage() {
     setBusy(true);
     setError(null);
     try {
-      const selections = Array.from(selected).map((id) => ({
-        id,
-        version: versions[id] ?? null,
+      const selections = chosen.map((a) => ({
+        id: a.id,
+        version: a.live_versions ? (liveChoices[a.id]?.version ?? null) : (versions[a.id] ?? null),
       }));
       const results = await installBatch(selections);
       setOutcomes(Object.fromEntries(results.map((r) => [r.id, r])));
@@ -203,7 +227,19 @@ export default function AppsPage() {
       priority: 2,
       minWidth: "8rem",
       render: (a) =>
-        a.available_versions.length > 0 ? (
+        a.live_versions ? (
+          a.installed ? (
+            // Installing over an existing Docker Desktop is a downgrade or a
+            // no-op, and a downgrade can lose its containers — so no picker.
+            <span className="u-muted">installed</span>
+          ) : (
+            <LiveVersionPicker
+              appId={a.id}
+              appName={a.name}
+              onChange={(choice) => setLiveChoices((prev) => ({ ...prev, [a.id]: choice }))}
+            />
+          )
+        ) : a.available_versions.length > 0 ? (
           <Select
             size="sm"
             value={versionFor(a)}

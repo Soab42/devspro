@@ -13,6 +13,8 @@ export interface AppStatus {
   installed: boolean;
   can_auto_install: boolean;
   available_versions: string[];
+  /** Versions come from `liveVersions` when the picker opens, not from here. */
+  live_versions: boolean;
 }
 
 export interface InstallOutcome {
@@ -29,3 +31,19 @@ export interface InstallSelection {
 export const listApps = () => invoke<AppStatus[]>("apps_list");
 export const installBatch = (selections: InstallSelection[]) =>
   invoke<InstallOutcome[]>("apps_install_batch", { selections });
+
+// One fetch per app per session: the list is a network round trip of a few
+// seconds, and it doesn't change while the page is open. A failed fetch is
+// forgotten so the next open tries again.
+const liveVersionCache = new Map<string, Promise<string[]>>();
+
+/** Every published version of `id`, newest first. */
+export function liveVersions(id: string): Promise<string[]> {
+  let pending = liveVersionCache.get(id);
+  if (!pending) {
+    pending = invoke<string[]>("apps_live_versions", { id });
+    pending.catch(() => liveVersionCache.delete(id));
+    liveVersionCache.set(id, pending);
+  }
+  return pending;
+}

@@ -309,6 +309,9 @@ pub struct AppStatus {
     /// Non-empty only where this OS actually has more than one real version available —
     /// empty means "installs whatever the default resolves to, no choice to offer".
     pub available_versions: Vec<String>,
+    /// Versions are fetched with `apps_live_versions` when the picker opens, rather
+    /// than listed here — for apps with too many releases to state.
+    pub live_versions: bool,
 }
 
 /// Probes every catalog entry in parallel.
@@ -368,7 +371,26 @@ fn app_status(app: &App) -> AppStatus {
         installed: is_installed(app),
         can_auto_install,
         available_versions: platform::candidate_versions(app.entry.id),
+        live_versions: platform::live_versions_package(app.entry.id).is_some(),
     }
+}
+
+/// `4.96.3`: digits separated by single dots, which is every release a picker
+/// offers. A version goes to the package manager's argv (through the elevated
+/// helper, which checks the same shape again), so nothing looser is passed on.
+pub(crate) fn is_release_number(version: &str) -> bool {
+    version.len() <= 32
+        && version.split('.').count() <= 4
+        && version.split('.').all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// Every published version of an app whose versions are fetched live, newest
+/// first. Called when its picker opens, never when the Apps page loads: it is a
+/// network round trip of a few seconds.
+#[tauri::command(async)]
+pub fn apps_live_versions(id: String) -> Result<Vec<String>, String> {
+    let package = platform::live_versions_package(&id).ok_or_else(|| format!("{id} has no version list"))?;
+    platform::published_versions(package)
 }
 
 fn semver_key(v: &str) -> (u32, u32, u32) {
@@ -441,12 +463,26 @@ pub fn apps_install_batch(app: tauri::AppHandle, selections: Vec<InstallSelectio
     let mut outcomes: Vec<InstallOutcome> = Vec::new();
     let mut managed_packages: Vec<String> = Vec::new();
     let mut managed_ids: Vec<String> = Vec::new();
+    // Package → the exact version asked for, from a live-versions picker. No
+    // entry is "Latest": the package manager's default, with no version at all.
+    let mut pinned: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
 
     for selection in &selections {
         let id = &selection.id;
         let Some(def) = defs.iter().find(|d| d.entry.id == *id) else {
             continue;
         };
+        if let (Some(package), Some(version)) = (platform::live_versions_package(id), &selection.version) {
+            if !is_release_number(version) {
+                outcomes.push(InstallOutcome {
+                    id: id.clone(),
+                    success: false,
+                    message: format!("{version:?} isn't a version number"),
+                });
+                continue;
+            }
+            pinned.insert(package.to_string(), version.clone());
+        }
         let packages: Vec<String> = match &selection.version {
             Some(v) if !platform::candidate_versions(def.entry.id).is_empty() => {
                 platform::versioned_packages(def.entry.id, v)
@@ -501,6 +537,7 @@ pub fn apps_install_batch(app: tauri::AppHandle, selections: Vec<InstallSelectio
             operations: vec![crate::elevate::Operation::InstallPackage {
                 manager,
                 packages: managed_packages,
+                pinned: pinned.clone(),
             }],
         };
         let (success, message) = match crate::elevate::run(&app, manifest) {
@@ -511,15 +548,31 @@ pub fn apps_install_batch(app: tauri::AppHandle, selections: Vec<InstallSelectio
             Err(e) => (false, e),
         };
         for id in managed_ids {
-            outcomes.push(InstallOutcome {
-                id,
-                success,
-                message: message.clone(),
+            let wrong_version = if success { pinned_install_mismatch(&id, &pinned) } else { None };
+            outcomes.push(match wrong_version {
+                Some(problem) => InstallOutcome { id, success: false, message: problem },
+                None => InstallOutcome { id, success, message: message.clone() },
             });
         }
     }
 
     outcomes
+}
+
+/// After a pinned install reports success, what's actually installed is asked
+/// for — a helper built before pinning existed ignores the version it's sent
+/// and installs the latest, and the user should hear that rather than believe
+/// they got what they picked.
+fn pinned_install_mismatch(id: &str, pinned: &std::collections::BTreeMap<String, String>) -> Option<String> {
+    let package = platform::live_versions_package(id)?;
+    let wanted = pinned.get(package)?;
+    match platform::installed_version(package) {
+        Some(installed) if installed == *wanted => None,
+        Some(installed) => Some(format!(
+            "asked for {wanted}, but {installed} is what got installed — the elevated helper may be out of date"
+        )),
+        None => None,
+    }
 }
 
 #[cfg(test)]
@@ -592,6 +645,16 @@ mod tests {
                 catalog().iter().any(|app| app.entry.id == id),
                 "{id} is listed but has no catalog entry to install"
             );
+        }
+    }
+
+    #[test]
+    fn only_plain_release_numbers_are_pinnable() {
+        for good in ["4.96.3", "4", "4.96", "1.2.3.4"] {
+            assert!(is_release_number(good), "{good}");
+        }
+        for bad in ["", "latest", "4..3", ".4", "4.96.3 --force", "4.96.3-beta", "v4.96.3", "1.2.3.4.5"] {
+            assert!(!is_release_number(bad), "{bad:?}");
         }
     }
 

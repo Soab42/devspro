@@ -250,6 +250,7 @@ pub fn nginx_ssl_install_apache(app: tauri::AppHandle) -> Result<String, String>
         operations: vec![crate::elevate::Operation::InstallPackage {
             packages: platform::install_packages(&manager),
             manager,
+            pinned: Default::default(),
         }],
     };
     let results = crate::elevate::run(&app, manifest)?;

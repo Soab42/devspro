@@ -205,7 +205,14 @@ pub fn install_root_ca(cert_path: &str, nss_db_paths: &[String]) -> OpResult {
 /// Every result is reported, not just the first failure, so a batch where one id is wrong
 /// still tells the user which one. The operation counts as successful only if every package
 /// installed, matching how the apt path treats a partial failure.
-pub fn install_package(manager: &str, packages: &[String]) -> OpResult {
+///
+/// A package in `pinned` is installed at exactly that version (`--version`); the
+/// caller has already checked the version's shape.
+pub fn install_package(
+    manager: &str,
+    packages: &[String],
+    pinned: &std::collections::BTreeMap<String, String>,
+) -> OpResult {
     if manager != "winget" {
         return OpResult {
             success: false,
@@ -217,7 +224,7 @@ pub fn install_package(manager: &str, packages: &[String]) -> OpResult {
     let mut ok = true;
 
     for package in packages {
-        match install_one(package) {
+        match install_one(package, pinned.get(package).map(String::as_str)) {
             Ok(message) => messages.push(message),
             Err(message) => {
                 ok = false;
@@ -232,25 +239,29 @@ pub fn install_package(manager: &str, packages: &[String]) -> OpResult {
     }
 }
 
-fn install_one(package: &str) -> Result<String, String> {
-    let output = Command::new("winget")
-        .args([
-            "install",
-            "--id",
-            package,
-            // Without --exact, winget resolves the id as a search term and can pick a
-            // different package that merely matches.
-            "--exact",
-            // Restricted to the community repository: `msstore` needs a user context this
-            // elevated process may not have, and would otherwise be consulted first.
-            "--source",
-            "winget",
-            "--silent",
-            "--accept-package-agreements",
-            "--accept-source-agreements",
-            // No prompts at all: there is no console for the user to answer one on.
-            "--disable-interactivity",
-        ])
+fn install_one(package: &str, version: Option<&str>) -> Result<String, String> {
+    let mut command = Command::new("winget");
+    command.args([
+        "install",
+        "--id",
+        package,
+        // Without --exact, winget resolves the id as a search term and can pick a
+        // different package that merely matches.
+        "--exact",
+        // Restricted to the community repository: `msstore` needs a user context this
+        // elevated process may not have, and would otherwise be consulted first.
+        "--source",
+        "winget",
+        "--silent",
+        "--accept-package-agreements",
+        "--accept-source-agreements",
+        // No prompts at all: there is no console for the user to answer one on.
+        "--disable-interactivity",
+    ]);
+    if let Some(version) = version {
+        command.args(["--version", version]);
+    }
+    let output = command
         .output()
         .map_err(|e| {
             format!(
@@ -260,7 +271,10 @@ fn install_one(package: &str) -> Result<String, String> {
         })?;
 
     if output.status.success() {
-        return Ok(format!("installed {package}"));
+        return Ok(match version {
+            Some(version) => format!("installed {package} {version}"),
+            None => format!("installed {package}"),
+        });
     }
 
     let detail = [&output.stdout, &output.stderr]

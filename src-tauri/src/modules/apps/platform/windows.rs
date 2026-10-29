@@ -150,6 +150,72 @@ pub fn executable_file_name(name: &str) -> String {
     }
 }
 
+/// Docker Desktop ships monthly, so a list stated here would be stale within weeks
+/// — unlike PHP's or PostgreSQL's handful of supported majors. Its versions are
+/// asked of winget when the picker opens instead (`published_versions`).
+pub fn live_versions_package(id: &str) -> Option<&'static str> {
+    match id {
+        "docker" => Some("Docker.DockerDesktop"),
+        _ => None,
+    }
+}
+
+/// Every version winget has for `package`, newest first, as `winget show --versions`
+/// prints them. Unelevated and read-only; it does need the network.
+pub fn published_versions(package: &str) -> Result<Vec<String>, String> {
+    let output = crate::modules::tools::command("winget")
+        .args([
+            "show",
+            "--id",
+            package,
+            "--exact",
+            "--source",
+            "winget",
+            "--versions",
+            "--accept-source-agreements",
+            "--disable-interactivity",
+        ])
+        .output()
+        .map_err(|e| format!("could not run winget: {e}"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let versions = parse_version_list(&text);
+    if versions.is_empty() {
+        let detail = text.lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("no output");
+        return Err(format!("winget listed no versions of {package}: {detail}"));
+    }
+    Ok(versions)
+}
+
+/// The rows under the dashed rule of `winget show --versions`. winget draws a
+/// spinner with carriage returns before the table, so only lines that are a bare
+/// release number count.
+fn parse_version_list(text: &str) -> Vec<String> {
+    text.lines()
+        .skip_while(|l| !l.trim_start().starts_with("---"))
+        .skip(1)
+        .map(str::trim)
+        .filter(|l| crate::modules::apps::is_release_number(l))
+        .map(str::to_string)
+        .collect()
+}
+
+/// What `winget list` says is installed: the column right after the package id.
+pub fn installed_version(package: &str) -> Option<String> {
+    let output = crate::modules::tools::command("winget")
+        .args(["list", "--id", package, "--exact", "--accept-source-agreements", "--disable-interactivity"])
+        .output()
+        .ok()?;
+    parse_installed_version(&String::from_utf8_lossy(&output.stdout), package)
+}
+
+fn parse_installed_version(text: &str, package: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let mut words = line.split_whitespace();
+        words.find(|w| w.eq_ignore_ascii_case(package))?;
+        words.next().map(str::to_string)
+    })
+}
+
 /// Stated rather than probed — see this module's header. `winget` publishes the same
 /// catalog to every machine, so there is no per-machine repository configuration to
 /// discover the way `apt-cache` discovers a PPA.
@@ -324,6 +390,20 @@ mod tests {
             packages.dedup();
             assert_eq!(packages.len(), count, "{id} maps two versions to the same package");
         }
+    }
+
+    #[test]
+    fn reads_the_version_list_under_the_rule_and_skips_the_spinner() {
+        let out = "\r-\r\\r \rFound Docker Desktop [Docker.DockerDesktop]\nVersion\n-------\n4.97.0\n4.96.3\n\n";
+        assert_eq!(parse_version_list(out), vec!["4.97.0", "4.96.3"]);
+        assert!(parse_version_list("No package found matching input criteria.").is_empty());
+    }
+
+    #[test]
+    fn reads_the_installed_version_from_winget_list() {
+        let out = "Name           Id                   Version Available Source\n------------------------------------------------------------\nDocker Desktop Docker.DockerDesktop 4.90.0  4.97.0    winget\n";
+        assert_eq!(parse_installed_version(out, "Docker.DockerDesktop"), Some("4.90.0".to_string()));
+        assert_eq!(parse_installed_version("No installed package found matching input criteria.", "Docker.DockerDesktop"), None);
     }
 
     #[test]

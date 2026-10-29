@@ -55,7 +55,13 @@ enum Operation {
         cert_path: String,
         nss_db_paths: Vec<String>,
     },
-    InstallPackage { manager: String, packages: Vec<String> },
+    InstallPackage {
+        manager: String,
+        packages: Vec<String>,
+        /// Package → exact version. Absent from manifests that pin nothing.
+        #[serde(default)]
+        pinned: std::collections::BTreeMap<String, String>,
+    },
     FixLaravelPermissions { project_path: String },
     ServiceControl { action: String, unit: String },
     DropCaches,
@@ -612,6 +618,27 @@ fn run_nginx_test(binary_path: &str, prefix: Option<&str>) -> OpResult {
 /// `^[A-Za-z0-9@._:-]{1,128}$` without a regex crate, plus no leading `-`: a
 /// unit can never be read as a `systemctl` option, and `-.mount` (the root
 /// filesystem) is out of reach.
+/// A version reaches the package manager's argv, so it is held to what real
+/// release numbers look like — digits separated by single dots, `4.96.3` — and
+/// may only pin a package the same operation actually installs.
+fn is_valid_version(version: &str) -> bool {
+    version.len() <= 32
+        && version.split('.').count() <= 4
+        && version.split('.').all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn pinned_problem(packages: &[String], pinned: &std::collections::BTreeMap<String, String>) -> Option<String> {
+    pinned.iter().find_map(|(package, version)| {
+        if !packages.contains(package) {
+            Some(format!("{package} is pinned but not being installed"))
+        } else if !is_valid_version(version) {
+            Some(format!("{version:?} is not a valid version for {package}"))
+        } else {
+            None
+        }
+    })
+}
+
 fn is_valid_unit_name(unit: &str) -> bool {
     !unit.is_empty()
         && unit.len() <= 128
@@ -1041,14 +1068,19 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
                 platform::install_root_ca(&cert_path, &nss_db_paths)
             }
         }
-        Operation::InstallPackage { manager, packages } => {
+        Operation::InstallPackage { manager, packages, pinned } => {
             if packages.is_empty() {
                 OpResult {
                     success: false,
                     message: "no packages specified".to_string(),
                 }
+            } else if let Some(problem) = pinned_problem(&packages, &pinned) {
+                OpResult {
+                    success: false,
+                    message: format!("{problem} — refusing to install"),
+                }
             } else {
-                platform::install_package(&manager, &packages)
+                platform::install_package(&manager, &packages, &pinned)
             }
         }
         Operation::FixLaravelPermissions { project_path } => {
@@ -1347,6 +1379,28 @@ mod ops_tests {
         for bad in ["", "-.mount", "--now", "nginx; reboot", "a b", "$(id)", "a/b", &"x".repeat(129), "ünit"] {
             assert!(!is_valid_unit_name(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn pinned_versions_must_be_plain_release_numbers_for_packages_being_installed() {
+        let packages = vec!["Docker.DockerDesktop".to_string()];
+        let pin = |v: &str| std::collections::BTreeMap::from([("Docker.DockerDesktop".to_string(), v.to_string())]);
+        assert_eq!(pinned_problem(&packages, &pin("4.96.3")), None);
+        assert_eq!(pinned_problem(&packages, &Default::default()), None);
+        for bad in ["", "4..3", "4.96.3 --force", "--version", "4.96.3;calc", "latest", "1.2.3.4.5", "4.96.3-beta"] {
+            assert!(pinned_problem(&packages, &pin(bad)).is_some(), "{bad:?} was accepted");
+        }
+        let other = std::collections::BTreeMap::from([("Git.Git".to_string(), "2.0".to_string())]);
+        assert!(pinned_problem(&packages, &other).unwrap().contains("not being installed"));
+    }
+
+    #[test]
+    fn a_manifest_without_pinned_still_parses() {
+        let manifest: Manifest = serde_json::from_str(
+            r#"{"allowed_write_prefix":"","operations":[{"type":"InstallPackage","manager":"winget","packages":["Git.Git"]}]}"#,
+        )
+        .unwrap();
+        assert!(matches!(&manifest.operations[0], Operation::InstallPackage { pinned, .. } if pinned.is_empty()));
     }
 
     #[test]

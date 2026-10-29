@@ -150,6 +150,7 @@ pub fn nginx_ssl_install_nginx(app: tauri::AppHandle) -> Result<String, String> 
             // The package is named differently in every repository — `nginx` for apt,
             // `nginxinc.nginx` for winget — so it comes from the platform, not from here.
             packages: platform::install_packages(),
+            pinned: Default::default(),
         }],
     };
 

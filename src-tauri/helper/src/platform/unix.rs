@@ -139,7 +139,19 @@ pub fn install_root_ca(cert_path: &str, nss_db_paths: &[String]) -> OpResult {
     }
 }
 
-pub fn install_package(manager: &str, packages: &[String]) -> OpResult {
+/// `pinned` is refused here: nothing on these platforms offers a version picker,
+/// and installing the default while a version was asked for would be a lie.
+pub fn install_package(
+    manager: &str,
+    packages: &[String],
+    pinned: &std::collections::BTreeMap<String, String>,
+) -> OpResult {
+    if !pinned.is_empty() {
+        return OpResult {
+            success: false,
+            message: format!("installing a specific version isn't supported with {manager}"),
+        };
+    }
     let mut command = match manager {
         "apt" => {
             let mut c = Command::new("apt-get");
