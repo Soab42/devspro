@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { useRemembered } from "../../../app/pageMemory";
 import { useConfirm } from "../../../app/ConfirmContext";
 import { useModule } from "../../../app/ModuleRegistry";
 import {
@@ -122,20 +123,23 @@ function ValueCell({ entry, reveal }: { entry: EnvEntry | undefined; reveal: boo
 
 export default function EnvDiffPage() {
   const module = useModule("env-diff");
-  const [left, setLeft] = useState<EnvSide>(emptySide);
-  const [right, setRight] = useState<EnvSide>(emptySide);
-  const [keysOnly, setKeysOnly] = useState(false);
+  const [left, setLeft] = useRemembered<EnvSide>("env-diff:left", emptySide);
+  const [right, setRight] = useRemembered<EnvSide>("env-diff:right", emptySide);
+  const [keysOnly, setKeysOnly] = useRemembered("env-diff:keys-only", false);
   // Off by default: env files are where secrets live, and this page is the kind
-  // of thing that ends up on a screen share.
+  // of thing that ends up on a screen share. Not remembered either: coming back
+  // to the page masks the values again.
+  // The rest is remembered, so leaving the page and coming back finds the same
+  // two files, edits and all.
   const [reveal, setReveal] = useState(false);
-  const [filter, setFilter] = useState<DiffFilter>("diff");
-  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useRemembered<DiffFilter>("env-diff:filter", "diff");
+  const [query, setQuery] = useRemembered("env-diff:query", "");
   const [notice, setNotice] = useState<Notice | null>(null);
   // On by default: the usual job is reading two copies of the same file side by
   // side, where the line numbers line up.
-  const [syncScroll, setSyncScroll] = useState(true);
+  const [syncScroll, setSyncScroll] = useRemembered("env-diff:sync-scroll", true);
   // What the user calls each side, e.g. dev and live. Saved with a session.
-  const [labels, setLabels] = useState<SideLabels>({});
+  const [labels, setLabels] = useRemembered<SideLabels>("env-diff:labels", {});
   const title = (side: SideName) => sideTitle(labels, side);
   const named = (side: SideName) => sideName(labels, side);
   const rename = (side: SideName) => (label: string) =>
@@ -166,11 +170,11 @@ export default function EnvDiffPage() {
   const [dialog, setDialog] = useState<"save" | "sessions" | null>(null);
   // Bumped when a session opens, so both sides remount and their path boxes
   // show that session's files rather than whatever was typed there before.
-  const [generation, setGeneration] = useState(0);
+  const [generation, setGeneration] = useRemembered("env-diff:generation", 0);
   // A session's files that could not be read, left in the path box to fix.
-  const [unread, setUnread] = useState<{ left?: string; right?: string }>({});
+  const [unread, setUnread] = useRemembered<{ left?: string; right?: string }>("env-diff:unread", {});
   // The session last opened or saved, so saving again offers to update it.
-  const [activeName, setActiveName] = useState<string | null>(null);
+  const [activeName, setActiveName] = useRemembered<string | null>("env-diff:active-session", null);
 
   const parsedLeft = useMemo(() => parseEnv(left.text), [left.text]);
   const parsedRight = useMemo(() => parseEnv(right.text), [right.text]);

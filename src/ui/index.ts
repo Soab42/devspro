@@ -21,6 +21,9 @@ export { Icon } from "./Icon";
 export type { IconProps, IconSize } from "./Icon";
 
 export { Button, IconButton } from "./Button";
+
+export { ChoiceList } from "./ChoiceList";
+export type { ChoiceItem } from "./ChoiceList";
 export type {
   ButtonProps,
   ButtonSize,

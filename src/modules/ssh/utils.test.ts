@@ -149,7 +149,7 @@ describe("validateHostForm", () => {
 
 describe("terminalTitle", () => {
   const hosts: SshHost[] = [
-    { id: "1", name: "Prod", host: "p", port: 22, username: "u", auth: "agent", key_path: null, created_at: "" },
+    { id: "1", name: "Prod", host: "p", port: 22, username: "u", auth: "agent", key_path: null, created_at: "", has_saved_password: false },
   ];
 
   it("names local shells and saved hosts, numbering repeats", () => {

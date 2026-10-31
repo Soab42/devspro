@@ -37,6 +37,12 @@ export interface TerminalProps {
    * contents on request (see `pty:attach` / `pty:handoff` below).
    */
   attached?: boolean;
+  /**
+   * Keep the session running when this component unmounts (its page was left),
+   * and pick it up again when one with the same id mounts. It ends with
+   * `endTerminalSession`, or when the app closes.
+   */
+  persist?: boolean;
   onExit?: (code: number | null) => void;
   onError?: (message: string) => void;
   /**
@@ -73,6 +79,17 @@ interface Handoff {
   data: string;
 }
 export const ptyAttachEvent = (id: string) => `pty:attach:${id}`;
+
+const HIDE_HOOK_EVENT = "devspro:terminal-hide-hook";
+
+/**
+ * Call just before typing the follow hook into session `id` by hand (the
+ * Files panel's "send the prompt hook again"): its echo is then wiped like
+ * the one typed automatically at the first prompt.
+ */
+export function hideNextHook(id: string) {
+  window.dispatchEvent(new CustomEvent(HIDE_HOOK_EVENT, { detail: id }));
+}
 export const ptyHandoffEvent = (id: string) => `pty:handoff:${id}`;
 
 /** The path from an OSC 7 payload such as `file://box/home/me`; null when it isn't one. */
@@ -226,12 +243,271 @@ function decodeBase64(data: string): Uint8Array {
   return bytes;
 }
 
+/** What a session reports back; the mounted component's latest props. */
+interface TerminalCallbacks {
+  onExit?: (code: number | null) => void;
+  onError?: (message: string) => void;
+  onCwd?: (path: string) => void;
+  onDetached?: () => void;
+  onPrompt?: () => boolean | void;
+}
+
+/** One live terminal: the xterm screen, its element, and the PTY behind it. */
+interface LiveTerminal {
+  term: XTerm;
+  fit: FitAddon;
+  element: HTMLDivElement;
+  /** Swapped for the new component's callbacks when the screen is re-mounted. */
+  holder: { cb: { current: TerminalCallbacks } };
+  /** Closes the PTY (if this window owns it) and frees the screen. */
+  dispose: () => void;
+}
+
+/**
+ * Sessions kept running while their page is away (`persist`). The screen
+ * keeps taking output into its scrollback and the shell keeps running; when
+ * the page comes back the same screen is put back in place. A session leaves
+ * when its pane is closed (`endTerminalSession`), or when it was never kept.
+ */
+const live = new Map<string, LiveTerminal>();
+const mounted = new Set<string>();
+
+/** Ends a kept session whose pane is gone. A mounted one ends when it unmounts. */
+export function endTerminalSession(id: string) {
+  const session = live.get(id);
+  if (!session || mounted.has(id)) return;
+  live.delete(id);
+  session.dispose();
+}
+
+function createSession(
+  host: HTMLElement,
+  id: string,
+  command: PtyCommand,
+  attached: boolean,
+  holder: { cb: { current: TerminalCallbacks } },
+): LiveTerminal {
+  const term = new XTerm({
+    cursorBlink: true,
+    fontFamily: cssColor("--font-mono", "monospace"),
+    fontSize: 13,
+    lineHeight: 1.2,
+    scrollback: 5000,
+    theme: readTheme(),
+    allowProposedApi: false,
+  });
+  const fit = new FitAddon();
+  const serialize = new SerializeAddon();
+  term.loadAddon(fit);
+  term.loadAddon(serialize);
+  // xterm lives in its own element, so the screen can move between hosts:
+  // detached while its page is away, put back when it returns.
+  const element = document.createElement("div");
+  element.className = "term-surface";
+  // Opened in place: xterm measures its font when it opens, which a detached
+  // element can't do.
+  host.appendChild(element);
+  term.open(element);
+
+  term.parser.registerOscHandler(7, (data) => {
+    const path = osc7Path(data);
+    if (path) holder.cb.current.onCwd?.(path);
+    return true;
+  });
+
+  let opened = false;
+  // False once another window has adopted the session: from then on this
+  // terminal is a stale view and must not kill the process on unmount.
+  let owns = true;
+  let disposed = false;
+  const unlisteners: Array<() => void> = [];
+
+  // Output that arrives before an adopted session's screen has been handed
+  // over is held back, or it would land on a blank screen and be painted
+  // over by the handoff. Null once live.
+  let pending: Uint8Array[] | null = attached ? [] : null;
+  let handoffTimer: number | null = null;
+
+  // Prompt detection: once the output has been quiet for a moment, look at
+  // the cursor line. Reported once per session.
+  let promptSeen = false;
+  let promptTimer: number | null = null;
+  const watchForPrompt = () => {
+    if (promptSeen || !holder.cb.current.onPrompt) return;
+    if (promptTimer !== null) window.clearTimeout(promptTimer);
+    promptTimer = window.setTimeout(() => {
+      const buffer = term.buffer.active;
+      const line = buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "";
+      if (!promptSeen && looksLikePrompt(line)) {
+        promptSeen = true;
+        if (holder.cb.current.onPrompt?.() === true) {
+          hookLine = buffer.baseY + buffer.cursorY;
+          // A shell that never answers (fish, say) must not leave this armed.
+          hookTimer = window.setTimeout(() => (hookLine = null), 5000);
+        }
+      }
+    }, 400);
+  };
+
+  // Hiding a typed hook: the prompt line it was typed at, until its first
+  // OSC 7 arrives. At that point everything from that line down (prompt,
+  // echo, wrapped rows) is erased, and the shell draws a fresh prompt there.
+  // Output that arrives while the erase is being positioned is held back.
+  let hookLine: number | null = null;
+  let hookTimer: number | null = null;
+  let held: Uint8Array[] | null = null;
+  const armHookHide = (e: Event) => {
+    if ((e as CustomEvent<string>).detail !== id) return;
+    const buffer = term.buffer.active;
+    hookLine = buffer.baseY + buffer.cursorY;
+    if (hookTimer !== null) window.clearTimeout(hookTimer);
+    hookTimer = window.setTimeout(() => (hookLine = null), 5000);
+  };
+  window.addEventListener(HIDE_HOOK_EVENT, armHookHide);
+  unlisteners.push(() => window.removeEventListener(HIDE_HOOK_EVENT, armHookHide));
+  const show = (bytes: Uint8Array) => {
+    if (held) {
+      held.push(bytes);
+      return;
+    }
+    const at = hookLine === null ? -1 : indexOfOsc7(bytes);
+    if (at < 0 || hookLine === null) {
+      term.write(bytes, watchForPrompt);
+      return;
+    }
+    const from = hookLine;
+    hookLine = null;
+    if (hookTimer !== null) window.clearTimeout(hookTimer);
+    held = [];
+    term.write(bytes.subarray(0, at), () => {
+      const buffer = term.buffer.active;
+      const up = buffer.baseY + buffer.cursorY - from;
+      term.write(`\r${up > 0 ? `\x1b[${up}A` : ""}\x1b[J`);
+      term.write(bytes.subarray(at));
+      const rest = held ?? [];
+      held = null;
+      for (const chunk of rest) show(chunk);
+    });
+  };
+
+  const goLive = () => {
+    const queued = pending ?? [];
+    pending = null;
+    if (handoffTimer !== null) window.clearTimeout(handoffTimer);
+    for (const chunk of queued) term.write(chunk);
+    // Only now tell the process its new size. The shell redraws its prompt
+    // on SIGWINCH, which is right only once the cursor is where it thinks.
+    fit.fit();
+    if (opened) invoke("pty_resize", { id, cols: term.cols, rows: term.rows }).catch(() => undefined);
+    term.focus();
+  };
+
+  // Ordered so nothing is missed: subscribe, then start the process, then
+  // wire input/resize (writes before the process exists would just fail).
+  (async () => {
+    try {
+      const offOutput = await listen<string>(`pty:output:${id}`, (event) => {
+        const bytes = decodeBase64(event.payload);
+        if (pending) pending.push(bytes);
+        else show(bytes);
+      });
+      unlisteners.push(offOutput);
+      const offExit = await listen<{ code: number | null }>(`pty:exit:${id}`, (event) => {
+        opened = false;
+        if (pending) goLive();
+        term.write("\r\n\x1b[2m[process exited]\x1b[0m\r\n");
+        holder.cb.current.onExit?.(event.payload.code);
+      });
+      unlisteners.push(offExit);
+
+      if (attached) {
+        // Take the screen the previous window hands over, then go live.
+        // The handoff listener goes first so the reply to our attach
+        // announcement can't slip past.
+        const offHandoff = await listen<Handoff>(ptyHandoffEvent(id), (event) => {
+          if (!pending) return;
+          // Replay at the size it was captured at, so wrapped rows land
+          // where they were; the fit in goLive then reflows to this window.
+          term.resize(event.payload.cols, event.payload.rows);
+          term.write(event.payload.data, goLive);
+        });
+        unlisteners.push(offHandoff);
+      } else {
+        const offAttach = await listen(ptyAttachEvent(id), () => {
+          if (!owns) return;
+          owns = false;
+          const handoff: Handoff = { cols: term.cols, rows: term.rows, data: serialize.serialize({ scrollback: 2000 }) };
+          void emit(ptyHandoffEvent(id), handoff);
+          holder.cb.current.onDetached?.();
+        });
+        unlisteners.push(offAttach);
+      }
+      if (disposed) return;
+
+      if (attached) {
+        await invoke("pty_adopt", { id });
+        opened = true;
+        await emit(ptyAttachEvent(id));
+        // The previous window may already be gone; don't wait forever.
+        handoffTimer = window.setTimeout(() => {
+          if (pending) goLive();
+        }, 2000);
+      } else {
+        await invoke("pty_open", { id, cols: term.cols, rows: term.rows, command });
+        opened = true;
+      }
+      if (disposed) {
+        await invoke("pty_close", { id }).catch(() => undefined);
+        return;
+      }
+
+      const data = term.onData((text) => {
+        if (!opened || !owns) return;
+        invoke("pty_write", { id, data: text }).catch((e) => holder.cb.current.onError?.(String(e)));
+      });
+      const resize = term.onResize(({ cols, rows }) => {
+        if (!opened || !owns || pending) return;
+        invoke("pty_resize", { id, cols, rows }).catch(() => undefined);
+      });
+      unlisteners.push(() => data.dispose(), () => resize.dispose());
+      if (!attached) {
+        // Fit once more now that the process exists, so it starts at the
+        // real size rather than the 80x24 default.
+        fit.fit();
+        term.focus();
+      }
+    } catch (e) {
+      holder.cb.current.onError?.(e instanceof Error ? e.message : String(e));
+    }
+  })();
+
+  // Re-theme when the app theme flips; reading a dozen custom properties is
+  // cheap enough to do on every attribute change of <html>.
+  const themeObserver = new MutationObserver(() => {
+    term.options.theme = readTheme();
+  });
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  const dispose = () => {
+    disposed = true;
+    if (handoffTimer !== null) window.clearTimeout(handoffTimer);
+    if (promptTimer !== null) window.clearTimeout(promptTimer);
+    if (hookTimer !== null) window.clearTimeout(hookTimer);
+    themeObserver.disconnect();
+    for (const off of unlisteners) off();
+    if (opened && owns) invoke("pty_close", { id }).catch(() => undefined);
+    term.dispose();
+  };
+  return { term, fit, element, holder, dispose };
+}
+
 export default function Terminal({
   id,
   command,
   active = true,
   focused = true,
   attached = false,
+  persist = false,
   onExit,
   onError,
   onCwd,
@@ -241,201 +517,28 @@ export default function Terminal({
   const hostRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const termRef = useRef<XTerm | null>(null);
-  const onExitRef = useRef(onExit);
-  const onErrorRef = useRef(onError);
-  const onCwdRef = useRef(onCwd);
-  const onDetachedRef = useRef(onDetached);
-  const onPromptRef = useRef(onPrompt);
-  onExitRef.current = onExit;
-  onErrorRef.current = onError;
-  onCwdRef.current = onCwd;
-  onDetachedRef.current = onDetached;
-  onPromptRef.current = onPrompt;
+  const cbRef = useRef<TerminalCallbacks>({});
+  cbRef.current = { onExit, onError, onCwd, onDetached, onPrompt };
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-
-    const term = new XTerm({
-      cursorBlink: true,
-      fontFamily: cssColor("--font-mono", "monospace"),
-      fontSize: 13,
-      lineHeight: 1.2,
-      scrollback: 5000,
-      theme: readTheme(),
-      allowProposedApi: false,
-    });
-    const fit = new FitAddon();
-    const serialize = new SerializeAddon();
-    term.loadAddon(fit);
-    term.loadAddon(serialize);
-    term.open(host);
-    fit.fit();
+    let session = live.get(id);
+    if (session) session.holder.cb = cbRef;
+    else {
+      session = createSession(host, id, command, attached, { cb: cbRef });
+      live.set(id, session);
+    }
+    const { term, fit, element } = session;
+    host.appendChild(element);
+    mounted.add(id);
     termRef.current = term;
     fitRef.current = fit;
-
-    term.parser.registerOscHandler(7, (data) => {
-      const path = osc7Path(data);
-      if (path) onCwdRef.current?.(path);
-      return true;
-    });
-
-    let opened = false;
-    // False once another window has adopted the session: from then on this
-    // terminal is a stale view and must not kill the process on unmount.
-    let owns = true;
-    let disposed = false;
-    const unlisteners: Array<() => void> = [];
-
-    // Output that arrives before an adopted session's screen has been handed
-    // over is held back, or it would land on a blank screen and be painted
-    // over by the handoff. Null once live.
-    let pending: Uint8Array[] | null = attached ? [] : null;
-    let handoffTimer: number | null = null;
-
-    // Prompt detection: once the output has been quiet for a moment, look at
-    // the cursor line. Reported once per session.
-    let promptSeen = false;
-    let promptTimer: number | null = null;
-    const watchForPrompt = () => {
-      if (promptSeen || !onPromptRef.current) return;
-      if (promptTimer !== null) window.clearTimeout(promptTimer);
-      promptTimer = window.setTimeout(() => {
-        const buffer = term.buffer.active;
-        const line = buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? "";
-        if (!promptSeen && looksLikePrompt(line)) {
-          promptSeen = true;
-          if (onPromptRef.current?.() === true) {
-            hookLine = buffer.baseY + buffer.cursorY;
-            // A shell that never answers (fish, say) must not leave this armed.
-            hookTimer = window.setTimeout(() => (hookLine = null), 5000);
-          }
-        }
-      }, 400);
-    };
-
-    // Hiding a typed hook: the prompt line it was typed at, until its first
-    // OSC 7 arrives. At that point everything from that line down (prompt,
-    // echo, wrapped rows) is erased, and the shell draws a fresh prompt there.
-    // Output that arrives while the erase is being positioned is held back.
-    let hookLine: number | null = null;
-    let hookTimer: number | null = null;
-    let held: Uint8Array[] | null = null;
-    const show = (bytes: Uint8Array) => {
-      if (held) {
-        held.push(bytes);
-        return;
-      }
-      const at = hookLine === null ? -1 : indexOfOsc7(bytes);
-      if (at < 0 || hookLine === null) {
-        term.write(bytes, watchForPrompt);
-        return;
-      }
-      const from = hookLine;
-      hookLine = null;
-      if (hookTimer !== null) window.clearTimeout(hookTimer);
-      held = [];
-      term.write(bytes.subarray(0, at), () => {
-        const buffer = term.buffer.active;
-        const up = buffer.baseY + buffer.cursorY - from;
-        term.write(`\r${up > 0 ? `\x1b[${up}A` : ""}\x1b[J`);
-        term.write(bytes.subarray(at));
-        const rest = held ?? [];
-        held = null;
-        for (const chunk of rest) show(chunk);
-      });
-    };
-
-    const goLive = () => {
-      const queued = pending ?? [];
-      pending = null;
-      if (handoffTimer !== null) window.clearTimeout(handoffTimer);
-      for (const chunk of queued) term.write(chunk);
-      // Only now tell the process its new size. The shell redraws its prompt
-      // on SIGWINCH, which is right only once the cursor is where it thinks.
-      fit.fit();
-      if (opened) invoke("pty_resize", { id, cols: term.cols, rows: term.rows }).catch(() => undefined);
-      term.focus();
-    };
-
-    // Ordered so nothing is missed: subscribe, then start the process, then
-    // wire input/resize (writes before the process exists would just fail).
-    (async () => {
-      try {
-        const offOutput = await listen<string>(`pty:output:${id}`, (event) => {
-          const bytes = decodeBase64(event.payload);
-          if (pending) pending.push(bytes);
-          else show(bytes);
-        });
-        unlisteners.push(offOutput);
-        const offExit = await listen<{ code: number | null }>(`pty:exit:${id}`, (event) => {
-          opened = false;
-          if (pending) goLive();
-          term.write("\r\n\x1b[2m[process exited]\x1b[0m\r\n");
-          onExitRef.current?.(event.payload.code);
-        });
-        unlisteners.push(offExit);
-
-        if (attached) {
-          // Take the screen the previous window hands over, then go live.
-          // The handoff listener goes first so the reply to our attach
-          // announcement can't slip past.
-          const offHandoff = await listen<Handoff>(ptyHandoffEvent(id), (event) => {
-            if (!pending) return;
-            // Replay at the size it was captured at, so wrapped rows land
-            // where they were; the fit in goLive then reflows to this window.
-            term.resize(event.payload.cols, event.payload.rows);
-            term.write(event.payload.data, goLive);
-          });
-          unlisteners.push(offHandoff);
-        } else {
-          const offAttach = await listen(ptyAttachEvent(id), () => {
-            if (!owns) return;
-            owns = false;
-            const handoff: Handoff = { cols: term.cols, rows: term.rows, data: serialize.serialize({ scrollback: 2000 }) };
-            void emit(ptyHandoffEvent(id), handoff);
-            onDetachedRef.current?.();
-          });
-          unlisteners.push(offAttach);
-        }
-        if (disposed) return;
-
-        if (attached) {
-          await invoke("pty_adopt", { id });
-          opened = true;
-          await emit(ptyAttachEvent(id));
-          // The previous window may already be gone; don't wait forever.
-          handoffTimer = window.setTimeout(() => {
-            if (pending) goLive();
-          }, 2000);
-        } else {
-          await invoke("pty_open", { id, cols: term.cols, rows: term.rows, command });
-          opened = true;
-        }
-        if (disposed) {
-          await invoke("pty_close", { id }).catch(() => undefined);
-          return;
-        }
-
-        const data = term.onData((text) => {
-          if (!opened || !owns) return;
-          invoke("pty_write", { id, data: text }).catch((e) => onErrorRef.current?.(String(e)));
-        });
-        const resize = term.onResize(({ cols, rows }) => {
-          if (!opened || !owns || pending) return;
-          invoke("pty_resize", { id, cols, rows }).catch(() => undefined);
-        });
-        unlisteners.push(() => data.dispose(), () => resize.dispose());
-        if (!attached) {
-          // Fit once more now that the process exists, so it starts at the
-          // real size rather than the 80x24 default.
-          fit.fit();
-          term.focus();
-        }
-      } catch (e) {
-        onErrorRef.current?.(e instanceof Error ? e.message : String(e));
-      }
-    })();
+    fit.fit();
+    // Back from the background: repaint what arrived while it was away.
+    term.refresh(0, term.rows - 1);
 
     // Re-fit whenever the panel changes size: window resize, sidebar toggle,
     // or this terminal becoming visible again.
@@ -444,25 +547,16 @@ export default function Terminal({
     });
     observer.observe(host);
 
-    // Re-theme when the app theme flips; reading a dozen custom properties is
-    // cheap enough to do on every attribute change of <html>.
-    const themeObserver = new MutationObserver(() => {
-      term.options.theme = readTheme();
-    });
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-
+    const current = session;
     return () => {
-      disposed = true;
-      if (handoffTimer !== null) window.clearTimeout(handoffTimer);
-      if (promptTimer !== null) window.clearTimeout(promptTimer);
-      if (hookTimer !== null) window.clearTimeout(hookTimer);
       observer.disconnect();
-      themeObserver.disconnect();
-      for (const off of unlisteners) off();
-      if (opened && owns) invoke("pty_close", { id }).catch(() => undefined);
-      term.dispose();
+      mounted.delete(id);
       termRef.current = null;
       fitRef.current = null;
+      if (element.parentElement === host) host.removeChild(element);
+      if (persistRef.current && live.get(id) === current) return;
+      live.delete(id);
+      current.dispose();
     };
     // `command` is fixed for the life of a session; changing it means a new id.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,20 +1,25 @@
-import { DragEvent, Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { DragEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
+import { listen } from "@tauri-apps/api/event";
+import { SESSIONS_ENDED_EVENT } from "../../../app/backgroundSessions";
 import { openTerminalWindow } from "../../../app/popout";
-import { Button, EmptyState, IconButton, Select, Spinner } from "../../../ui";
+import { Button, IconButton, Select, Spinner } from "../../../ui";
 import {
+  ChevronRight,
+  Monitor,
   PanelLeft,
   PictureInPicture2,
   Plus,
   SquareSplitHorizontal,
   SquareSplitVertical,
-  SquareTerminal,
+  Server,
   X,
 } from "../../../ui/icons";
 import { Icon } from "../../../ui/Icon";
 import { PaneLayout } from "../../../ui/PaneLayout";
-import { TerminalWorkspace, clampAside } from "../../../ui/Terminal";
-import { sftpConnect, sftpDisconnect, sftpUpload, writePty, type SshHost } from "../../ssh/api";
+import { TerminalWorkspace, clampAside, hideNextHook } from "../../../ui/Terminal";
+import { sftpConnect, sftpDisconnect, sftpUpload, termRemoteCwd, writePty, type SshHost } from "../../ssh/api";
+import HostPicker from "../../ssh/components/HostPicker";
 import { useConnectFlow } from "../../ssh/components/useConnectFlow";
 import { elementAtPoint, endFileDrag, hasFileDrag, readFileDrag, useOsFileDrop, type Point } from "../../ssh/dnd";
 import { baseName, cdCommand, errorMessage, followHookCommand, hostLabel, joinPath, shellQuote } from "../../ssh/utils";
@@ -31,6 +36,7 @@ import {
   type TerminalSession,
   type WorkspaceState,
 } from "../workspace";
+import { createWorkspaceStore, keptWorkspace } from "../workspaceStore";
 import HostStatsBar from "./HostStatsBar";
 import TerminalSidebar, { type RemoteBrowser } from "./TerminalSidebar";
 
@@ -83,6 +89,8 @@ export default function TerminalsTab({
   onReady,
   onCountChange,
   onError,
+  onAddHost,
+  keep,
 }: {
   hosts: SshHost[];
   /** Keeps the sessions mounted while another view is shown. */
@@ -98,13 +106,39 @@ export default function TerminalsTab({
   onReady?: (handle: WorkspaceHandle) => void;
   onCountChange?: (open: number) => void;
   onError: (message: string) => void;
+  /** Where "Add a host" goes when no SSH host is saved; without it the launcher just says so. */
+  onAddHost?: () => void;
+  /**
+   * Keep this workspace, and its shells, running while the page is away,
+   * under this key; the page picks it up again when it comes back. Without
+   * it, leaving ends every shell, as a popped-out window's should.
+   */
+  keep?: string;
 }) {
-  const [state, dispatch] = useReducer(
-    workspaceReducer,
-    initial,
-    (init): WorkspaceState =>
-      init ? workspaceReducer(EMPTY_WORKSPACE, { type: "open-window", session: init.session, windowId: crypto.randomUUID() }) : EMPTY_WORKSPACE,
+  const [store] = useState(() =>
+    keep
+      ? keptWorkspace(keep, "terminal")
+      : createWorkspaceStore(
+          initial
+            ? workspaceReducer(EMPTY_WORKSPACE, { type: "open-window", session: initial.session, windowId: crypto.randomUUID() })
+            : EMPTY_WORKSPACE,
+        ),
   );
+  const state: WorkspaceState = useSyncExternalStore(store.subscribe, store.get);
+  // The store's own dispatch: a shell that exits, or changes folder, while
+  // the page is away still updates the kept workspace.
+  const dispatch = store.dispatch;
+
+  // A closed pane ends its kept shell. (Leaving the page closes no pane.)
+  const sessionIds = useRef(Object.keys(state.sessions));
+  useEffect(() => {
+    const now = new Set(Object.keys(state.sessions));
+    const gone = sessionIds.current.filter((id) => !now.has(id));
+    sessionIds.current = [...now];
+    if (keep && gone.length > 0) {
+      void import("../../../ui/Terminal").then(({ endTerminalSession }) => gone.forEach(endTerminalSession));
+    }
+  }, [keep, state.sessions]);
   const [aside, setAside] = useState(readAside);
   const connectFlow = useConnectFlow();
 
@@ -182,7 +216,10 @@ export default function TerminalsTab({
   }
 
   /* ---- the follow-along browser's remote sessions, one per host ---- */
-  const [sftp, setSftp] = useState<Record<string, string>>({});
+  const [sftp, setSftp] = useState<Record<string, string>>(() => ({ ...store.sftp }));
+  useEffect(() => {
+    store.sftp = sftp;
+  }, [store, sftp]);
   const [sftpConnecting, setSftpConnecting] = useState<string | null>(null);
   const [sftpFailed, setSftpFailed] = useState<Record<string, string>>({});
   const attachedId = initial?.session.id ?? null;
@@ -213,14 +250,32 @@ export default function TerminalsTab({
     });
     if (id) void sftpDisconnect(id).catch(() => undefined);
   }
-  // Browser sessions are ours; drop them with the page.
+  // The main window was closed (to the tray): the shells were ended by the
+  // backend, and the browser's connections end with them.
+  useEffect(() => {
+    let off: (() => void) | null = null;
+    let gone = false;
+    void listen(SESSIONS_ENDED_EVENT, () => {
+      for (const id of Object.values(sftpRef.current)) void sftpDisconnect(id).catch(() => undefined);
+      store.sftp = {};
+      setSftp({});
+    }).then((unlisten) => (gone ? unlisten() : (off = unlisten)));
+    return () => {
+      gone = true;
+      off?.();
+    };
+  }, [store]);
+
+  // Browser sessions are ours; drop them with the page, unless the
+  // workspace is kept, when they carry on with its shells.
   const sftpRef = useRef(sftp);
   sftpRef.current = sftp;
   useEffect(() => {
     return () => {
+      if (keep) return;
       for (const id of Object.values(sftpRef.current)) void sftpDisconnect(id).catch(() => undefined);
     };
-  }, []);
+  }, [keep]);
 
   const focused = focusedSession(state);
   const focusedHostId = focused && focused.command !== "local" ? focused.command.ssh : null;
@@ -315,16 +370,72 @@ export default function TerminalsTab({
   // The OSC 7 hook is typed into a remote shell exactly once per session,
   // whatever remounts the terminal component goes through. An adopted
   // session (pop-out) already had it from the window it came from.
-  const hooked = useRef(new Set<string>(attachedId ? [attachedId] : []));
+  const hooked = useRef(store.hooked);
+  if (attachedId) hooked.current.add(attachedId);
+  // The same set as state, for the Files panel: its "send the hook again"
+  // offer only makes sense once the shell is up and the first one went in.
+  const [hookedIds, setHookedIds] = useState<ReadonlySet<string>>(() => new Set(hooked.current));
   const installHook = useCallback(
     (id: string) => {
       if (hooked.current.has(id)) return false;
       hooked.current.add(id);
+      setHookedIds(new Set(hooked.current));
       send(id, followHookCommand());
       return true;
     },
     [send],
   );
+  const resendHook = useCallback(
+    (id: string) => {
+      hideNextHook(id);
+      send(id, followHookCommand());
+    },
+    [send],
+  );
+
+  // A remote shell's folder is read in the background when the server allows
+  // it (see remote_cwd.rs), so nothing has to be typed into the terminal.
+  // Only when that finds nothing is the hook typed, hidden, as before.
+  const [trackedIds, setTrackedIds] = useState<ReadonlySet<string>>(() => new Set(store.tracked));
+  const followRemote = useCallback(
+    async (id: string, hostId: string) => {
+      if (hooked.current.has(id) || store.tracked.has(id)) return;
+      // The browser's connection is usually up by the first prompt; give it
+      // a moment if not, then fall back.
+      let sftpId: string | undefined;
+      for (let waited = 0; waited < 4000 && !(sftpId = sftpRef.current[hostId]); waited += 250) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250));
+      }
+      const cwd = sftpId ? await termRemoteCwd(sftpId, id).catch(() => null) : null;
+      if (cwd) {
+        store.tracked.add(id);
+        setTrackedIds(new Set(store.tracked));
+        recordCwd(id, cwd);
+        return;
+      }
+      hideNextHook(id);
+      installHook(id);
+    },
+    [store, recordCwd, installHook],
+  );
+
+  // The focused tracked shell's folder, followed while this page is up.
+  const trackedFocus = focused && focusedHostId && trackedIds.has(focused.id) ? focused.id : null;
+  const trackedSftp = focusedHostId ? (sftp[focusedHostId] ?? null) : null;
+  useEffect(() => {
+    if (!trackedFocus || !trackedSftp) return;
+    let stopped = false;
+    const tick = async () => {
+      if (document.hidden) return;
+      const cwd = await termRemoteCwd(trackedSftp, trackedFocus).catch(() => null);
+      if (!stopped && cwd && stateRef.current.sessions[trackedFocus]?.cwd !== cwd) recordCwd(trackedFocus, cwd);
+    };
+    const timer = window.setInterval(() => void tick(), 1500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [trackedFocus, trackedSftp, recordCwd]);
 
   const openFile = useCallback(
     (path: string) => {
@@ -440,119 +551,193 @@ export default function TerminalsTab({
   );
 
   return (
-    <TerminalWorkspace
-      hidden={hidden}
-      tabs={tabsPortal ? undefined : strip}
-      actions={actionsPortal ? undefined : actions}
-      aside={
-        aside.open && (
-          <TerminalSidebar
-            session={focused}
-            host={focusedHost}
-            remote={remote}
-            onCwd={recordCwd}
-            onSend={send}
-            onOpenFile={openFile}
-            onClose={toggleAside}
-          />
-        )
-      }
-      asideWidth={aside.width}
-      onAsideResize={resizeAside}
-      footer={<HostStatsBar session={focused} sftpId={focusedHostId ? (sftp[focusedHostId] ?? null) : null} />}
-      empty={
-        state.windows.length === 0 && (
-          <EmptyState
-            icon={SquareTerminal}
-            size="md"
-            title="No open terminals"
-            description={
-              hosts.length === 0
-                ? "Start a local shell. Save a host in the SSH module to open remote terminals here too."
-                : "Start a local shell, or pick a saved SSH host above. Split it, add windows, or pop a pane out into its own window."
-            }
-            action={
-              <Button variant="primary" icon={Plus} onClick={() => openWindow("local")}>
-                Local terminal
-              </Button>
-            }
-          />
-        )
-      }
-    >
+    <>
+      {/* Outside the workspace: it shows `empty` in place of its children, and
+          the header's buttons (the SSH host picker among them) must stay up
+          with no terminal open. */}
       {actionsPortal && createPortal(<div className="term-page-actions">{actions}</div>, actionsPortal)}
       {tabsPortal && strip && createPortal(strip, tabsPortal)}
-      <Suspense fallback={<Spinner />}>
-        {state.windows.map((w) =>
-          w.kind === "editor" ? (
-            <EditorGroup
-              key={w.id}
-              window={w}
-              hidden={w.id !== state.activeWindow || hidden}
-              onActivate={(key) => dispatch({ type: "activate-file", key })}
-              onClose={(key) => dispatch({ type: "close-file", key })}
-              onDirty={(key, dirty) => dispatch({ type: "editor-dirty", key, dirty })}
+      <TerminalWorkspace
+        hidden={hidden}
+        tabs={tabsPortal ? undefined : strip}
+        actions={actionsPortal ? undefined : actions}
+        aside={
+          aside.open && (
+            <TerminalSidebar
+              session={focused}
+              host={focusedHost}
+              remote={remote}
+              onCwd={recordCwd}
+              onSend={send}
+              hookSent={focused ? hookedIds.has(focused.id) : false}
+              onResendHook={resendHook}
+              onOpenFile={openFile}
+              onClose={toggleAside}
             />
-          ) : (
-            <PaneLayout
-              key={w.id}
-              root={w.root}
-              hidden={w.id !== state.activeWindow}
-              focusedId={w.focused}
-              ariaLabel={`Terminal window ${w.name}`}
-              onFocus={(paneId) => dispatch({ type: "focus", windowId: w.id, paneId })}
-              onSizes={(splitId, sizes) => dispatch({ type: "resize", windowId: w.id, splitId, sizes })}
-              renderPane={(paneId) => {
-                const s = state.sessions[paneId];
-                if (!s) return null;
-                const isFocused = w.focused === paneId && w.id === activeTerminalWindow(state)?.id;
-                return (
-                  <div
-                    className={["term-pane", s.exited && "term-pane-exited", dropPane === s.id && "term-pane-drop"].filter(Boolean).join(" ")}
-                    data-session-id={s.id}
-                    onDragOver={paneDragOver}
-                    onDrop={(e) => paneDrop(e, s.id)}
-                  >
-                    <div className="term-pane-bar">
-                      <span className="term-pane-title" title={s.title}>
-                        {s.title}
-                        {s.exited && " (exited)"}
-                      </span>
-                      <span className="term-pane-bar-actions">
-                        <IconButton icon={SquareSplitHorizontal} label="Split side by side" size="sm" onClick={() => split(s.command, "row")} />
-                        <IconButton icon={SquareSplitVertical} label="Split top and bottom" size="sm" onClick={() => split(s.command, "column")} />
-                        {!solo && !s.exited && (
-                          <IconButton icon={PictureInPicture2} label="Pop out into its own window" size="sm" onClick={() => void popOut(s)} />
-                        )}
-                        <IconButton icon={X} label="Close pane" size="sm" onClick={() => dispatch({ type: "close-pane", id: s.id })} />
-                      </span>
+          )
+        }
+        asideWidth={aside.width}
+        onAsideResize={resizeAside}
+        footer={<HostStatsBar session={focused} sftpId={focusedHostId ? (sftp[focusedHostId] ?? null) : null} />}
+        empty={
+          state.windows.length === 0 && (
+            <TerminalLauncher
+              hosts={hosts}
+              onLocal={() => openWindow("local")}
+              onHost={(h) => openWindow({ ssh: h.id })}
+              onAddHost={onAddHost}
+            />
+          )
+        }
+      >
+        <Suspense fallback={<Spinner />}>
+          {state.windows.map((w) =>
+            w.kind === "editor" ? (
+              <EditorGroup
+                key={w.id}
+                window={w}
+                hidden={w.id !== state.activeWindow || hidden}
+                onActivate={(key) => dispatch({ type: "activate-file", key })}
+                onClose={(key) => dispatch({ type: "close-file", key })}
+                onDirty={(key, dirty) => dispatch({ type: "editor-dirty", key, dirty })}
+              />
+            ) : (
+              <PaneLayout
+                key={w.id}
+                root={w.root}
+                hidden={w.id !== state.activeWindow}
+                focusedId={w.focused}
+                ariaLabel={`Terminal window ${w.name}`}
+                onFocus={(paneId) => dispatch({ type: "focus", windowId: w.id, paneId })}
+                onSizes={(splitId, sizes) => dispatch({ type: "resize", windowId: w.id, splitId, sizes })}
+                renderPane={(paneId) => {
+                  const s = state.sessions[paneId];
+                  if (!s) return null;
+                  const isFocused = w.focused === paneId && w.id === activeTerminalWindow(state)?.id;
+                  return (
+                    <div
+                      className={["term-pane", s.exited && "term-pane-exited", dropPane === s.id && "term-pane-drop"].filter(Boolean).join(" ")}
+                      data-session-id={s.id}
+                      onDragOver={paneDragOver}
+                      onDrop={(e) => paneDrop(e, s.id)}
+                    >
+                      <div className="term-pane-bar">
+                        <span className="term-pane-title" title={s.title}>
+                          {s.title}
+                          {s.exited && " (exited)"}
+                        </span>
+                        <span className="term-pane-bar-actions">
+                          <IconButton icon={SquareSplitHorizontal} label="Split side by side" size="sm" onClick={() => split(s.command, "row")} />
+                          <IconButton icon={SquareSplitVertical} label="Split top and bottom" size="sm" onClick={() => split(s.command, "column")} />
+                          {!solo && !s.exited && (
+                            <IconButton icon={PictureInPicture2} label="Pop out into its own window" size="sm" onClick={() => void popOut(s)} />
+                          )}
+                          <IconButton icon={X} label="Close pane" size="sm" onClick={() => dispatch({ type: "close-pane", id: s.id })} />
+                        </span>
+                      </div>
+                      <Terminal
+                        id={s.id}
+                        command={s.command}
+                        active={w.id === state.activeWindow && !hidden}
+                        focused={isFocused}
+                        attached={s.id === attachedId}
+                        persist={!!keep}
+                        onExit={() => dispatch({ type: "exited", id: s.id })}
+                        onError={onError}
+                        onCwd={(cwd) => recordCwd(s.id, cwd)}
+                        onPrompt={
+                          s.command === "local"
+                            ? s.startIn
+                              ? () => send(s.id, cdCommand(s.startIn as string))
+                              : undefined
+                            : () => {
+                                const command = s.command;
+                                if (command !== "local") void followRemote(s.id, command.ssh);
+                              }
+                        }
+                        onDetached={() => dispatch({ type: "detach", id: s.id })}
+                      />
                     </div>
-                    <Terminal
-                      id={s.id}
-                      command={s.command}
-                      active={w.id === state.activeWindow && !hidden}
-                      focused={isFocused}
-                      attached={s.id === attachedId}
-                      onExit={() => dispatch({ type: "exited", id: s.id })}
-                      onError={onError}
-                      onCwd={(cwd) => recordCwd(s.id, cwd)}
-                      onPrompt={
-                        s.command === "local"
-                          ? s.startIn
-                            ? () => send(s.id, cdCommand(s.startIn as string))
-                            : undefined
-                          : () => installHook(s.id)
-                      }
-                      onDetached={() => dispatch({ type: "detach", id: s.id })}
-                    />
-                  </div>
-                );
-              }}
-            />
-          ),
-        )}
-      </Suspense>
-      {connectFlow.element}
-    </TerminalWorkspace>
+                  );
+                }}
+              />
+            ),
+          )}
+        </Suspense>
+        {connectFlow.element}
+      </TerminalWorkspace>
+    </>
+  );
+}
+
+/**
+ * What an empty workspace offers: the two places a terminal can run, as two
+ * matching cards. SSH opens the saved-host picker SFTP uses; with no host
+ * saved it goes to add one instead.
+ */
+function TerminalLauncher({
+  hosts,
+  onLocal,
+  onHost,
+  onAddHost,
+}: {
+  hosts: SshHost[];
+  onLocal: () => void;
+  onHost: (host: SshHost) => void;
+  onAddHost?: () => void;
+}) {
+  const [picking, setPicking] = useState(false);
+  const noHosts = hosts.length === 0;
+  const sshDetail = noHosts
+    ? onAddHost
+      ? "No saved hosts yet. Add one"
+      : "No saved hosts yet. Save one in SSH"
+    : `${hosts.length} saved ${hosts.length === 1 ? "host" : "hosts"}`;
+
+  return (
+    <div className="term-launch">
+      <div className="term-launch-head">
+        <p className="term-launch-title">Open a terminal</p>
+        <p className="term-launch-desc">Choose where it runs. You can split it, add windows, or pop a pane out later.</p>
+      </div>
+      <div className="term-launch-grid">
+        <button type="button" className="term-launch-option" onClick={onLocal}>
+          <span className="term-launch-icon">
+            <Icon icon={Monitor} size="md" />
+          </span>
+          <span className="term-launch-text">
+            <strong>Local terminal</strong>
+            <span>A shell on this computer</span>
+          </span>
+          <Icon icon={ChevronRight} size="sm" className="term-launch-chevron" />
+        </button>
+        <button
+          type="button"
+          className="term-launch-option"
+          disabled={noHosts && !onAddHost}
+          onClick={() => (noHosts ? onAddHost?.() : setPicking(true))}
+        >
+          <span className="term-launch-icon">
+            <Icon icon={Server} size="md" />
+          </span>
+          <span className="term-launch-text">
+            <strong>SSH server</strong>
+            <span>{sshDetail}</span>
+          </span>
+          <Icon icon={noHosts ? Plus : ChevronRight} size="sm" className="term-launch-chevron" />
+        </button>
+      </div>
+      {picking && (
+        <HostPicker
+          hosts={hosts}
+          description="Pick a saved host to open a terminal on it."
+          onPick={(h) => {
+            setPicking(false);
+            onHost(h);
+          }}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </div>
   );
 }

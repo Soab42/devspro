@@ -18,6 +18,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use super::hosts::SshHost;
+use super::passwords::{Autofill, LoginAutofill};
 use super::SshState;
 
 pub struct PtyHandle {
@@ -152,7 +153,8 @@ const READ_CHUNK: usize = 8192;
 /// tables from silently dropping an idle session. `-i` only when the host has
 /// its own key; otherwise ssh's normal key/agent lookup applies, which is what
 /// a user with a plain `~/.ssh/id_*` expects. Password prompts are ssh's own
-/// and show up in the terminal — nothing here handles them.
+/// and show up in the terminal; a remembered password is typed at the login
+/// prompt by `LoginAutofill` (see `pty_open`).
 pub fn ssh_args(host: &SshHost) -> Vec<String> {
     let mut args = vec![
         "-p".to_string(),
@@ -287,7 +289,22 @@ fn valid_session_id(id: &str) -> Result<(), String> {
     }
 }
 
-fn build_command(db: &State<crate::db::Db>, command: PtyCommand) -> Result<CommandBuilder, String> {
+/// For a password host with a remembered password: the watcher that types it
+/// at ssh's login prompt. Nothing for any other session.
+fn login_autofill(app: &AppHandle, db: &State<crate::db::Db>, command: &PtyCommand) -> Option<LoginAutofill> {
+    let PtyCommand::Ssh { ssh: host_id } = command else { return None };
+    let host = {
+        let conn = db.0.lock().ok()?;
+        super::hosts::find(&conn, host_id).ok()?
+    };
+    if host.auth != "password" || !host.has_saved_password {
+        return None;
+    }
+    let password = super::passwords::recall(app, db, &host.id).ok()??;
+    Some(LoginAutofill::new(&host, password))
+}
+
+fn build_command(db: &State<crate::db::Db>, command: PtyCommand, id: &str) -> Result<CommandBuilder, String> {
     let home = super::home_dir()?;
     let mut cwd = home.clone();
     let mut cmd = match command {
@@ -309,6 +326,11 @@ fn build_command(db: &State<crate::db::Db>, command: PtyCommand) -> Result<Comma
                 super::hosts::find(&conn, &host_id)?
             };
             let mut cmd = CommandBuilder::new(super::openssh_program("ssh"));
+            // The session id rides along so its folder can be read in the
+            // background (`remote_cwd.rs`); a server that won't take it
+            // simply drops it.
+            cmd.env(super::remote_cwd::TERM_MARKER_ENV, id);
+            cmd.args(["-o".to_string(), format!("SendEnv={}", super::remote_cwd::TERM_MARKER_ENV)]);
             cmd.args(ssh_args(&host));
             cmd
         }
@@ -370,7 +392,12 @@ pub fn pty_open(
             return Err("a terminal with this id is already open".to_string());
         }
     }
-    let cmd = build_command(&db, command)?;
+    let mut autofill = login_autofill(&app, &db, &command);
+    let host_id = match &command {
+        PtyCommand::Ssh { ssh } => Some(ssh.clone()),
+        _ => None,
+    };
+    let cmd = build_command(&db, command, &id)?;
     let (mut handle, mut reader) = spawn(cmd, cols, rows)?;
     handle.owner = window.label().to_string();
     #[cfg(windows)]
@@ -383,6 +410,7 @@ pub fn pty_open(
     let output_event = format!("pty:output:{id}");
     let exit_event = format!("pty:exit:{id}");
     let thread_id = id.clone();
+    let thread_id_pump = id.clone();
     let pump_app = app.clone();
     let pump = move || {
         let mut buf = [0u8; READ_CHUNK];
@@ -391,6 +419,26 @@ pub fn pty_open(
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     let _ = pump_app.emit(&output_event, STANDARD.encode(&buf[..n]));
+                    if let Some(fill) = autofill.as_mut() {
+                        match fill.feed(&buf[..n]) {
+                            Autofill::Nothing => {}
+                            // Straight into the session; the frontend never sees it.
+                            Autofill::Type(text) => {
+                                if let Ok(mut map) = pump_app.state::<SshState>().pty.lock() {
+                                    if let Some(handle) = map.get_mut(&thread_id_pump) {
+                                        let _ = handle.writer.write_all(text.as_bytes());
+                                        let _ = handle.writer.flush();
+                                    }
+                                }
+                            }
+                            Autofill::Rejected => {
+                                autofill = None;
+                                if let (Some(id), Ok(conn)) = (host_id.as_deref(), pump_app.state::<crate::db::Db>().0.lock()) {
+                                    let _ = super::passwords::forget(&conn, id);
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -583,6 +631,7 @@ mod tests {
             auth: auth.into(),
             key_path: key_path.map(String::from),
             created_at: String::new(),
+            has_saved_password: false,
         }
     }
 

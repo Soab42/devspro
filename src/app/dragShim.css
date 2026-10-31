@@ -1,0 +1,31 @@
+/* The label that follows the pointer during an in-app drag on Windows
+   (dragShim.ts); the native drag image there is never shown. */
+.drag-shim-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-tooltip);
+  max-width: 18rem;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-accent-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent-text);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  box-shadow: var(--shadow-md);
+}
+
+.drag-shim-active,
+.drag-shim-active * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+.drag-shim-blocked,
+.drag-shim-blocked * {
+  cursor: no-drop !important;
+}

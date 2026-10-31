@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, renderHook, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { ConfirmProvider } from "../../../app/ConfirmContext";
 import type { KeyPermissions, SshHost } from "../api";
@@ -20,6 +20,7 @@ const host = (id: string, auth: SshHost["auth"], key_path: string | null): SshHo
   auth,
   key_path,
   created_at: "",
+  has_saved_password: false,
 });
 
 const HOSTS = [host("keyed", "key", KEY), host("agent", "agent", null)];
@@ -115,5 +116,69 @@ describe("prepareOpenSsh", () => {
     await screen.findByRole("dialog", { name: "Private key is too open" });
     fireEvent.click(screen.getByRole("button", { name: "Restrict and connect" }));
     await expect(ready).rejects.toBe(restrictFails);
+  });
+});
+
+describe("run with a password host", () => {
+  /** Renders the hook's prompt, which renderHook alone would not. */
+  function setupWithPrompt() {
+    const flow = { current: null as unknown as ReturnType<typeof useConnectFlow> };
+    function Harness() {
+      flow.current = useConnectFlow();
+      return <>{flow.current.element}</>;
+    }
+    render(
+      <ConfirmProvider>
+        <Harness />
+      </ConfirmProvider>,
+    );
+    return flow;
+  }
+
+  async function answer(password: string, remember: boolean) {
+    const dialog = await screen.findByRole("dialog", { name: "Password required" });
+    const box = within(dialog).getByRole("checkbox", { name: "Remember this password" }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    if (remember) fireEvent.click(box);
+    fireEvent.change(within(dialog).getByLabelText("Password"), { target: { value: password } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
+  }
+
+  it("uses a typed password once unless the user ticks Remember", async () => {
+    const flow = setupWithPrompt();
+    const attempt = vi.fn(async () => "session");
+    let result: Promise<string | null> = Promise.resolve(null);
+    act(() => {
+      result = flow.current.run(host("pw", "password", null), attempt);
+    });
+    await answer("hunter2", false);
+    await expect(result).resolves.toBe("session");
+    expect(attempt).toHaveBeenCalledWith({ password: "hunter2", remember: false });
+
+    act(() => {
+      result = flow.current.run(host("pw", "password", null), attempt);
+    });
+    await answer("hunter2", true);
+    await expect(result).resolves.toBe("session");
+    expect(attempt).toHaveBeenLastCalledWith({ password: "hunter2", remember: true });
+  });
+
+  it("doesn't ask when a password is saved, and asks again when the server rejects it", async () => {
+    const flow = setupWithPrompt();
+    const saved = { ...host("pw", "password", null), has_saved_password: true };
+    const attempt = vi
+      .fn<(creds: object) => Promise<string>>()
+      .mockRejectedValueOnce("SAVED_PASSWORD_REJECTED")
+      .mockResolvedValueOnce("session");
+    let result: Promise<string | null> = Promise.resolve(null);
+    act(() => {
+      result = flow.current.run(saved, attempt);
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Password required" });
+    expect(attempt).toHaveBeenNthCalledWith(1, {});
+    expect(dialog.textContent).toContain("The saved password was rejected, so it has been forgotten.");
+    await answer("new-one", true);
+    await expect(result).resolves.toBe("session");
+    expect(attempt).toHaveBeenNthCalledWith(2, { password: "new-one", remember: true });
   });
 });

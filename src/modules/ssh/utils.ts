@@ -89,6 +89,8 @@ export function hostLabel(host: Pick<SshHost, "username" | "host" | "port">): st
 
 export const UNKNOWN_HOST_PREFIX = "UNKNOWN_HOST:";
 export const PASSWORD_REQUIRED = "PASSWORD_REQUIRED";
+/** The remembered password was turned down by the server and has been forgotten. */
+export const SAVED_PASSWORD_REJECTED = "SAVED_PASSWORD_REJECTED";
 
 /** The fingerprint from an `UNKNOWN_HOST:<fp>` error, or null for any other error. */
 export function unknownHostFingerprint(message: string): string | null {
@@ -99,6 +101,10 @@ export function unknownHostFingerprint(message: string): string | null {
 
 export function isPasswordRequired(message: string): boolean {
   return message.trim() === PASSWORD_REQUIRED;
+}
+
+export function isSavedPasswordRejected(message: string): boolean {
+  return message.trim() === SAVED_PASSWORD_REJECTED;
 }
 
 export function errorMessage(e: unknown): string {

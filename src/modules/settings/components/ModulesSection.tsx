@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { useModules } from "../../../app/ModulesContext";
 import { MODULE_GROUPS, modules } from "../../../app/ModuleRegistry";
-import { Section, Stack, Switch } from "../../../ui";
+import { Badge, Section, Stack, Switch } from "../../../ui";
 import { Blocks } from "../../../ui/icons";
 
 /**
@@ -39,9 +39,15 @@ export default function ModulesSection() {
                       onChange={(v) => setEnabled(m.id, v)}
                       label={m.label}
                       description={
-                        m.core
-                          ? `${m.description ?? ""} Always on.`.trim()
-                          : m.description
+                        m.core ? (
+                          `${m.description ?? ""} Always on.`.trim()
+                        ) : m.inDevelopment ? (
+                          <>
+                            <Badge tone="warning">Under development</Badge> {m.description}
+                          </>
+                        ) : (
+                          m.description
+                        )
                       }
                       disabled={m.core}
                     />

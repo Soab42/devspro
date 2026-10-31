@@ -14,9 +14,9 @@ import {
   Section,
   Stack,
 } from "../../../ui";
-import { Folder, KeyRound, Pencil, Plus, Server, Terminal, Trash2 } from "../../../ui/icons";
+import { Eraser, Folder, KeyRound, Pencil, Plus, Server, Terminal, Trash2 } from "../../../ui/icons";
 import type { Resource } from "../../../ui";
-import { SshHost, SshKey, deleteHost, installKeyOnHost } from "../api";
+import { SshHost, SshKey, deleteHost, forgetPassword, installKeyOnHost } from "../api";
 import { errorMessage, hostLabel } from "../utils";
 import HostForm from "./HostForm";
 import InstallKeyModal from "./InstallKeyModal";
@@ -66,6 +66,19 @@ export default function HostsTab({
     }
   }
 
+  async function handleForgetPassword(host: SshHost) {
+    setBusyId(host.id);
+    try {
+      await forgetPassword(host.id);
+      await hosts.refresh();
+      setNotice({ tone: "success", text: `The saved password for ${host.name} was forgotten.` });
+    } catch (e) {
+      setNotice({ tone: "danger", text: errorMessage(e) });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function handleInstall(host: SshHost, keyName: string) {
     setInstallFor(null);
     setBusyId(host.id);
@@ -101,7 +114,12 @@ export default function HostsTab({
       header: "Auth",
       priority: 2,
       sortValue: (h) => h.auth,
-      render: (h) => <Badge tone="neutral">{AUTH_LABEL[h.auth]}</Badge>,
+      render: (h) => (
+        <>
+          <Badge tone="neutral">{AUTH_LABEL[h.auth]}</Badge>
+          {h.has_saved_password && <Badge tone="success">saved</Badge>}
+        </>
+      ),
     },
     {
       key: "key",
@@ -127,6 +145,17 @@ export default function HostsTab({
               items={[
                 { key: "install", label: "Install key…", icon: KeyRound, onClick: () => setInstallFor(h) },
                 { key: "edit", label: "Edit", icon: Pencil, onClick: () => setFormFor(h) },
+                ...(h.has_saved_password
+                  ? [
+                      {
+                        key: "forget",
+                        label: "Forget saved password",
+                        icon: Eraser,
+                        disabled: busy,
+                        onClick: () => handleForgetPassword(h),
+                      },
+                    ]
+                  : []),
                 {
                   key: "delete",
                   label: "Delete",

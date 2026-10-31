@@ -8,9 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::State;
+use tauri::{AppHandle, State};
 
-use super::session::{connect, Credentials};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SshKey {
@@ -410,11 +409,13 @@ pub fn ssh_keys_delete(name: String) -> Result<(), String> {
 /// the next one won't need it.
 #[tauri::command(async)]
 pub fn ssh_keys_install_on_host(
+    app: AppHandle,
     db: State<crate::db::Db>,
     host_id: String,
     key_name: String,
     password: Option<String>,
     passphrase: Option<String>,
+    remember: Option<bool>,
 ) -> Result<String, String> {
     let name = validate_key_name(&key_name)?;
     let pub_path = super::ssh_dir()?.join(format!("{name}.pub"));
@@ -429,7 +430,7 @@ pub fn ssh_keys_install_on_host(
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         super::hosts::find(&conn, &host_id)?
     };
-    let sess = connect(&host, &Credentials { password, passphrase })?;
+    let sess = super::passwords::connect_host(&app, &db, &host, password, passphrase, remember.unwrap_or(false))?;
     let result = run_remote(&sess, &install_script(public_key))?;
     let _ = sess.disconnect(None, "done", None);
     Ok(match result.trim() {

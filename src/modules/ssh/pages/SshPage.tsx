@@ -1,6 +1,6 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useModule } from "../../../app/ModuleRegistry";
+import { useRemembered } from "../../../app/pageMemory";
 import { Button, Page, Tabs, statusOf, useResource } from "../../../ui";
 import { KeyRound, Plus, RefreshCw, Server } from "../../../ui/icons";
 import { listHosts, listKeys } from "../api";
@@ -18,7 +18,7 @@ export default function SshPage() {
   const hosts = useResource(listHosts);
   const keys = useResource(listKeys);
   const navigate = useNavigate();
-  const [tab, setTab] = useState<TabId>("hosts");
+  const [tab, setTab] = useRemembered<TabId>("ssh:tab", "hosts");
 
   return (
     <Page

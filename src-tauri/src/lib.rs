@@ -2,6 +2,7 @@ mod auth;
 mod db;
 mod elevate;
 mod modules;
+mod secrets;
 mod tray;
 
 use modules::ai;
@@ -31,7 +32,7 @@ use modules::system;
 use modules::tunnel;
 use modules::updater;
 use modules::workers;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[tauri::command(async)]
 fn elevate_ping(app: tauri::AppHandle) -> Result<String, String> {
@@ -110,6 +111,13 @@ pub fn run() {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         if tray::close_to_tray_enabled(&app_handle) {
                             api.prevent_close();
+                            // Closing the window closes the user's sessions, tray or
+                            // not: terminals and SFTP connections left running in
+                            // the background must not outlive the window they were
+                            // opened in. The shells are ended here; the page ends
+                            // its SFTP connections on the event.
+                            ssh::pty::kill_owned_by(&app_handle.state::<ssh::SshState>(), "main");
+                            let _ = app_handle.emit_to("main", "app:sessions-ended", ());
                             if let Some(window) = app_handle.get_webview_window("main") {
                                 let _ = window.hide();
                             }
@@ -356,6 +364,7 @@ pub fn run() {
             ssh::hosts::ssh_hosts_list,
             ssh::hosts::ssh_hosts_save,
             ssh::hosts::ssh_hosts_delete,
+            ssh::passwords::ssh_password_forget,
             ssh::keys::ssh_keys_list,
             ssh::keys::ssh_keys_generate,
             ssh::keys::ssh_keys_import,
@@ -370,6 +379,7 @@ pub fn run() {
             ssh::pty::pty_adopt,
             ssh::pty::pty_cwd,
             ssh::sftp::sftp_connect,
+            ssh::remote_cwd::term_remote_cwd,
             ssh::sftp::sftp_trust_host,
             ssh::sftp::sftp_disconnect,
             ssh::sftp::sftp_home,

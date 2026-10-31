@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useModule } from "../../../app/ModuleRegistry";
 import { usePopoutHandoff } from "../../../app/popoutState";
 import { Badge, Callout, Page, statusOf, useResource } from "../../../ui";
@@ -9,25 +9,29 @@ import { errorMessage } from "../../ssh/utils";
 import SftpTab, {
   PaneLayout,
   SftpControls,
-  SftpSessionInfo,
   readPaneLayout,
   storePaneLayout,
 } from "../components/SftpTab";
+import { addSftpSession, removeSftpSession, setActiveSftpSession, useSftpSessions } from "../sessionStore";
 
 /**
  * The SFTP module: a two-pane file browser per connected host. Opens with
  * `?host=<id>` (from the SSH module's host rows) to connect straight away;
  * the parameter is consumed once so a reload doesn't reconnect.
+ *
+ * Connections live in `sessionStore`, not here: leaving the page keeps them
+ * open, and they end on Disconnect or when DevsPro closes.
  */
 export default function SftpPage() {
   const module = useModule("sftp");
   const hosts = useResource(listHosts);
   const connectFlow = useConnectFlow();
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [error, setError] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<SftpSessionInfo[]>([]);
-  const [active, setActive] = useState<string | null>(null);
+  const { sessions, active } = useSftpSessions();
+  const setActive = setActiveSftpSession;
   const [connecting, setConnecting] = useState(false);
   const [layout, setLayout] = useState<PaneLayout>(readPaneLayout);
   function changeLayout(next: PaneLayout) {
@@ -52,8 +56,7 @@ export default function SftpPage() {
         sftpConnect(host.id, creds),
       );
       if (id === null) return;
-      setSessions((prev) => [...prev, { id, host }]);
-      setActive(id);
+      addSftpSession({ id, host });
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -62,11 +65,7 @@ export default function SftpPage() {
   }
 
   async function disconnect(id: string) {
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      if (active === id) setActive(next[next.length - 1]?.id ?? null);
-      return next;
-    });
+    removeSftpSession(id);
     await sftpDisconnect(id).catch(() => undefined);
   }
 
@@ -81,16 +80,6 @@ export default function SftpPage() {
     if (host) void connectRef.current(host);
     else setError("That host no longer exists.");
   }, [wanted, hosts.data, setParams]);
-
-  // Sessions are ours; drop them with the page.
-  const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
-  useEffect(() => {
-    return () => {
-      for (const s of sessionsRef.current)
-        void sftpDisconnect(s.id).catch(() => undefined);
-    };
-  }, []);
 
   return (
     <Page
@@ -127,6 +116,9 @@ export default function SftpPage() {
         activeId={active}
         hosts={hostList}
         layout={layout}
+        connecting={connecting}
+        onConnect={connect}
+        onAddHost={() => navigate("/ssh")}
       />
       {connectFlow.element}
     </Page>

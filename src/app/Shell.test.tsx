@@ -33,6 +33,7 @@ vi.mock("../ui/Terminal", () => ({
 import Shell from "./Shell";
 import { MODULE_GROUPS, modules } from "./ModuleRegistry";
 import { ModulesProvider } from "./ModulesContext";
+import { setBackgroundSessions } from "./backgroundSessions";
 import { ThemeProvider } from "./ThemeContext";
 
 function renderShell(width = 1400, path = "/dashboard") {
@@ -64,8 +65,17 @@ describe("Shell", () => {
     renderShell();
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     for (const m of modules) {
-      expect(within(nav).getByRole("link", { name: m.label })).toBeDefined();
+      const name = m.inDevelopment ? `${m.label} Under development` : m.label;
+      expect(within(nav).getByRole("link", { name })).toBeDefined();
     }
+  });
+
+  it("shows how many sessions a module has running", () => {
+    setBackgroundSessions("terminal", 2);
+    renderShell();
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(within(nav).getByRole("status", { name: "2 sessions running" })).toBeDefined();
+    setBackgroundSessions("terminal", 0);
   });
 
   it("leaves switched-off modules out of the sidebar", () => {

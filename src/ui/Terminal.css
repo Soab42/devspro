@@ -98,6 +98,12 @@
 }
 
 /* xterm sizes its own canvas; these make the host and the viewport agree. */
+/* The element xterm draws into; it moves between hosts with its session. */
+.term-surface {
+  width: 100%;
+  height: 100%;
+}
+
 .term-host .xterm {
   height: 100%;
 }
@@ -114,6 +120,104 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background-color: var(--color-surface);
+  overflow: auto;
+}
+
+/* ------------------------------------------------------------- launcher -- */
+/* The empty workspace: local or SSH, as two matching cards. */
+.term-launch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  width: min(40rem, 100%);
+  padding: var(--space-7);
+}
+
+.term-launch-head {
+  text-align: center;
+}
+
+.term-launch-title {
+  font-size: var(--text-lg);
+  line-height: var(--lh-lg);
+  font-weight: var(--fw-semibold);
+}
+
+.term-launch-desc {
+  color: var(--color-text-muted);
+}
+
+.term-launch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+@media (max-width: 40rem) {
+  .term-launch-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.term-launch-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface-2);
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+  transition: var(--transition-colors);
+}
+
+.term-launch-option:hover:not(:disabled) {
+  border-color: var(--color-accent-border);
+  background-color: var(--color-accent-subtle);
+}
+
+.term-launch-option:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.term-launch-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.term-launch-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-md);
+  background-color: var(--color-accent-subtle);
+  color: var(--color-accent-text);
+}
+
+.term-launch-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.term-launch-text > span {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.term-launch-chevron {
+  color: var(--color-text-muted);
 }
 
 /* --------------------------------------------------------- pane chrome -- */

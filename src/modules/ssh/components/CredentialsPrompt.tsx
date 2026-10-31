@@ -1,15 +1,22 @@
 import { useState } from "react";
-import { Button, Field, Form, FormRow, Modal, Stack, TextInput } from "../../../ui";
+import { Button, Checkbox, Field, Form, FormRow, Modal, Stack, TextInput } from "../../../ui";
 import { KeyRound } from "../../../ui/icons";
 import type { SshHost } from "../api";
 import { hostLabel } from "../utils";
 
 export type PromptKind = "password" | "passphrase";
 
+export interface PromptAnswer {
+  secret: string;
+  /** Only ever true for a password, and only when the user ticked the box. */
+  remember: boolean;
+}
+
 /**
- * Asks for the one secret a connection needs right now. The value goes
- * straight to the connect call and is never kept anywhere — that is the whole
- * reason hosts don't store passwords.
+ * Asks for the one secret a connection needs right now. By default the value
+ * goes straight to the connect call and is kept nowhere. A password can be
+ * remembered instead, encrypted on this machine, if the user ticks the box;
+ * a key passphrase never is.
  */
 export default function CredentialsPrompt({
   host,
@@ -22,10 +29,11 @@ export default function CredentialsPrompt({
   kind: PromptKind;
   /** Why the previous attempt failed, if this is a retry. */
   error?: string | null;
-  onSubmit: (secret: string) => void;
+  onSubmit: (answer: PromptAnswer) => void;
   onCancel: () => void;
 }) {
   const [value, setValue] = useState("");
+  const [remember, setRemember] = useState(false);
   const isPassword = kind === "password";
 
   return (
@@ -34,13 +42,13 @@ export default function CredentialsPrompt({
       title={isPassword ? "Password required" : "Key passphrase required"}
       description={
         isPassword
-          ? `Enter the password for ${hostLabel(host)}. It is used for this connection only.`
+          ? `Enter the password for ${hostLabel(host)}. Unless you choose to remember it, it is used for this connection only.`
           : `The private key for ${host.name} is encrypted. Enter its passphrase to unlock it for this connection.`
       }
       icon={KeyRound}
       onClose={onCancel}
     >
-      <Form onSubmit={() => onSubmit(value)}>
+      <Form onSubmit={() => onSubmit({ secret: value, remember: isPassword && remember })}>
         <Stack gap={5}>
           <Field label={isPassword ? "Password" : "Passphrase"} htmlFor="ssh-secret" error={error ?? undefined}>
             <TextInput
@@ -52,6 +60,14 @@ export default function CredentialsPrompt({
               autoFocus
             />
           </Field>
+          {isPassword && (
+            <Stack gap={1}>
+              <Checkbox label="Remember this password" checked={remember} onChange={setRemember} />
+              <span className="u-muted">
+                Saved encrypted on this computer, so connecting won't ask again. Forget it from the host's menu in SSH.
+              </span>
+            </Stack>
+          )}
           <FormRow className="form-actions">
             <Button variant="secondary" onClick={onCancel}>
               Cancel

@@ -16,6 +16,7 @@ import { useModules } from "./ModulesContext";
 import { ThemeControl } from "./ThemeControl";
 import { UpdateIndicator } from "./UpdateIndicator";
 import { useLayoutMode } from "./useLayoutMode";
+import { useBackgroundSessions } from "./backgroundSessions";
 import { CommandPalette } from "./CommandPalette";
 import { TerminalDock } from "./TerminalDock";
 import { useTerminalDock } from "./terminalDockState";
@@ -27,7 +28,7 @@ import {
   openModuleWindow,
 } from "./popout";
 import { currentPopoutHandoff } from "./popoutState";
-import { Icon, IconButton, PageChromeContext, Spinner } from "../ui";
+import { Badge, Icon, IconButton, PageChromeContext, Spinner } from "../ui";
 import {
   Lock,
   Menu,
@@ -291,6 +292,12 @@ function MainShell() {
                       className="sidebar-link-icon"
                     />
                     <span className="sidebar-link-label">{m.label}</span>
+                    <SessionCount moduleId={m.id} />
+                    {m.inDevelopment && (
+                      <Badge tone="warning" className="sidebar-link-badge">
+                        Under development
+                      </Badge>
+                    )}
                   </NavLink>
                 ))}
               </div>
@@ -365,6 +372,21 @@ function MainShell() {
         onClose={() => setPaletteOpen(false)}
       />
     </div>
+  );
+}
+
+/**
+ * How many of a module's sessions are running — a terminal, an SFTP
+ * connection — so one left running in the background is never out of sight.
+ */
+function SessionCount({ moduleId }: { moduleId: string }) {
+  const count = useBackgroundSessions(moduleId);
+  if (count === 0) return null;
+  const text = `${count} ${count === 1 ? "session" : "sessions"} running`;
+  return (
+    <span className="sidebar-link-count" title={text} aria-label={text} role="status">
+      <Badge tone="accent">{count}</Badge>
+    </span>
   );
 }
 

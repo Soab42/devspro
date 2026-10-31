@@ -13,10 +13,16 @@ import { ThemeProvider } from "./app/ThemeContext";
 import { ConfirmProvider } from "./app/ConfirmContext";
 import { ZoomIndicator } from "./app/ZoomIndicator";
 import { installZoom } from "./app/zoom";
+import { installDragShim } from "./app/dragShim";
+import { isWindows } from "./app/platform";
 
 // Every window (main, pop-outs, new ones) runs this bundle, so each applies
 // the stored zoom and handles the shortcuts itself.
 installZoom();
+
+// In-app drag and drop on Windows, where WebView2 delivers no HTML5 drag
+// events while Tauri takes desktop file drops (see dragShim.ts).
+if (isWindows && "__TAURI_INTERNALS__" in window) installDragShim();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

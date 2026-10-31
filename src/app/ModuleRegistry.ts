@@ -72,12 +72,18 @@ export interface ModuleDefinition {
    * home surface) and Settings (where modules are switched back on) qualify.
    */
   core?: boolean;
+  /**
+   * Not finished yet: left out of production builds entirely (no sidebar
+   * entry, route, launcher result or Settings switch), and marked "Under
+   * development" when running in dev.
+   */
+  inDevelopment?: boolean;
 }
 
 // Adding a module later = one entry here + its own folder under src/modules/.
 // The sidebar, router, launcher and the Settings "Modules" section all render
-// off this array — nothing else needs to change.
-export const modules: ModuleDefinition[] = [
+// off `modules` below — nothing else needs to change.
+const registry: ModuleDefinition[] = [
   {
     id: "dashboard",
     label: "Dashboard",
@@ -233,6 +239,7 @@ export const modules: ModuleDefinition[] = [
     Component: lazy(() => import("../modules/http/pages/HttpPage")),
     description: "Send requests to your local sites and inspect the response.",
     keywords: ["rest", "api", "request", "postman", "curl"],
+    inDevelopment: true,
   },
   {
     id: "browser",
@@ -243,6 +250,7 @@ export const modules: ModuleDefinition[] = [
     Component: lazy(() => import("../modules/browser/pages/BrowserPage")),
     description: "A built-in browser: tabs, bookmarks, saved logins, history, split view, device presets and the Web Inspector.",
     keywords: ["web", "preview", "webview", "chrome", "safari", "firefox", "bookmarks", "passwords", "inspect", "devtools", "split"],
+    inDevelopment: true,
   },
   {
     id: "apps",
@@ -346,6 +354,9 @@ export const modules: ModuleDefinition[] = [
     core: true,
   },
 ];
+
+/** The registry as this build ships it: unfinished modules only in dev. */
+export const modules: ModuleDefinition[] = registry.filter((m) => import.meta.env.DEV || !m.inDevelopment);
 
 const byId = new Map(modules.map((m) => [m.id, m]));
 

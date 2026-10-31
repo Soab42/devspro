@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfirmProvider } from "../../../app/ConfirmContext";
 import EnvDiffPage from "./EnvDiffPage";
+import { forgetRememberedState } from "../../../app/pageMemory";
 
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
@@ -54,6 +55,7 @@ const table = () => screen.getByRole("table", { name: /^variables in the .+ env 
 const rowFor = (key: string) => within(table()).getByText(key).closest("tr") as HTMLElement;
 
 beforeEach(() => {
+  forgetRememberedState();
   cleanup();
   invoke.mockReset();
   goToLine.mockReset();

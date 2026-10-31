@@ -66,6 +66,8 @@ import {
   SquareArrowOutUpRight,
   Rows2,
   Server,
+  Plug,
+  Plus,
   Star,
   StarOff,
   Trash2,
@@ -131,16 +133,15 @@ import {
 import { clickSelect } from "../../file-manager/utils";
 import { countLabel, failureSummary, settleEach, zipName } from "../bulk";
 import { SftpFavouritesStore, normalisePath, useSftpFavourites } from "../favourites";
+import HostPicker from "../../ssh/components/HostPicker";
+import { rememberPlace, rememberedPlace, type SftpSessionInfo } from "../sessionStore";
 import EditFileModal from "./EditFileModal";
 import "./SftpTab.css";
 
 export type PaneLayout = "side" | "stack";
 const LAYOUT_KEY = "sftp.layout";
 
-export interface SftpSessionInfo {
-  id: string;
-  host: SshHost;
-}
+export type { SftpSessionInfo };
 
 export function readPaneLayout(): PaneLayout {
   return localStorage.getItem(LAYOUT_KEY) === "stack" ? "stack" : "side";
@@ -234,13 +235,20 @@ export default function SftpTab({
   activeId,
   hosts,
   layout,
+  connecting = false,
+  onConnect,
+  onAddHost,
 }: {
   sessions: SftpSessionInfo[];
   activeId: string | null;
   hosts: SshHost[];
   layout: PaneLayout;
+  connecting?: boolean;
+  onConnect?: (host: SshHost) => void;
+  onAddHost?: () => void;
 }) {
   const active = sessions.find((s) => s.id === activeId) ?? null;
+  const [picking, setPicking] = useState(false);
   // Held here rather than in the browser, which remounts with every session
   // switch: one load per visit, and no switch racing a save still in flight.
   const favourites = useSftpFavourites();
@@ -262,11 +270,39 @@ export default function SftpTab({
             title="Not connected"
             description={
               hosts.length === 0
-                ? "Save a host in the Hosts tab first, then connect to browse its files."
-                : "Pick a host above to open an SFTP session."
+                ? "Save a host in SSH first, then connect to browse its files."
+                : "Connect to a host to browse its files."
+            }
+            action={
+              hosts.length === 0 ? (
+                <Button variant="primary" icon={Plus} disabled={!onAddHost} onClick={onAddHost}>
+                  Add a host
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  icon={Plug}
+                  loading={connecting}
+                  disabled={!onConnect}
+                  onClick={() => setPicking(true)}
+                >
+                  Connect
+                </Button>
+              )
             }
           />
         </Section>
+      )}
+      {picking && onConnect && (
+        <HostPicker
+          hosts={hosts}
+          description="Pick a saved host to open an SFTP session."
+          onPick={(h) => {
+            setPicking(false);
+            onConnect(h);
+          }}
+          onClose={() => setPicking(false)}
+        />
       )}
     </Stack>
   );
@@ -278,6 +314,9 @@ export default function SftpTab({
 function useDirectory<T>(
   list: (path: string) => Promise<T[]>,
   initial: () => Promise<string>,
+  /** Where this pane was when its page was left; it reopens there. */
+  remembered: string | null = null,
+  onMove?: (path: string) => void,
 ) {
   const [path, setPath] = useState<string | null>(null);
   const [entries, setEntries] = useState<T[]>([]);
@@ -307,7 +346,7 @@ function useDirectory<T>(
 
   useEffect(() => {
     let cancelled = false;
-    initial()
+    (remembered ? Promise.resolve(remembered) : initial())
       .catch(() => "/")
       .then((start) => {
         if (!cancelled) setPath(start || "/");
@@ -315,11 +354,17 @@ function useDirectory<T>(
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const onMoveRef = useRef(onMove);
+  onMoveRef.current = onMove;
   useEffect(() => {
     shown.current = path;
-    if (path !== null) void load(path);
+    if (path !== null) {
+      onMoveRef.current?.(path);
+      void load(path);
+    }
   }, [path, load]);
 
   // Whatever folder is showing when it is called, not when it was handed out:
@@ -362,7 +407,9 @@ function DualPaneBrowser({
     [session.id],
   );
   const remoteHome = useCallback(() => sftpHome(session.id), [session.id]);
-  const remote = useDirectory<SftpEntry>(remoteList, remoteHome);
+  const remote = useDirectory<SftpEntry>(remoteList, remoteHome, rememberedPlace(session.id, "remote"), (p) =>
+    rememberPlace(session.id, "remote", p),
+  );
 
   const [showHidden, setShowHidden] = useState(false);
   const [localHome, setLocalHome] = useState<string>("/");
@@ -371,7 +418,9 @@ function DualPaneBrowser({
     setLocalHome(places.home);
     return places.home;
   }, []);
-  const local = useDirectory<FileEntry>(fmList, localStart);
+  const local = useDirectory<FileEntry>(fmList, localStart, rememberedPlace(session.id, "local"), (p) =>
+    rememberPlace(session.id, "local", p),
+  );
 
   const transfers = useTransferQueue();
   const split = usePaneSplit(layout);

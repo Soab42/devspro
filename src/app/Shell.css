@@ -130,9 +130,49 @@
   opacity: 1;
 }
 
+/* Running sessions: a count at the end of the row, a dot on the rail. */
+.sidebar-link-count {
+  display: inline-flex;
+  margin-left: auto;
+}
+
+.shell-railed .sidebar-link-count {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-accent);
+  overflow: hidden;
+}
+
+.shell-railed .sidebar-link-count > * {
+  visibility: hidden;
+}
+
+/* The sidebar is too narrow for a label and a badge side by side, so the
+   badge wraps onto a second line, lined up under the label (14px icon + gap). */
+.sidebar-link:has(.sidebar-link-badge) {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+
+.sidebar-link:has(.sidebar-link-badge) .sidebar-link-label {
+  flex: 1 1 calc(100% - 14px - var(--space-3));
+}
+
+.sidebar-link-badge.badge-sm {
+  margin-left: calc(14px + var(--space-3));
+  padding: 0 var(--space-1);
+  font-size: var(--text-2xs);
+  line-height: var(--lh-2xs);
+}
+
 /* ----------------------------------------------------------- rail state -- */
 .shell-railed .sidebar-wordmark,
 .shell-railed .sidebar-link-label,
+.shell-railed .sidebar-link-badge,
 .shell-railed .sidebar-group-label {
   display: none;
 }

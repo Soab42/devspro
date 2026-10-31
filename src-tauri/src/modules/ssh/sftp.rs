@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, State};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-use super::session::{connect, trust_host, Credentials};
+use super::session::trust_host;
 use super::SshState;
 
 pub struct SftpSession {
@@ -141,21 +141,24 @@ fn with_session<T>(
 
 /// Opens a session and returns its id. An unknown host key fails with
 /// `UNKNOWN_HOST:<fingerprint>` (see `session.rs`); a password host with no
-/// password fails with `PASSWORD_REQUIRED`. Both are prompts the UI turns
-/// into dialogs and then retries.
+/// password (typed or remembered) fails with `PASSWORD_REQUIRED`, and a
+/// remembered one the server rejects with `SAVED_PASSWORD_REJECTED`. All are
+/// prompts the UI turns into dialogs and then retries.
 #[tauri::command(async)]
 pub fn sftp_connect(
+    app: AppHandle,
     db: State<crate::db::Db>,
     state: State<SshState>,
     host_id: String,
     password: Option<String>,
     passphrase: Option<String>,
+    remember: Option<bool>,
 ) -> Result<String, String> {
     let host = {
         let conn = db.0.lock().map_err(|e| e.to_string())?;
         super::hosts::find(&conn, &host_id)?
     };
-    let session = connect(&host, &Credentials { password, passphrase })?;
+    let session = super::passwords::connect_host(&app, &db, &host, password, passphrase, remember.unwrap_or(false))?;
     let sftp = session.sftp().map_err(|e| format!("could not start SFTP: {}", e.message()))?;
     let id = uuid::Uuid::new_v4().to_string();
     state

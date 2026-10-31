@@ -12,6 +12,8 @@ export interface SshHost {
   auth: AuthMethod;
   key_path: string | null;
   created_at: string;
+  /** A password is remembered for this host, so connecting won't ask. */
+  has_saved_password: boolean;
 }
 
 export interface SshKey {
@@ -35,10 +37,12 @@ export interface SftpEntry {
   permissions: string;
 }
 
-/** What the user typed for one connection attempt. Never persisted. */
+/** What the user typed for one connection attempt. */
 export interface Credentials {
   password?: string;
   passphrase?: string;
+  /** Store the password, encrypted, once it has logged in. Off unless the user ticks it. */
+  remember?: boolean;
 }
 
 export interface HostInput {
@@ -109,6 +113,7 @@ export const installKeyOnHost = (
   invoke<string>("ssh_keys_install_on_host", {
     hostId,
     keyName,
+    remember: creds.remember ?? false,
     password: creds.password ?? null,
     passphrase: creds.passphrase ?? null,
   });
@@ -175,7 +180,11 @@ export const sftpConnect = (hostId: string, creds: Credentials) =>
     hostId,
     password: creds.password ?? null,
     passphrase: creds.passphrase ?? null,
+    remember: creds.remember ?? false,
   });
+
+/** Drops the remembered password for a host; the next connect asks again. */
+export const forgetPassword = (hostId: string) => invoke<void>("ssh_password_forget", { hostId });
 
 export const sftpTrustHost = (hostId: string) =>
   invoke<string>("sftp_trust_host", { hostId });
@@ -294,3 +303,11 @@ export interface HostSample {
 /** `session` null samples this machine; an SFTP session id samples its host. */
 export const termHostStats = (session: string | null) =>
   invoke<HostSample>("term_host_stats", { session });
+
+/**
+ * The folder of terminal `terminalId`'s remote shell, read over SSH
+ * connection `session` without typing anything; null when it can't be
+ * found there (not Linux, or the server didn't accept the marker).
+ */
+export const termRemoteCwd = (session: string, terminalId: string) =>
+  invoke<string | null>("term_remote_cwd", { session, marker: terminalId });

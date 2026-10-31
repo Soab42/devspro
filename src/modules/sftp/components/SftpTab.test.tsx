@@ -4,6 +4,7 @@ import { ConfirmProvider } from "../../../app/ConfirmContext";
 import type { SftpEntry, SshHost } from "../../ssh/api";
 import { FAVOURITES_KEY } from "../favourites";
 import SftpTab from "./SftpTab";
+import { resetSftpSessions } from "../sessionStore";
 
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
@@ -20,6 +21,7 @@ const host: SshHost = {
   auth: "agent",
   key_path: null,
   created_at: "",
+  has_saved_password: false,
 };
 
 const file = (dir: string, name: string, is_dir = false): SftpEntry => ({
@@ -81,6 +83,7 @@ const calls = (command: string) =>
   invoke.mock.calls.filter(([cmd]) => cmd === command).map(([, args]) => args);
 
 beforeEach(() => {
+  resetSftpSessions();
   cleanup();
   stored = {};
   save.mockReset();
@@ -252,5 +255,29 @@ describe("after a transfer", () => {
 
     expect(within(remoteTable()).getByText("a.txt")).toBeDefined();
     expect(within(remoteTable()).queryByText("inner.txt")).toBeNull();
+  });
+});
+
+describe("with nothing connected", () => {
+  it("connects to the host picked from the list Connect opens", () => {
+    const onConnect = vi.fn();
+    const other = { ...host, id: "h2", name: "staging" };
+    render(<SftpTab sessions={[]} activeId={null} hosts={[host, other]} layout="side" onConnect={onConnect} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    const list = within(screen.getByRole("dialog", { name: "Connect to a host" })).getByRole("list", { name: "Saved hosts" });
+    expect(within(list).getAllByRole("button")).toHaveLength(2);
+
+    fireEvent.click(within(list).getByRole("button", { name: /staging/ }));
+    expect(onConnect).toHaveBeenCalledWith(other);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("sends the user to add a host when there are none", () => {
+    const onAddHost = vi.fn();
+    render(<SftpTab sessions={[]} activeId={null} hosts={[]} layout="side" onAddHost={onAddHost} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add a host" }));
+    expect(onAddHost).toHaveBeenCalled();
   });
 });

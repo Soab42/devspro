@@ -2,14 +2,14 @@ import { ReactNode, useCallback, useRef, useState } from "react";
 import { useConfirm } from "../../../app/ConfirmContext";
 import { Mono, Stack } from "../../../ui";
 import { Credentials, SshHost, keyPermissions, listHosts, restrictKey, sftpTrustHost } from "../api";
-import { errorMessage, hostLabel, isPasswordRequired, unknownHostFingerprint } from "../utils";
-import CredentialsPrompt, { PromptKind } from "./CredentialsPrompt";
+import { errorMessage, hostLabel, isPasswordRequired, isSavedPasswordRejected, unknownHostFingerprint } from "../utils";
+import CredentialsPrompt, { PromptAnswer, PromptKind } from "./CredentialsPrompt";
 
 interface PendingPrompt {
   host: SshHost;
   kind: PromptKind;
   error: string | null;
-  resolve: (value: string | null) => void;
+  resolve: (value: PromptAnswer | null) => void;
 }
 
 const MAX_ATTEMPTS = 6;
@@ -17,9 +17,9 @@ const MAX_ATTEMPTS = 6;
 /**
  * Runs an ssh2-backed operation (SFTP connect, key install) with the
  * interactive steps a first connection needs: an unknown host key becomes a
- * trust dialog, a password host gets a password prompt, an encrypted key gets
- * a passphrase prompt, and a rejected secret is asked for again with the
- * reason shown. The terminal tab doesn't need any of this — there the real
+ * trust dialog, a password host gets a password prompt (skipped when a
+ * password is remembered), an encrypted key gets a passphrase prompt, and a
+ * rejected secret is asked for again with the reason shown. The terminal tab doesn't need any of this — there the real
  * `ssh` asks its own questions in the PTY — except `prepareOpenSsh`, below.
  *
  * `run` returns `null` when the user cancels at any prompt; rethrows anything else.
@@ -30,14 +30,14 @@ export function useConnectFlow() {
   const promptRef = useRef<PendingPrompt | null>(null);
 
   const ask = useCallback((host: SshHost, kind: PromptKind, error: string | null) => {
-    return new Promise<string | null>((resolve) => {
+    return new Promise<PromptAnswer | null>((resolve) => {
       const pending = { host, kind, error, resolve };
       promptRef.current = pending;
       setPrompt(pending);
     });
   }, []);
 
-  const settle = useCallback((value: string | null) => {
+  const settle = useCallback((value: PromptAnswer | null) => {
     promptRef.current?.resolve(value);
     promptRef.current = null;
     setPrompt(null);
@@ -46,10 +46,13 @@ export function useConnectFlow() {
   const run = useCallback(
     async <T,>(host: SshHost, attempt: (creds: Credentials) => Promise<T>): Promise<T | null> => {
       const creds: Credentials = {};
-      if (host.auth === "password") {
-        const password = await ask(host, "password", null);
-        if (password === null) return null;
-        creds.password = password;
+      // With a remembered password the backend uses it; a rejected one comes
+      // back as SAVED_PASSWORD_REJECTED and is asked for below.
+      if (host.auth === "password" && !host.has_saved_password) {
+        const answer = await ask(host, "password", null);
+        if (answer === null) return null;
+        creds.password = answer.secret;
+        creds.remember = answer.remember;
       }
 
       for (let tries = 0; tries < MAX_ATTEMPTS; tries += 1) {
@@ -78,10 +81,19 @@ export function useConnectFlow() {
             continue;
           }
 
+          if (isSavedPasswordRejected(message)) {
+            const answer = await ask(host, "password", "The saved password was rejected, so it has been forgotten.");
+            if (answer === null) return null;
+            creds.password = answer.secret;
+            creds.remember = answer.remember;
+            continue;
+          }
+
           if (isPasswordRequired(message) || /password rejected/i.test(message)) {
-            const password = await ask(host, "password", tries > 0 || creds.password ? "Password rejected." : null);
-            if (password === null) return null;
-            creds.password = password;
+            const answer = await ask(host, "password", tries > 0 || creds.password ? "Password rejected." : null);
+            if (answer === null) return null;
+            creds.password = answer.secret;
+            creds.remember = answer.remember;
             continue;
           }
 
@@ -92,7 +104,7 @@ export function useConnectFlow() {
               creds.passphrase !== undefined ? "The key could not be unlocked with that passphrase." : null,
             );
             if (passphrase === null) return null;
-            creds.passphrase = passphrase;
+            creds.passphrase = passphrase.secret;
             continue;
           }
 

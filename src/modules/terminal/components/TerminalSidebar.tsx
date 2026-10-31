@@ -118,6 +118,8 @@ export default function TerminalSidebar({
   remote,
   onCwd,
   onSend,
+  hookSent = false,
+  onResendHook,
   onOpenFile,
   onClose,
 }: {
@@ -131,6 +133,10 @@ export default function TerminalSidebar({
   onCwd: (sessionId: string, cwd: string) => void;
   /** Type into the focused terminal. */
   onSend: (sessionId: string, text: string) => void;
+  /** The follow hook went into this session at its first shell prompt. */
+  hookSent?: boolean;
+  /** Type the follow hook again, hidden like the first. */
+  onResendHook?: (sessionId: string) => void;
   /** A file was clicked: open it in an editor tab. */
   onOpenFile: (path: string) => void;
   onClose: () => void;
@@ -705,10 +711,17 @@ export default function TerminalSidebar({
             </button>
           )}
 
-          {!isLocal && follow && !sessionCwd && !session.exited && (
+          {/* Not before the shell's first prompt: until then the session is
+              still logging in, and a hook typed now would answer the
+              password prompt. */}
+          {!isLocal && follow && !sessionCwd && !session.exited && hookSent && (
             <div className="term-browser-hint term-browser-hint-boxed">
               Waiting for the shell to report its folder. If it never does,{" "}
-              <Button variant="link" size="sm" onClick={() => onSend(session.id, followHookCommand())}>
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => (onResendHook ? onResendHook(session.id) : onSend(session.id, followHookCommand()))}
+              >
                 send the prompt hook again
               </Button>
               .

@@ -1,9 +1,8 @@
 //! Saved SSH hosts: the address book the terminal and SFTP browser connect
 //! from. Only the *connection recipe* is stored — name, address, user, and how
-//! to authenticate. A password is never written to the database: it's asked
-//! for at connect time, handed to the session, and forgotten with it. Storing
-//! it would need a real secret store to be responsible, and the key-based
-//! flows this module pushes towards don't need one at all.
+//! to authenticate. A password is not part of the host: it's asked for at
+//! connect time, and only kept — encrypted, in its own table — when the user
+//! chooses to remember it (`passwords.rs`).
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -36,11 +35,17 @@ pub struct SshHost {
     pub auth: String,
     pub key_path: Option<String>,
     pub created_at: String,
+    /// A remembered password exists for this host (see `passwords.rs`).
+    #[serde(default)]
+    pub has_saved_password: bool,
 }
 
 pub const AUTH_KINDS: [&str; 3] = ["agent", "key", "password"];
 
 const COLUMNS: &str = "id, name, host, port, username, auth, key_path, created_at";
+
+/// COLUMNS plus whether a password is remembered, for reads.
+const SELECT_COLUMNS: &str = "id, name, host, port, username, auth, key_path, created_at,      EXISTS (SELECT 1 FROM ssh_saved_passwords p WHERE p.host_id = ssh_hosts.id)";
 
 fn row_to_host(row: &rusqlite::Row) -> rusqlite::Result<SshHost> {
     Ok(SshHost {
@@ -52,19 +57,20 @@ fn row_to_host(row: &rusqlite::Row) -> rusqlite::Result<SshHost> {
         auth: row.get(5)?,
         key_path: row.get(6)?,
         created_at: row.get(7)?,
+        has_saved_password: row.get(8)?,
     })
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<SshHost>, String> {
     let mut stmt = conn
-        .prepare(&format!("SELECT {COLUMNS} FROM ssh_hosts ORDER BY name COLLATE NOCASE"))
+        .prepare(&format!("SELECT {SELECT_COLUMNS} FROM ssh_hosts ORDER BY name COLLATE NOCASE"))
         .map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], row_to_host).map_err(|e| e.to_string())?;
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())
 }
 
 pub fn find(conn: &Connection, id: &str) -> Result<SshHost, String> {
-    conn.query_row(&format!("SELECT {COLUMNS} FROM ssh_hosts WHERE id = ?1"), [id], row_to_host)
+    conn.query_row(&format!("SELECT {SELECT_COLUMNS} FROM ssh_hosts WHERE id = ?1"), [id], row_to_host)
         .map_err(|_| "host not found".to_string())
 }
 
@@ -174,6 +180,7 @@ pub fn ssh_hosts_save(
                 auth: input.auth,
                 key_path: input.key_path,
                 created_at: chrono::Utc::now().to_rfc3339(),
+                has_saved_password: false,
             };
             conn.execute(
                 &format!("INSERT INTO ssh_hosts ({COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"),
@@ -199,7 +206,7 @@ pub fn ssh_hosts_delete(db: State<crate::db::Db>, id: String) -> Result<(), Stri
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM ssh_hosts WHERE id = ?1", [&id])
         .map_err(|e| e.to_string())?;
-    Ok(())
+    super::passwords::forget(&conn, &id)
 }
 
 #[cfg(test)]

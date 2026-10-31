@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useModule } from "../../../app/ModuleRegistry";
 import { POPOUT_ACTIONS_SLOT, POPOUT_TABS_SLOT, currentPopoutModuleId, isTerminalWindow } from "../../../app/popout";
 import { usePopoutHandoff } from "../../../app/popoutState";
@@ -96,6 +96,7 @@ function TerminalModulePage() {
   const module = useModule("terminal");
   const hosts = useResource(listHosts);
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
   // The workspace's buttons live in the page header, beside "Local terminal",
@@ -158,6 +159,8 @@ function TerminalModulePage() {
         onReady={onReady}
         onCountChange={setCount}
         onError={setError}
+        onAddHost={() => navigate("/ssh")}
+        keep="page"
       />
     </Page>
   );

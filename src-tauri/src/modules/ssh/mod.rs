@@ -13,13 +13,16 @@
 //!     There, host-key trust and password prompts are explicit UI steps.
 //!
 //! Nothing here is elevated: everything runs as the user, against their own
-//! `~/.ssh` and their own remote accounts. Passwords are never persisted; they
-//! travel from the prompt to the session and are dropped with it.
+//! `~/.ssh` and their own remote accounts. A password travels from the prompt
+//! to the session and is dropped with it, unless the user ticks "Remember this
+//! password" — then it is stored encrypted (`passwords.rs`).
 
 pub mod hosts;
 pub mod key_perms;
 pub mod keys;
+pub mod passwords;
 pub mod pty;
+pub mod remote_cwd;
 pub mod session;
 pub mod sftp;
 pub mod stats;
