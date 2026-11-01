@@ -5,6 +5,27 @@ for the version being released becomes the in-app update notes and the
 website's changelog. Keep the headings in this shape — `## <version> — <date>`
 (or `## Unreleased`), then `### <group>` and `- ` bullets.
 
+## 0.3.0 — 2026-11-01
+
+### New
+- **Command library.** 889 commands for development and running servers (Git, Docker, Kubernetes, Laravel, Nginx, systemd, MySQL, PostgreSQL and more) in sections and folding categories, plus your own, kept per profile. Open it beside the terminal with Commands: a click types a command in, the play button runs it, placeholders like `<branch>` are asked for first, and destructive commands ask before they run. The Commands page browses and manages the same library.
+- **Apache.** Sites can be served by Apache as well as nginx, one at a time; one switch rewrites every site for the chosen server. When something else holds port 80 or 443, the page names it.
+- **Mail Catcher without Docker.** Mailpit runs built in, downloaded once and checksum-verified, or in Docker as before.
+- **Saved hosts on the Terminal page.** With no terminal open, every saved SSH host is listed with a Connect button that opens its terminal and its file browser together.
+
+### Improved
+- Copy from the terminal by selecting text, and from programs that copy through it, such as Claude Code, tmux and vim, over SSH as well.
+- The web server is found from its running process, so XAMPP, WAMP and Laragon installs are picked up. Its status is checked against the live process, and there is a Reload button.
+- The Docker, Databases and Data browser pages offer to start Docker when it isn't running, and explain how to install it when it isn't there.
+- Apps lets you choose which Docker Desktop version to install on Windows.
+- The storage map shows a progress bar while it scans.
+- Host dropdowns are as wide as their longest host instead of cutting it short.
+
+### Fixed
+- The terminal's file browser and the SFTP page now log in the way the terminal's ssh does: every key in ssh-agent, then your default `~/.ssh` keys. A saved key file that has gone missing no longer stops the login.
+- A screen that crashes shows what went wrong, with Try again and Reload, instead of leaving the window black.
+- nginx config with a space in a path, such as a Windows account name or `~/Library/Application Support`, no longer fails `nginx -t`.
+
 ## 0.2.0 — 2026-10-29
 
 ### New
