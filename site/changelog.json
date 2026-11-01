@@ -1,6 +1,24 @@
 {
   "releases": [
     {
+      "version": "0.3.1",
+      "date": "2026-11-01",
+      "groups": [
+        {
+          "title": "New",
+          "items": [
+            "**Paste screenshots into the terminal.** With an image on the clipboard, Ctrl+V saves it and types its path, which Claude Code attaches as an image. In an SSH terminal the image is copied to the server's `/tmp` first, readable by you alone."
+          ]
+        },
+        {
+          "title": "Improved",
+          "items": [
+            "Right-click in a terminal pastes, as in Termius and PuTTY: the clipboard's text, or its image when there is no text."
+          ]
+        }
+      ]
+    },
+    {
       "version": "0.3.0",
       "date": "2026-11-01",
       "groups": [
