@@ -27,7 +27,7 @@ import {
   openModuleWindow,
 } from "./popout";
 import { currentPopoutHandoff } from "./popoutState";
-import { Icon, IconButton, PageChromeContext, Spinner } from "../ui";
+import { ErrorBoundary, Icon, IconButton, PageChromeContext, Spinner } from "../ui";
 import {
   Lock,
   Menu,
@@ -70,16 +70,20 @@ export default function Shell() {
 }
 
 function PageBoundary() {
+  // Keyed by module, so leaving a page that crashed gives the next one a clean slate.
+  const location = useLocation();
   return (
-    <Suspense
-      fallback={
-        <div className="content-loading">
-          <Spinner size="md" />
-        </div>
-      }
-    >
-      <Outlet />
-    </Suspense>
+    <ErrorBoundary key={moduleByPath(location.pathname)?.id ?? location.pathname}>
+      <Suspense
+        fallback={
+          <div className="content-loading">
+            <Spinner size="md" />
+          </div>
+        }
+      >
+        <Outlet />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
