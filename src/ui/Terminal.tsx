@@ -293,6 +293,9 @@ export default function Terminal({
   const onCwdRef = useRef(onCwd);
   const onDetachedRef = useRef(onDetached);
   const onPromptRef = useRef(onPrompt);
+  // On screen, as opposed to a hidden tab kept mounted for its scrollback.
+  const activeRef = useRef(active);
+  activeRef.current = active;
   onExitRef.current = onExit;
   onErrorRef.current = onError;
   onCwdRef.current = onCwd;
@@ -341,9 +344,10 @@ export default function Terminal({
     // Only the pane holding the keyboard, in the window the user is in, may
     // set it, so output scrolling past in a background one (a log, a file
     // being cat'ed) can't swap it underneath them. Read from the DOM rather
-    // than the `focused` prop, which the dock and AI page leave at its default.
+    // than the `focused` prop, which the dock and AI page leave at its default;
+    // and on screen too, in case a hidden tab's input kept focus.
     term.parser.registerOscHandler(52, (data) => {
-      if (!document.hasFocus() || document.activeElement !== term.textarea) return true;
+      if (!activeRef.current || !document.hasFocus() || document.activeElement !== term.textarea) return true;
       const text = osc52Text(data);
       if (text) writeText(text).catch(() => undefined);
       return true;
