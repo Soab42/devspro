@@ -293,9 +293,6 @@ export default function Terminal({
   const onCwdRef = useRef(onCwd);
   const onDetachedRef = useRef(onDetached);
   const onPromptRef = useRef(onPrompt);
-  // Visible and holding the keyboard: the one pane allowed to set the clipboard.
-  const inUseRef = useRef(active && focused);
-  inUseRef.current = active && focused;
   onExitRef.current = onExit;
   onErrorRef.current = onError;
   onCwdRef.current = onCwd;
@@ -341,10 +338,12 @@ export default function Terminal({
     // A program in the terminal setting the clipboard: how Claude Code, tmux
     // and vim copy, and over ssh the only way they can. Reading it back ("?")
     // is refused; the far end has no business seeing what was copied here.
-    // Only the pane the user is in may set it, so output scrolling past in a
-    // background one (a log, a file being cat'ed) can't swap it underneath them.
+    // Only the pane holding the keyboard, in the window the user is in, may
+    // set it, so output scrolling past in a background one (a log, a file
+    // being cat'ed) can't swap it underneath them. Read from the DOM rather
+    // than the `focused` prop, which the dock and AI page leave at its default.
     term.parser.registerOscHandler(52, (data) => {
-      if (!inUseRef.current) return true;
+      if (!document.hasFocus() || document.activeElement !== term.textarea) return true;
       const text = osc52Text(data);
       if (text) writeText(text).catch(() => undefined);
       return true;
