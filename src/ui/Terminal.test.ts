@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { looksLikePrompt, osc52Text, osc7Path } from "./Terminal";
+import { OSC52_MAX, looksLikePrompt, osc52Text, osc7Path } from "./Terminal";
 
 describe("osc7Path", () => {
   it("extracts and decodes the path from a file:// URL", () => {
@@ -24,6 +24,15 @@ describe("osc52Text", () => {
     expect(osc52Text("aGVsbG8=")).toBeNull();
     expect(osc52Text("c;not base64!")).toBeNull();
     expect(osc52Text("c;/w==")).toBeNull();
+  });
+
+  it("drops control characters but keeps tabs and line breaks", () => {
+    const encoded = btoa("echo hi\x1b[2J\r\nnext\tline\x07\x7f");
+    expect(osc52Text(`c;${encoded}`)).toBe("echo hi[2J\nnext\tline");
+  });
+
+  it("refuses a copy larger than OSC52_MAX", () => {
+    expect(osc52Text(`c;${"A".repeat(OSC52_MAX + 4)}`)).toBeNull();
   });
 });
 

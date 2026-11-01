@@ -87,17 +87,24 @@ export function osc7Path(data: string): string | null {
   }
 }
 
+/** The most base64 an OSC 52 copy may carry: about 768 KB of text. */
+export const OSC52_MAX = 1 << 20;
+
 /**
  * The text an OSC 52 payload (`c;aGVsbG8=`) puts on the clipboard; null for a
- * read request (`c;?`), an empty one, or anything that isn't base64 UTF-8.
+ * read request (`c;?`), an empty one, one over OSC52_MAX, or anything that
+ * isn't base64 UTF-8. Control characters other than tab and newline are
+ * dropped, so a copy can't carry escape sequences into wherever it's pasted.
  */
 export function osc52Text(data: string): string | null {
   const split = data.indexOf(";");
   if (split < 0) return null;
   const payload = data.slice(split + 1);
-  if (!payload || payload === "?") return null;
+  if (!payload || payload === "?" || payload.length > OSC52_MAX) return null;
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(decodeBase64(payload)) || null;
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(decodeBase64(payload));
+    // eslint-disable-next-line no-control-regex
+    return text.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "") || null;
   } catch {
     return null;
   }
@@ -263,6 +270,9 @@ export default function Terminal({
   const onCwdRef = useRef(onCwd);
   const onDetachedRef = useRef(onDetached);
   const onPromptRef = useRef(onPrompt);
+  // Visible and holding the keyboard: the one pane allowed to set the clipboard.
+  const inUseRef = useRef(active && focused);
+  inUseRef.current = active && focused;
   onExitRef.current = onExit;
   onErrorRef.current = onError;
   onCwdRef.current = onCwd;
@@ -308,7 +318,10 @@ export default function Terminal({
     // A program in the terminal setting the clipboard: how Claude Code, tmux
     // and vim copy, and over ssh the only way they can. Reading it back ("?")
     // is refused; the far end has no business seeing what was copied here.
+    // Only the pane the user is in may set it, so output scrolling past in a
+    // background one (a log, a file being cat'ed) can't swap it underneath them.
     term.parser.registerOscHandler(52, (data) => {
+      if (!inUseRef.current) return true;
       const text = osc52Text(data);
       if (text) writeText(text).catch(() => undefined);
       return true;
