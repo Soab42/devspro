@@ -13,7 +13,7 @@ use super::hosts::SshHost;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use ssh2::{CheckResult, HashType, KnownHostFileKind, Session};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Prefix on the error string when the host key is not in known_hosts. The UI
@@ -129,30 +129,103 @@ pub fn trust_host(host: &SshHost) -> Result<String, String> {
     Ok(fingerprint)
 }
 
-/// Agent, then the configured key file, then password — the same order `ssh`
-/// tries them. The agent is always attempted first because it is free when it
-/// works and fails instantly when it doesn't, and a key that is loaded into the
-/// agent shouldn't need its passphrase typed again.
+/// The key files `ssh` looks for when none is configured, less the
+/// security-key and XMSS kinds libssh2 can't use.
+const DEFAULT_IDENTITIES: [&str; 3] = ["id_ed25519", "id_ecdsa", "id_rsa"];
+
+/// The public half of a private key file, read from the `.pub` beside it, in
+/// the form an agent lists its keys — how an agent key is matched to a file.
+fn public_key_blob(private: &Path) -> Option<Vec<u8>> {
+    let mut path = private.as_os_str().to_owned();
+    path.push(".pub");
+    let line = std::fs::read_to_string(path).ok()?;
+    STANDARD.decode(line.split_whitespace().nth(1)?).ok()
+}
+
+/// Offers every key in the agent; `Session::userauth_agent` only ever tries
+/// the first. Keys in `preferred` go first, as `ssh` puts the keys it also has
+/// files for first: in agent order, a few unrelated keys can use up the
+/// server's MaxAuthTries before the right one. Returns the keys offered.
+fn authenticate_agent(sess: &Session, user: &str, preferred: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    let Ok(mut agent) = sess.agent() else { return Vec::new() };
+    if agent.connect().is_err() || agent.list_identities().is_err() {
+        return Vec::new();
+    }
+    let mut keys = agent.identities().unwrap_or_default();
+    keys.sort_by_key(|key| {
+        preferred
+            .iter()
+            .position(|blob| blob.as_slice() == key.blob())
+            .unwrap_or(usize::MAX)
+    });
+    let mut offered = Vec::new();
+    for key in &keys {
+        offered.push(key.blob().to_vec());
+        if agent.userauth(user, key).is_ok() && sess.authenticated() {
+            break;
+        }
+    }
+    let _ = agent.disconnect();
+    offered
+}
+
+/// What `ssh` tries, in its order, so that a host the terminal (the real
+/// `ssh`) logs in to connects here too: every agent key, then the host's key
+/// file, then the default `~/.ssh` keys, then the password. A key file that
+/// isn't there is noted and skipped, as `ssh` does with a missing `-i`, rather
+/// than ending the attempt. The agent goes first because a key loaded into it
+/// shouldn't need its passphrase typed again.
 fn authenticate(sess: &Session, host: &SshHost, creds: &Credentials) -> Result<(), String> {
     let user = host.username.as_str();
     let mut failures: Vec<String> = Vec::new();
 
-    if sess.userauth_agent(user).is_ok() && sess.authenticated() {
+    let key_file = host
+        .key_path
+        .as_deref()
+        .filter(|k| host.auth == "key" && !k.trim().is_empty())
+        .map(PathBuf::from);
+    let defaults: Vec<PathBuf> = super::ssh_dir()
+        .map(|dir| DEFAULT_IDENTITIES.iter().map(|name| dir.join(name)).collect())
+        .unwrap_or_default();
+    let preferred: Vec<Vec<u8>> = key_file
+        .iter()
+        .chain(&defaults)
+        .filter_map(|path| public_key_blob(path))
+        .collect();
+
+    let offered = authenticate_agent(sess, user, &preferred);
+    if sess.authenticated() {
         return Ok(());
     }
-    if host.auth == "agent" {
+    if !offered.is_empty() {
         failures.push("ssh-agent has no key the server accepts".to_string());
+    } else if host.auth == "agent" {
+        failures.push("ssh-agent has no keys loaded".to_string());
+    }
+    // A file whose key the agent already offered would only be refused again.
+    let already_offered = |path: &Path| public_key_blob(path).is_some_and(|blob| offered.contains(&blob));
+
+    if let Some(path) = &key_file {
+        if !path.is_file() {
+            failures.push(format!("private key not found: {}", path.display()));
+        } else if !already_offered(path) {
+            match sess.userauth_pubkey_file(user, None, path, creds.passphrase.as_deref()) {
+                Ok(()) if sess.authenticated() => return Ok(()),
+                Ok(()) => failures.push("key was not accepted".to_string()),
+                Err(e) => failures.push(format!("key auth failed: {}", e.message())),
+            }
+        }
     }
 
-    if let Some(key_path) = host.key_path.as_deref().filter(|_| host.auth == "key") {
-        let path = Path::new(key_path);
-        if !path.is_file() {
-            return Err(format!("private key not found: {key_path}"));
+    // No passphrase: one the user typed is for the host's own key. An
+    // encrypted default key then fails to load here, before anything is sent,
+    // so it costs no attempt against the server.
+    for path in &defaults {
+        if key_file.as_ref() == Some(path) || !path.is_file() || already_offered(path) {
+            continue;
         }
-        match sess.userauth_pubkey_file(user, None, path, creds.passphrase.as_deref()) {
-            Ok(()) if sess.authenticated() => return Ok(()),
-            Ok(()) => failures.push("key was not accepted".to_string()),
-            Err(e) => failures.push(format!("key auth failed: {}", e.message())),
+        if sess.userauth_pubkey_file(user, None, path, None).is_ok() && sess.authenticated() {
+            return Ok(());
         }
     }
 
@@ -193,6 +266,17 @@ mod tests {
         assert!(fp.starts_with("SHA256:"));
         assert!(!fp.ends_with('='));
         assert_eq!(fp, "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    }
+
+    #[test]
+    fn public_key_blob_reads_the_pub_file_beside_the_key() {
+        let dir = std::env::temp_dir().join(format!("devspro-pubkey-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key = dir.join("id_test");
+        std::fs::write(dir.join("id_test.pub"), "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 me@box\n").unwrap();
+        assert_eq!(public_key_blob(&key).as_deref(), Some(&b"\0\0\0\x0bssh-ed25519"[..]));
+        assert_eq!(public_key_blob(&dir.join("missing")), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
