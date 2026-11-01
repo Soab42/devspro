@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { openTerminalWindow } from "../../../app/popout";
 import { Badge, Button, EmptyState, IconButton, Select, Spinner, Stack } from "../../../ui";
 import {
+  LibraryBig,
   PanelLeft,
   PictureInPicture2,
   Plug,
@@ -41,8 +42,24 @@ import TerminalSidebar, { type RemoteBrowser } from "./TerminalSidebar";
 const Terminal = lazy(() => import("../../../ui/Terminal"));
 const EditorGroup = lazy(() => import("./EditorGroup"));
 
+const CommandsPanel = lazy(() => import("../../commands/components/CommandsPanel"));
+
 const ASIDE_KEY = "devspro.terminal.aside";
 const ASIDE_WIDTH_KEY = "devspro.terminal.asideWidth";
+const COMMANDS_KEY = "devspro.terminal.commands";
+const COMMANDS_WIDTH_KEY = "devspro.terminal.commandsWidth";
+
+/** The command library on the right: shut until asked for, unlike the file browser. */
+function readCommandsPanel(): { open: boolean; width: number } {
+  try {
+    return {
+      open: localStorage.getItem(COMMANDS_KEY) === "1",
+      width: clampAside(Number(localStorage.getItem(COMMANDS_WIDTH_KEY)) || 300),
+    };
+  } catch {
+    return { open: false, width: 300 };
+  }
+}
 
 function readAside(): { open: boolean; width: number } {
   try {
@@ -107,6 +124,7 @@ export default function TerminalsTab({
       init ? workspaceReducer(EMPTY_WORKSPACE, { type: "open-window", session: init.session, windowId: crypto.randomUUID() }) : EMPTY_WORKSPACE,
   );
   const [aside, setAside] = useState(readAside);
+  const [commandsPanel, setCommandsPanel] = useState(readCommandsPanel);
   const connectFlow = useConnectFlow();
 
   // Read through refs so the handle given to the page is stable: a new
@@ -188,6 +206,25 @@ export default function TerminalsTab({
       /* private mode */
     }
   }
+  function toggleCommands() {
+    setCommandsPanel((c) => {
+      const next = { ...c, open: !c.open };
+      try {
+        localStorage.setItem(COMMANDS_KEY, next.open ? "1" : "0");
+      } catch {
+        /* private mode */
+      }
+      return next;
+    });
+  }
+  function resizeCommands(width: number) {
+    setCommandsPanel((c) => ({ ...c, width }));
+    try {
+      localStorage.setItem(COMMANDS_WIDTH_KEY, String(width));
+    } catch {
+      /* private mode */
+    }
+  }
 
   /* ---- the follow-along browser's remote sessions, one per host ---- */
   const [sftp, setSftp] = useState<Record<string, string>>({});
@@ -257,6 +294,20 @@ export default function TerminalsTab({
     [onError],
   );
   const recordCwd = useCallback((id: string, cwd: string) => dispatch({ type: "cwd", id, cwd }), []);
+
+  // The command library types into the focused pane, then gives it the
+  // keyboard back, so Enter (or an edit first) lands in the shell.
+  const typeTarget = focused && !focused.exited ? focused.id : null;
+  const typeIntoFocused = useCallback(
+    (text: string) => {
+      if (!typeTarget) return;
+      send(typeTarget, text);
+      document
+        .querySelector<HTMLTextAreaElement>(`[data-session-id="${CSS.escape(typeTarget)}"] .xterm-helper-textarea`)
+        ?.focus();
+    },
+    [typeTarget, send],
+  );
 
   /* ---- drops onto a terminal pane ---- */
   // A file row from the browser (or the SFTP page) types its path, quoted,
@@ -417,6 +468,16 @@ export default function TerminalsTab({
       >
         Files
       </Button>
+      <Button
+        size="sm"
+        icon={LibraryBig}
+        title={commandsPanel.open ? "Hide the command library" : "Show the command library beside the terminal"}
+        aria-pressed={commandsPanel.open}
+        className={commandsPanel.open ? "term-toggle-on" : undefined}
+        onClick={toggleCommands}
+      >
+        Commands
+      </Button>
       {terminalWindow && (
         <>
           <IconButton icon={SquareSplitHorizontal} label="Split side by side" onClick={() => split(focused?.command ?? "local", "row")} />
@@ -468,6 +529,15 @@ export default function TerminalsTab({
       }
       asideWidth={aside.width}
       onAsideResize={resizeAside}
+      rightAside={
+        commandsPanel.open && (
+          <Suspense fallback={<Spinner />}>
+            <CommandsPanel write={typeTarget ? typeIntoFocused : null} onClose={toggleCommands} onError={onError} />
+          </Suspense>
+        )
+      }
+      rightAsideWidth={commandsPanel.width}
+      onRightAsideResize={resizeCommands}
       footer={<HostStatsBar session={focused} sftpId={focusedHostId ? (sftp[focusedHostId] ?? null) : null} />}
       empty={
         state.windows.length === 0 && (

@@ -1,0 +1,1872 @@
+{
+  "group": "Development",
+  "categories": [
+    {
+      "id": "git",
+      "name": "Git",
+      "commands": [
+        {
+          "title": "Show working tree status",
+          "command": "git status",
+          "description": "Lists staged, unstaged and untracked files for the current repository.",
+          "tags": [
+            "status"
+          ]
+        },
+        {
+          "title": "Show short status with branch",
+          "command": "git status -sb",
+          "description": "Compact one-line-per-file status with the branch and its upstream tracking info.",
+          "tags": [
+            "status",
+            "short"
+          ]
+        },
+        {
+          "title": "Show recent commits as a graph",
+          "command": "git log --oneline --graph --decorate --all -20",
+          "description": "Prints the last 20 commits across all branches as an ASCII graph with branch labels.",
+          "tags": [
+            "log",
+            "graph"
+          ]
+        },
+        {
+          "title": "Show history of one file",
+          "command": "git log --follow -p -- <file>",
+          "description": "Shows every commit that touched the file, with diffs, following renames.",
+          "tags": [
+            "log",
+            "file"
+          ]
+        },
+        {
+          "title": "Search commit messages",
+          "command": "git log --grep=\"<text>\" --oneline",
+          "description": "Lists commits whose message contains the given text.",
+          "tags": [
+            "log",
+            "search"
+          ]
+        },
+        {
+          "title": "Search history for a code change",
+          "command": "git log -S\"<text>\" --oneline",
+          "description": "Finds commits that added or removed the given string (the pickaxe search).",
+          "tags": [
+            "log",
+            "search",
+            "pickaxe"
+          ]
+        },
+        {
+          "title": "Show commits by an author",
+          "command": "git log --author=\"<name>\" --oneline",
+          "description": "Lists commits whose author matches the name or email fragment.",
+          "tags": [
+            "log",
+            "author"
+          ]
+        },
+        {
+          "title": "Show unstaged changes",
+          "command": "git diff",
+          "description": "Shows changes in tracked files that are not yet staged.",
+          "tags": [
+            "diff"
+          ]
+        },
+        {
+          "title": "Show staged changes",
+          "command": "git diff --staged",
+          "description": "Shows what will go into the next commit.",
+          "tags": [
+            "diff",
+            "staged"
+          ]
+        },
+        {
+          "title": "Compare with another branch",
+          "command": "git diff <branch>...HEAD",
+          "description": "Shows the changes on the current branch since it diverged from the given branch.",
+          "tags": [
+            "diff",
+            "branch"
+          ]
+        },
+        {
+          "title": "Show files changed in a commit",
+          "command": "git show --stat <commit>",
+          "description": "Prints the commit message and a per-file summary of what changed.",
+          "tags": [
+            "show",
+            "commit"
+          ]
+        },
+        {
+          "title": "Stage all changes",
+          "command": "git add -A",
+          "description": "Stages new, modified and deleted files across the whole repository.",
+          "tags": [
+            "add",
+            "stage"
+          ]
+        },
+        {
+          "title": "Stage changes interactively by hunk",
+          "command": "git add -p",
+          "description": "Walks through each change and asks whether to stage it.",
+          "tags": [
+            "add",
+            "patch"
+          ]
+        },
+        {
+          "title": "Amend the last commit message",
+          "command": "git commit --amend -m \"<message>\"",
+          "description": "Rewrites the last commit's message; avoid it if the commit is already pushed.",
+          "tags": [
+            "commit",
+            "amend"
+          ]
+        },
+        {
+          "title": "Add staged changes to the last commit",
+          "command": "git commit --amend --no-edit",
+          "description": "Folds the staged changes into the previous commit and keeps its message.",
+          "tags": [
+            "commit",
+            "amend"
+          ]
+        },
+        {
+          "title": "List all branches",
+          "command": "git branch -a -vv",
+          "description": "Shows local and remote branches with their last commit and upstream.",
+          "tags": [
+            "branch",
+            "list"
+          ]
+        },
+        {
+          "title": "Create and switch to a new branch",
+          "command": "git switch -c <branch>",
+          "description": "Creates a branch at the current commit and checks it out.",
+          "tags": [
+            "branch",
+            "switch"
+          ]
+        },
+        {
+          "title": "Switch to an existing branch",
+          "command": "git switch <branch>",
+          "description": "Checks out the given branch; fails if local changes would be overwritten.",
+          "tags": [
+            "branch",
+            "switch"
+          ]
+        },
+        {
+          "title": "Rename the current branch",
+          "command": "git branch -m <new-name>",
+          "description": "Renames the branch you are on locally; push the new name and delete the old one remotely separately.",
+          "tags": [
+            "branch",
+            "rename"
+          ]
+        },
+        {
+          "title": "Delete a merged local branch",
+          "command": "git branch -d <branch>",
+          "description": "Deletes the branch only if it has been fully merged.",
+          "tags": [
+            "branch",
+            "delete"
+          ]
+        },
+        {
+          "title": "Force-delete a local branch",
+          "command": "git branch -D <branch>",
+          "description": "Deletes the branch even if it has unmerged commits, which then become hard to find.",
+          "tags": [
+            "branch",
+            "delete"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Delete a remote branch",
+          "command": "git push origin --delete <branch>",
+          "description": "Removes the branch from the origin remote for everyone.",
+          "tags": [
+            "branch",
+            "remote",
+            "delete"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Stash changes including untracked files",
+          "command": "git stash push -u -m \"<message>\"",
+          "description": "Saves your working changes and untracked files and restores a clean tree.",
+          "tags": [
+            "stash"
+          ]
+        },
+        {
+          "title": "List stashes",
+          "command": "git stash list",
+          "description": "Shows all saved stashes, newest first.",
+          "tags": [
+            "stash",
+            "list"
+          ]
+        },
+        {
+          "title": "Apply and drop the latest stash",
+          "command": "git stash pop",
+          "description": "Reapplies the most recent stash and removes it; conflicts keep the stash.",
+          "tags": [
+            "stash",
+            "pop"
+          ]
+        },
+        {
+          "title": "Rebase onto another branch",
+          "command": "git rebase <branch>",
+          "description": "Replays your commits on top of the given branch; do not rebase commits you have pushed and shared.",
+          "tags": [
+            "rebase"
+          ]
+        },
+        {
+          "title": "Interactively rebase the last commits",
+          "command": "git rebase -i HEAD~<n>",
+          "description": "Lets you squash, reorder, edit or drop the last n commits.",
+          "tags": [
+            "rebase",
+            "interactive",
+            "squash"
+          ]
+        },
+        {
+          "title": "Continue or abort a rebase",
+          "command": "git rebase --continue",
+          "description": "Resumes the rebase after you resolve conflicts; use --abort to cancel it instead.",
+          "tags": [
+            "rebase",
+            "continue"
+          ]
+        },
+        {
+          "title": "Cherry-pick a commit",
+          "command": "git cherry-pick <commit>",
+          "description": "Applies the changes of one commit onto the current branch as a new commit.",
+          "tags": [
+            "cherry-pick"
+          ]
+        },
+        {
+          "title": "Merge a branch without fast-forward",
+          "command": "git merge --no-ff <branch>",
+          "description": "Merges the branch and always creates a merge commit.",
+          "tags": [
+            "merge"
+          ]
+        },
+        {
+          "title": "Abort a merge in progress",
+          "command": "git merge --abort",
+          "description": "Cancels a conflicted merge and returns to the pre-merge state.",
+          "tags": [
+            "merge",
+            "abort"
+          ]
+        },
+        {
+          "title": "Undo the last commit, keep its changes",
+          "command": "git reset --soft HEAD~1",
+          "description": "Moves the branch back one commit; the changes stay staged so you can recommit them.",
+          "tags": [
+            "undo",
+            "reset"
+          ]
+        },
+        {
+          "title": "Discard all local changes",
+          "command": "git reset --hard HEAD",
+          "description": "Throws away every uncommitted change in tracked files. Cannot be undone.",
+          "tags": [
+            "undo",
+            "reset"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Unstage a file",
+          "command": "git restore --staged <file>",
+          "description": "Removes the file from the staging area but keeps your edits.",
+          "tags": [
+            "undo",
+            "restore",
+            "unstage"
+          ]
+        },
+        {
+          "title": "Discard changes in one file",
+          "command": "git restore <file>",
+          "description": "Reverts the file to its last committed state, losing your edits.",
+          "tags": [
+            "undo",
+            "restore"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Revert a commit with a new commit",
+          "command": "git revert <commit>",
+          "description": "Creates a new commit that undoes the given one; safe for shared history.",
+          "tags": [
+            "undo",
+            "revert"
+          ]
+        },
+        {
+          "title": "Remove untracked files and folders",
+          "command": "git clean -fd",
+          "description": "Permanently deletes untracked files and directories; preview first with git clean -nd.",
+          "tags": [
+            "clean",
+            "untracked"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Create an annotated tag",
+          "command": "git tag -a <tag> -m \"<message>\"",
+          "description": "Tags the current commit with a message; push it with git push origin <tag>.",
+          "tags": [
+            "tag"
+          ]
+        },
+        {
+          "title": "Delete a remote tag",
+          "command": "git push origin --delete <tag>",
+          "description": "Removes the tag from the origin remote.",
+          "tags": [
+            "tag",
+            "remote",
+            "delete"
+          ],
+          "danger": true
+        },
+        {
+          "title": "List remotes with URLs",
+          "command": "git remote -v",
+          "description": "Shows the fetch and push URLs of each configured remote.",
+          "tags": [
+            "remote"
+          ]
+        },
+        {
+          "title": "Change a remote URL",
+          "command": "git remote set-url origin <url>",
+          "description": "Points the origin remote at a different repository URL.",
+          "tags": [
+            "remote",
+            "url"
+          ]
+        },
+        {
+          "title": "Fetch and prune deleted remote branches",
+          "command": "git fetch --all --prune",
+          "description": "Updates all remotes and removes local references to branches deleted upstream.",
+          "tags": [
+            "fetch",
+            "prune"
+          ]
+        },
+        {
+          "title": "Force push safely",
+          "command": "git push --force-with-lease",
+          "description": "Overwrites the remote branch only if nobody else has pushed since your last fetch.",
+          "tags": [
+            "push",
+            "force"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Start a bisect session",
+          "command": "git bisect start <bad-commit> <good-commit>",
+          "description": "Begins a binary search for the commit that introduced a bug; mark each step with git bisect good or bad.",
+          "tags": [
+            "bisect"
+          ]
+        },
+        {
+          "title": "Blame a range of lines in a file",
+          "command": "git blame -L <start>,<end> <file>",
+          "description": "Shows who last changed each line in the given range.",
+          "tags": [
+            "blame"
+          ]
+        },
+        {
+          "title": "Add a worktree for a branch",
+          "command": "git worktree add ../<folder> <branch>",
+          "description": "Checks the branch out in a second directory without cloning again.",
+          "tags": [
+            "worktree"
+          ]
+        },
+        {
+          "title": "Show the reflog",
+          "command": "git reflog",
+          "description": "Lists where HEAD has been, which lets you recover commits lost to a reset or rebase.",
+          "tags": [
+            "reflog",
+            "recover"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "github-cli",
+      "name": "GitHub CLI",
+      "commands": [
+        {
+          "title": "Log in to GitHub",
+          "command": "gh auth login",
+          "description": "Walks you through browser or token login for github.com.",
+          "tags": [
+            "auth"
+          ]
+        },
+        {
+          "title": "Show authentication status",
+          "command": "gh auth status",
+          "description": "Displays which accounts and scopes gh is logged in with.",
+          "tags": [
+            "auth"
+          ]
+        },
+        {
+          "title": "Clone a repository",
+          "command": "gh repo clone <owner>/<repo>",
+          "description": "Clones a GitHub repository by owner and name.",
+          "tags": [
+            "repo",
+            "clone"
+          ]
+        },
+        {
+          "title": "Create a repo from the current folder",
+          "command": "gh repo create <name> --private --source=. --push",
+          "description": "Creates a private GitHub repo from the current directory and pushes it.",
+          "tags": [
+            "repo",
+            "create"
+          ]
+        },
+        {
+          "title": "View a repository in the browser",
+          "command": "gh repo view --web",
+          "description": "Opens the current repository's GitHub page.",
+          "tags": [
+            "repo",
+            "view"
+          ]
+        },
+        {
+          "title": "Fork the current repository",
+          "command": "gh repo fork --clone",
+          "description": "Forks the repository to your account and clones the fork.",
+          "tags": [
+            "repo",
+            "fork"
+          ]
+        },
+        {
+          "title": "Create a pull request",
+          "command": "gh pr create --fill",
+          "description": "Opens a pull request from the current branch using the commit messages for title and body.",
+          "tags": [
+            "pr",
+            "create"
+          ]
+        },
+        {
+          "title": "Create a draft pull request",
+          "command": "gh pr create --draft --title \"<title>\" --body \"<body>\"",
+          "description": "Opens a draft PR with the given title and description.",
+          "tags": [
+            "pr",
+            "create",
+            "draft"
+          ]
+        },
+        {
+          "title": "List open pull requests",
+          "command": "gh pr list",
+          "description": "Shows the open pull requests of the current repository.",
+          "tags": [
+            "pr",
+            "list"
+          ]
+        },
+        {
+          "title": "Check out a pull request",
+          "command": "gh pr checkout <number>",
+          "description": "Fetches the pull request branch and switches to it.",
+          "tags": [
+            "pr",
+            "checkout"
+          ]
+        },
+        {
+          "title": "View a pull request",
+          "command": "gh pr view <number> --comments",
+          "description": "Prints the pull request with its comments in the terminal.",
+          "tags": [
+            "pr",
+            "view"
+          ]
+        },
+        {
+          "title": "Show checks on a pull request",
+          "command": "gh pr checks",
+          "description": "Lists the CI check results for the current branch's pull request.",
+          "tags": [
+            "pr",
+            "checks",
+            "ci"
+          ]
+        },
+        {
+          "title": "Merge a pull request with squash",
+          "command": "gh pr merge <number> --squash --delete-branch",
+          "description": "Squash-merges the PR and deletes its branch.",
+          "tags": [
+            "pr",
+            "merge"
+          ]
+        },
+        {
+          "title": "List issues assigned to me",
+          "command": "gh issue list --assignee @me",
+          "description": "Shows open issues assigned to you in this repository.",
+          "tags": [
+            "issue",
+            "list"
+          ]
+        },
+        {
+          "title": "Create an issue",
+          "command": "gh issue create --title \"<title>\" --body \"<body>\"",
+          "description": "Opens a new issue with the given title and description.",
+          "tags": [
+            "issue",
+            "create"
+          ]
+        },
+        {
+          "title": "List recent workflow runs",
+          "command": "gh run list --limit 10",
+          "description": "Shows the ten most recent GitHub Actions runs.",
+          "tags": [
+            "run",
+            "actions"
+          ]
+        },
+        {
+          "title": "Watch a workflow run",
+          "command": "gh run watch <run-id>",
+          "description": "Streams the progress of a running workflow until it finishes.",
+          "tags": [
+            "run",
+            "watch",
+            "actions"
+          ]
+        },
+        {
+          "title": "View failed logs of a run",
+          "command": "gh run view <run-id> --log-failed",
+          "description": "Prints only the logs of failed steps for the run.",
+          "tags": [
+            "run",
+            "logs",
+            "actions"
+          ]
+        },
+        {
+          "title": "Create a release with generated notes",
+          "command": "gh release create <tag> --generate-notes",
+          "description": "Publishes a release for the tag with notes built from merged pull requests.",
+          "tags": [
+            "release"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "node-npm",
+      "name": "Node & npm",
+      "commands": [
+        {
+          "title": "Show Node and npm versions",
+          "command": "node --version && npm --version",
+          "description": "Prints the installed Node.js and npm versions.",
+          "tags": [
+            "version"
+          ]
+        },
+        {
+          "title": "Initialize a package.json",
+          "command": "npm init -y",
+          "description": "Creates package.json with default values without prompting.",
+          "tags": [
+            "init"
+          ]
+        },
+        {
+          "title": "Install all dependencies",
+          "command": "npm install",
+          "description": "Installs everything listed in package.json and updates the lockfile if needed.",
+          "tags": [
+            "install"
+          ]
+        },
+        {
+          "title": "Clean install from the lockfile",
+          "command": "npm ci",
+          "description": "Deletes node_modules and installs exactly what package-lock.json says; ideal for CI.",
+          "tags": [
+            "install",
+            "ci"
+          ]
+        },
+        {
+          "title": "Install a package",
+          "command": "npm install <package>",
+          "description": "Adds the package to dependencies in package.json.",
+          "tags": [
+            "install"
+          ]
+        },
+        {
+          "title": "Install a dev dependency",
+          "command": "npm install -D <package>",
+          "description": "Adds the package to devDependencies.",
+          "tags": [
+            "install",
+            "dev"
+          ]
+        },
+        {
+          "title": "Install a package globally",
+          "command": "npm install -g <package>",
+          "description": "Installs the package system-wide; may need a user-owned prefix to avoid sudo.",
+          "tags": [
+            "install",
+            "global"
+          ]
+        },
+        {
+          "title": "Uninstall a package",
+          "command": "npm uninstall <package>",
+          "description": "Removes the package from node_modules and package.json.",
+          "tags": [
+            "uninstall"
+          ]
+        },
+        {
+          "title": "Run a package script",
+          "command": "npm run <script>",
+          "description": "Runs a script defined in package.json.",
+          "tags": [
+            "run",
+            "script"
+          ]
+        },
+        {
+          "title": "List available scripts",
+          "command": "npm run",
+          "description": "Prints all scripts defined in package.json.",
+          "tags": [
+            "run",
+            "script"
+          ]
+        },
+        {
+          "title": "Run the test script",
+          "command": "npm test",
+          "description": "Runs the test script from package.json.",
+          "tags": [
+            "test"
+          ]
+        },
+        {
+          "title": "Show outdated packages",
+          "command": "npm outdated",
+          "description": "Lists dependencies with newer versions available.",
+          "tags": [
+            "outdated"
+          ]
+        },
+        {
+          "title": "Update dependencies within ranges",
+          "command": "npm update",
+          "description": "Updates packages to the newest versions allowed by package.json ranges.",
+          "tags": [
+            "update"
+          ]
+        },
+        {
+          "title": "Audit dependencies for vulnerabilities",
+          "command": "npm audit",
+          "description": "Reports known security issues in your dependency tree.",
+          "tags": [
+            "audit",
+            "security"
+          ]
+        },
+        {
+          "title": "Fix vulnerabilities automatically",
+          "command": "npm audit fix",
+          "description": "Applies compatible updates that resolve reported vulnerabilities.",
+          "tags": [
+            "audit",
+            "security"
+          ]
+        },
+        {
+          "title": "Show top-level installed packages",
+          "command": "npm ls --depth=0",
+          "description": "Lists direct dependencies with installed versions.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "List globally installed packages",
+          "command": "npm ls -g --depth=0",
+          "description": "Shows the global packages and their versions.",
+          "tags": [
+            "list",
+            "global"
+          ]
+        },
+        {
+          "title": "Explain why a package is installed",
+          "command": "npm explain <package>",
+          "description": "Shows the dependency chain that pulled the package in.",
+          "tags": [
+            "list",
+            "why"
+          ]
+        },
+        {
+          "title": "Link the current package locally",
+          "command": "npm link",
+          "description": "Makes this package available globally by symlink so other projects can npm link it.",
+          "tags": [
+            "link"
+          ]
+        },
+        {
+          "title": "Bump the patch version",
+          "command": "npm version patch",
+          "description": "Increments the patch version, commits and creates a git tag.",
+          "tags": [
+            "version",
+            "release"
+          ]
+        },
+        {
+          "title": "Publish a package",
+          "command": "npm publish --access public",
+          "description": "Publishes the package to the npm registry as a public package.",
+          "tags": [
+            "publish"
+          ]
+        },
+        {
+          "title": "Verify and clean the npm cache",
+          "command": "npm cache verify",
+          "description": "Checks cache integrity and removes stale data.",
+          "tags": [
+            "cache"
+          ]
+        },
+        {
+          "title": "Run a package without installing it",
+          "command": "npx <package>",
+          "description": "Downloads and runs a package binary on demand.",
+          "tags": [
+            "npx"
+          ]
+        },
+        {
+          "title": "Install a Node version with nvm",
+          "command": "nvm install <version>",
+          "description": "Downloads and installs the given Node.js version, such as 20 or --lts.",
+          "tags": [
+            "nvm",
+            "install"
+          ]
+        },
+        {
+          "title": "Switch Node version with nvm",
+          "command": "nvm use <version>",
+          "description": "Uses the given installed Node.js version in the current shell.",
+          "tags": [
+            "nvm",
+            "use"
+          ]
+        },
+        {
+          "title": "List installed Node versions",
+          "command": "nvm ls",
+          "description": "Shows the Node versions installed through nvm and the default alias.",
+          "tags": [
+            "nvm",
+            "list"
+          ]
+        },
+        {
+          "title": "Remove node_modules and reinstall",
+          "command": "rm -rf node_modules && npm install",
+          "description": "Deletes node_modules and installs again; fixes most broken installs.",
+          "tags": [
+            "reset",
+            "install"
+          ],
+          "danger": true
+        }
+      ]
+    },
+    {
+      "id": "yarn-pnpm",
+      "name": "Yarn & pnpm",
+      "commands": [
+        {
+          "title": "Install dependencies with Yarn",
+          "command": "yarn install",
+          "description": "Installs everything from package.json using the lockfile.",
+          "tags": [
+            "yarn",
+            "install"
+          ]
+        },
+        {
+          "title": "Add a package with Yarn",
+          "command": "yarn add <package>",
+          "description": "Adds the package to dependencies.",
+          "tags": [
+            "yarn",
+            "add"
+          ]
+        },
+        {
+          "title": "Add a dev dependency with Yarn",
+          "command": "yarn add -D <package>",
+          "description": "Adds the package to devDependencies.",
+          "tags": [
+            "yarn",
+            "add",
+            "dev"
+          ]
+        },
+        {
+          "title": "Remove a package with Yarn",
+          "command": "yarn remove <package>",
+          "description": "Removes the package and updates the lockfile.",
+          "tags": [
+            "yarn",
+            "remove"
+          ]
+        },
+        {
+          "title": "Run a Yarn script",
+          "command": "yarn run <script>",
+          "description": "Runs a script from package.json.",
+          "tags": [
+            "yarn",
+            "run"
+          ]
+        },
+        {
+          "title": "Upgrade packages interactively with Yarn",
+          "command": "yarn upgrade-interactive",
+          "description": "Lets you pick which outdated packages to upgrade (Yarn 1).",
+          "tags": [
+            "yarn",
+            "upgrade"
+          ]
+        },
+        {
+          "title": "Explain why a package is installed with Yarn",
+          "command": "yarn why <package>",
+          "description": "Shows which dependencies require the package.",
+          "tags": [
+            "yarn",
+            "why"
+          ]
+        },
+        {
+          "title": "Clear the Yarn cache",
+          "command": "yarn cache clean",
+          "description": "Deletes the global Yarn package cache.",
+          "tags": [
+            "yarn",
+            "cache"
+          ]
+        },
+        {
+          "title": "Install dependencies with pnpm",
+          "command": "pnpm install",
+          "description": "Installs dependencies using pnpm's content-addressable store.",
+          "tags": [
+            "pnpm",
+            "install"
+          ]
+        },
+        {
+          "title": "Install from the frozen lockfile with pnpm",
+          "command": "pnpm install --frozen-lockfile",
+          "description": "Fails if the lockfile is out of date; use in CI.",
+          "tags": [
+            "pnpm",
+            "install",
+            "ci"
+          ]
+        },
+        {
+          "title": "Add a package with pnpm",
+          "command": "pnpm add <package>",
+          "description": "Adds the package to dependencies.",
+          "tags": [
+            "pnpm",
+            "add"
+          ]
+        },
+        {
+          "title": "Add a dev dependency with pnpm",
+          "command": "pnpm add -D <package>",
+          "description": "Adds the package to devDependencies.",
+          "tags": [
+            "pnpm",
+            "add",
+            "dev"
+          ]
+        },
+        {
+          "title": "Remove a package with pnpm",
+          "command": "pnpm remove <package>",
+          "description": "Removes the package from the project.",
+          "tags": [
+            "pnpm",
+            "remove"
+          ]
+        },
+        {
+          "title": "Run a pnpm script",
+          "command": "pnpm run <script>",
+          "description": "Runs a script from package.json.",
+          "tags": [
+            "pnpm",
+            "run"
+          ]
+        },
+        {
+          "title": "Update packages interactively with pnpm",
+          "command": "pnpm update --interactive --latest",
+          "description": "Lets you choose which dependencies to update to the latest versions.",
+          "tags": [
+            "pnpm",
+            "update"
+          ]
+        },
+        {
+          "title": "Run a command in one workspace package",
+          "command": "pnpm --filter <package> run <script>",
+          "description": "Runs a script only in the named workspace package.",
+          "tags": [
+            "pnpm",
+            "workspace"
+          ]
+        },
+        {
+          "title": "Remove unreferenced packages from the pnpm store",
+          "command": "pnpm store prune",
+          "description": "Deletes packages from the store that no project uses.",
+          "tags": [
+            "pnpm",
+            "store"
+          ]
+        },
+        {
+          "title": "Enable Corepack for Yarn and pnpm",
+          "command": "corepack enable",
+          "description": "Activates the Yarn and pnpm shims that ship with Node.js.",
+          "tags": [
+            "corepack"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "python",
+      "name": "Python & pip",
+      "commands": [
+        {
+          "title": "Show the Python version",
+          "command": "python3 --version",
+          "description": "Prints the installed Python 3 version.",
+          "tags": [
+            "version"
+          ]
+        },
+        {
+          "title": "Create a virtual environment",
+          "command": "python3 -m venv .venv",
+          "description": "Creates an isolated environment in the .venv folder; needs python3-venv on Debian and Ubuntu.",
+          "tags": [
+            "venv"
+          ]
+        },
+        {
+          "title": "Activate a virtual environment",
+          "command": "source .venv/bin/activate",
+          "description": "Puts the environment's python and pip first on your PATH for this shell.",
+          "tags": [
+            "venv",
+            "activate"
+          ]
+        },
+        {
+          "title": "Deactivate the virtual environment",
+          "command": "deactivate",
+          "description": "Leaves the active virtual environment.",
+          "tags": [
+            "venv"
+          ]
+        },
+        {
+          "title": "Upgrade pip",
+          "command": "python3 -m pip install --upgrade pip",
+          "description": "Installs the latest pip into the active environment.",
+          "tags": [
+            "pip",
+            "upgrade"
+          ]
+        },
+        {
+          "title": "Install a package with pip",
+          "command": "pip install <package>",
+          "description": "Installs the package into the active environment.",
+          "tags": [
+            "pip",
+            "install"
+          ]
+        },
+        {
+          "title": "Install a specific package version",
+          "command": "pip install <package>==<version>",
+          "description": "Pins the package to an exact version.",
+          "tags": [
+            "pip",
+            "install",
+            "version"
+          ]
+        },
+        {
+          "title": "Install from a requirements file",
+          "command": "pip install -r requirements.txt",
+          "description": "Installs every package listed in the file.",
+          "tags": [
+            "pip",
+            "requirements"
+          ]
+        },
+        {
+          "title": "Install the current project in editable mode",
+          "command": "pip install -e .",
+          "description": "Installs the project so source edits take effect without reinstalling.",
+          "tags": [
+            "pip",
+            "editable"
+          ]
+        },
+        {
+          "title": "Save installed packages to requirements.txt",
+          "command": "pip freeze > requirements.txt",
+          "description": "Writes exact installed versions, including transitive dependencies, to the file.",
+          "tags": [
+            "pip",
+            "freeze"
+          ]
+        },
+        {
+          "title": "List installed packages",
+          "command": "pip list",
+          "description": "Shows installed packages and their versions.",
+          "tags": [
+            "pip",
+            "list"
+          ]
+        },
+        {
+          "title": "List outdated packages",
+          "command": "pip list --outdated",
+          "description": "Shows installed packages with newer versions available.",
+          "tags": [
+            "pip",
+            "outdated"
+          ]
+        },
+        {
+          "title": "Show details of a package",
+          "command": "pip show <package>",
+          "description": "Prints version, location and dependencies of the installed package.",
+          "tags": [
+            "pip",
+            "show"
+          ]
+        },
+        {
+          "title": "Uninstall a package",
+          "command": "pip uninstall <package>",
+          "description": "Removes the package after confirmation.",
+          "tags": [
+            "pip",
+            "uninstall"
+          ]
+        },
+        {
+          "title": "Serve the current folder over HTTP",
+          "command": "python3 -m http.server 8000",
+          "description": "Starts a simple static file server on port 8000 for quick sharing or testing.",
+          "tags": [
+            "server",
+            "http"
+          ]
+        },
+        {
+          "title": "Run all tests with pytest",
+          "command": "pytest",
+          "description": "Discovers and runs tests in the current project.",
+          "tags": [
+            "pytest",
+            "test"
+          ]
+        },
+        {
+          "title": "Run pytest verbosely, stopping at first failure",
+          "command": "pytest -x -v",
+          "description": "Shows each test name and stops after the first failure.",
+          "tags": [
+            "pytest",
+            "test"
+          ]
+        },
+        {
+          "title": "Run tests matching a keyword",
+          "command": "pytest -k \"<keyword>\"",
+          "description": "Runs only tests whose names match the expression.",
+          "tags": [
+            "pytest",
+            "test"
+          ]
+        },
+        {
+          "title": "Create a virtual environment with uv",
+          "command": "uv venv",
+          "description": "Creates a .venv quickly using uv.",
+          "tags": [
+            "uv",
+            "venv"
+          ]
+        },
+        {
+          "title": "Install requirements with uv",
+          "command": "uv pip install -r requirements.txt",
+          "description": "Installs the requirements file much faster than pip.",
+          "tags": [
+            "uv",
+            "pip"
+          ]
+        },
+        {
+          "title": "Add a dependency to a uv project",
+          "command": "uv add <package>",
+          "description": "Adds the package to pyproject.toml and updates the lock.",
+          "tags": [
+            "uv",
+            "add"
+          ]
+        },
+        {
+          "title": "Install a Python CLI tool with pipx",
+          "command": "pipx install <package>",
+          "description": "Installs the application in its own isolated environment and exposes its command.",
+          "tags": [
+            "pipx",
+            "install"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "php-composer",
+      "name": "PHP & Composer",
+      "commands": [
+        {
+          "title": "Show the PHP version",
+          "command": "php -v",
+          "description": "Prints the installed PHP version and build info.",
+          "tags": [
+            "php",
+            "version"
+          ]
+        },
+        {
+          "title": "List loaded PHP modules",
+          "command": "php -m",
+          "description": "Lists the extensions loaded by the CLI.",
+          "tags": [
+            "php",
+            "modules"
+          ]
+        },
+        {
+          "title": "Show loaded php.ini files",
+          "command": "php --ini",
+          "description": "Shows which php.ini and extra config files the CLI reads.",
+          "tags": [
+            "php",
+            "ini"
+          ]
+        },
+        {
+          "title": "Check one PHP setting",
+          "command": "php -i | grep <setting>",
+          "description": "Prints the effective value of a setting such as memory_limit.",
+          "tags": [
+            "php",
+            "config"
+          ]
+        },
+        {
+          "title": "Start the PHP built-in server",
+          "command": "php -S localhost:8000",
+          "description": "Serves the current folder on port 8000; for development only.",
+          "tags": [
+            "php",
+            "server"
+          ]
+        },
+        {
+          "title": "Serve a public folder with PHP",
+          "command": "php -S 0.0.0.0:8000 -t public",
+          "description": "Serves the public directory on all interfaces so other machines can reach it.",
+          "tags": [
+            "php",
+            "server"
+          ]
+        },
+        {
+          "title": "Lint a PHP file for syntax errors",
+          "command": "php -l <file>",
+          "description": "Checks the file's syntax without running it.",
+          "tags": [
+            "php",
+            "lint"
+          ]
+        },
+        {
+          "title": "Run a PHP one-liner",
+          "command": "php -r \"echo PHP_VERSION;\"",
+          "description": "Executes inline PHP code from the command line.",
+          "tags": [
+            "php",
+            "run"
+          ]
+        },
+        {
+          "title": "Install dependencies with Composer",
+          "command": "composer install",
+          "description": "Installs the exact versions from composer.lock.",
+          "tags": [
+            "composer",
+            "install"
+          ]
+        },
+        {
+          "title": "Update dependencies with Composer",
+          "command": "composer update",
+          "description": "Updates packages within composer.json constraints and rewrites the lock file.",
+          "tags": [
+            "composer",
+            "update"
+          ]
+        },
+        {
+          "title": "Require a package",
+          "command": "composer require <vendor>/<package>",
+          "description": "Adds the package to composer.json and installs it.",
+          "tags": [
+            "composer",
+            "require"
+          ]
+        },
+        {
+          "title": "Require a dev package",
+          "command": "composer require --dev <vendor>/<package>",
+          "description": "Adds the package to require-dev.",
+          "tags": [
+            "composer",
+            "require",
+            "dev"
+          ]
+        },
+        {
+          "title": "Remove a package",
+          "command": "composer remove <vendor>/<package>",
+          "description": "Removes the package from composer.json and vendor.",
+          "tags": [
+            "composer",
+            "remove"
+          ]
+        },
+        {
+          "title": "Regenerate the autoloader",
+          "command": "composer dump-autoload -o",
+          "description": "Rebuilds the optimized class map after adding classes or namespaces.",
+          "tags": [
+            "composer",
+            "autoload"
+          ]
+        },
+        {
+          "title": "Show outdated direct dependencies",
+          "command": "composer outdated --direct",
+          "description": "Lists direct dependencies with newer releases.",
+          "tags": [
+            "composer",
+            "outdated"
+          ]
+        },
+        {
+          "title": "Explain why a package is installed",
+          "command": "composer why <vendor>/<package>",
+          "description": "Shows which packages depend on it.",
+          "tags": [
+            "composer",
+            "why"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "laravel",
+      "name": "Laravel Artisan",
+      "commands": [
+        {
+          "title": "Run pending migrations",
+          "command": "php artisan migrate",
+          "description": "Applies all migrations that have not run yet.",
+          "tags": [
+            "migrate"
+          ]
+        },
+        {
+          "title": "Roll back the last migration batch",
+          "command": "php artisan migrate:rollback",
+          "description": "Reverts the most recent batch of migrations; data in dropped columns is lost.",
+          "tags": [
+            "migrate",
+            "rollback"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Drop all tables and migrate with seeders",
+          "command": "php artisan migrate:fresh --seed",
+          "description": "Drops every table, re-runs all migrations and seeds the database. Destroys all data.",
+          "tags": [
+            "migrate",
+            "fresh",
+            "seed"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show migration status",
+          "command": "php artisan migrate:status",
+          "description": "Lists each migration and whether it has run.",
+          "tags": [
+            "migrate",
+            "status"
+          ]
+        },
+        {
+          "title": "Run the database seeders",
+          "command": "php artisan db:seed",
+          "description": "Runs DatabaseSeeder to fill the database.",
+          "tags": [
+            "seed"
+          ]
+        },
+        {
+          "title": "Create a model with migration and factory",
+          "command": "php artisan make:model <name> -mf",
+          "description": "Generates the model plus a migration and a factory.",
+          "tags": [
+            "make",
+            "model"
+          ]
+        },
+        {
+          "title": "Create a resource controller",
+          "command": "php artisan make:controller <name>Controller --resource",
+          "description": "Generates a controller with the standard CRUD methods.",
+          "tags": [
+            "make",
+            "controller"
+          ]
+        },
+        {
+          "title": "Create a migration",
+          "command": "php artisan make:migration create_<table>_table",
+          "description": "Generates a migration file for creating a table.",
+          "tags": [
+            "make",
+            "migration"
+          ]
+        },
+        {
+          "title": "Create a form request",
+          "command": "php artisan make:request <name>Request",
+          "description": "Generates a form request class for validation.",
+          "tags": [
+            "make",
+            "request"
+          ]
+        },
+        {
+          "title": "Create a queued job",
+          "command": "php artisan make:job <name>",
+          "description": "Generates a job class for the queue.",
+          "tags": [
+            "make",
+            "job",
+            "queue"
+          ]
+        },
+        {
+          "title": "Clear the application cache",
+          "command": "php artisan cache:clear",
+          "description": "Flushes the application cache store.",
+          "tags": [
+            "cache",
+            "clear"
+          ]
+        },
+        {
+          "title": "Clear and rebuild the config cache",
+          "command": "php artisan config:clear && php artisan config:cache",
+          "description": "Drops the cached config and builds it again from .env and config files.",
+          "tags": [
+            "config",
+            "cache"
+          ]
+        },
+        {
+          "title": "Clear the route cache",
+          "command": "php artisan route:clear",
+          "description": "Removes the cached route file.",
+          "tags": [
+            "route",
+            "clear"
+          ]
+        },
+        {
+          "title": "Cache routes for production",
+          "command": "php artisan route:cache",
+          "description": "Compiles routes into one file for faster loading; closures in routes are not supported.",
+          "tags": [
+            "route",
+            "cache"
+          ]
+        },
+        {
+          "title": "Clear compiled views",
+          "command": "php artisan view:clear",
+          "description": "Deletes compiled Blade templates.",
+          "tags": [
+            "view",
+            "clear"
+          ]
+        },
+        {
+          "title": "Cache views for production",
+          "command": "php artisan view:cache",
+          "description": "Precompiles all Blade templates.",
+          "tags": [
+            "view",
+            "cache"
+          ]
+        },
+        {
+          "title": "Clear every Laravel cache",
+          "command": "php artisan optimize:clear",
+          "description": "Clears config, route, view, event and application caches in one go.",
+          "tags": [
+            "optimize",
+            "clear"
+          ]
+        },
+        {
+          "title": "Optimize the app for production",
+          "command": "php artisan optimize",
+          "description": "Caches config, routes, events and views for faster boots.",
+          "tags": [
+            "optimize"
+          ]
+        },
+        {
+          "title": "Start a queue worker",
+          "command": "php artisan queue:work",
+          "description": "Processes queued jobs; restart it after deploying code.",
+          "tags": [
+            "queue",
+            "worker"
+          ]
+        },
+        {
+          "title": "Restart queue workers after a deploy",
+          "command": "php artisan queue:restart",
+          "description": "Tells all workers to exit after finishing their current job so they reload code.",
+          "tags": [
+            "queue",
+            "restart"
+          ]
+        },
+        {
+          "title": "List failed jobs",
+          "command": "php artisan queue:failed",
+          "description": "Shows jobs that have failed with their IDs.",
+          "tags": [
+            "queue",
+            "failed"
+          ]
+        },
+        {
+          "title": "Retry all failed jobs",
+          "command": "php artisan queue:retry all",
+          "description": "Pushes every failed job back onto the queue.",
+          "tags": [
+            "queue",
+            "retry"
+          ]
+        },
+        {
+          "title": "Open Tinker",
+          "command": "php artisan tinker",
+          "description": "Starts an interactive REPL with your application loaded.",
+          "tags": [
+            "tinker"
+          ]
+        },
+        {
+          "title": "Run scheduled tasks once",
+          "command": "php artisan schedule:run",
+          "description": "Runs any scheduled commands that are due; normally called from cron every minute.",
+          "tags": [
+            "schedule"
+          ]
+        },
+        {
+          "title": "List scheduled tasks",
+          "command": "php artisan schedule:list",
+          "description": "Shows all scheduled commands and their next run times.",
+          "tags": [
+            "schedule",
+            "list"
+          ]
+        },
+        {
+          "title": "List all routes",
+          "command": "php artisan route:list",
+          "description": "Displays each route with its method, URI, name and action.",
+          "tags": [
+            "route",
+            "list"
+          ]
+        },
+        {
+          "title": "Filter routes by path",
+          "command": "php artisan route:list --path=<path>",
+          "description": "Shows only routes whose URI contains the text.",
+          "tags": [
+            "route",
+            "list",
+            "filter"
+          ]
+        },
+        {
+          "title": "Create the public storage symlink",
+          "command": "php artisan storage:link",
+          "description": "Links public/storage to storage/app/public.",
+          "tags": [
+            "storage",
+            "link"
+          ]
+        },
+        {
+          "title": "Generate the application key",
+          "command": "php artisan key:generate",
+          "description": "Sets APP_KEY in .env; regenerating it invalidates existing encrypted data and sessions.",
+          "tags": [
+            "key"
+          ]
+        },
+        {
+          "title": "Put the app in maintenance mode",
+          "command": "php artisan down --secret=<token>",
+          "description": "Returns 503 to visitors; visiting /<token> sets a bypass cookie.",
+          "tags": [
+            "maintenance",
+            "down"
+          ]
+        },
+        {
+          "title": "Bring the app back online",
+          "command": "php artisan up",
+          "description": "Ends maintenance mode.",
+          "tags": [
+            "maintenance",
+            "up"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "go",
+      "name": "Go",
+      "commands": [
+        {
+          "title": "Show the Go version",
+          "command": "go version",
+          "description": "Prints the installed Go toolchain version.",
+          "tags": [
+            "version"
+          ]
+        },
+        {
+          "title": "Initialize a module",
+          "command": "go mod init <module>",
+          "description": "Creates go.mod for a new module, such as github.com/me/app.",
+          "tags": [
+            "mod",
+            "init"
+          ]
+        },
+        {
+          "title": "Tidy module dependencies",
+          "command": "go mod tidy",
+          "description": "Adds missing and removes unused modules from go.mod and go.sum.",
+          "tags": [
+            "mod",
+            "tidy"
+          ]
+        },
+        {
+          "title": "Add a dependency",
+          "command": "go get <module>@latest",
+          "description": "Downloads the module and records it in go.mod.",
+          "tags": [
+            "get",
+            "mod"
+          ]
+        },
+        {
+          "title": "Run the program",
+          "command": "go run .",
+          "description": "Compiles and runs the main package in the current folder.",
+          "tags": [
+            "run"
+          ]
+        },
+        {
+          "title": "Build the program",
+          "command": "go build -o <output> .",
+          "description": "Compiles the package into the named binary.",
+          "tags": [
+            "build"
+          ]
+        },
+        {
+          "title": "Run all tests",
+          "command": "go test ./...",
+          "description": "Runs tests in every package of the module.",
+          "tags": [
+            "test"
+          ]
+        },
+        {
+          "title": "Run tests with race detector and coverage",
+          "command": "go test -race -cover ./...",
+          "description": "Detects data races and prints coverage per package.",
+          "tags": [
+            "test",
+            "race",
+            "coverage"
+          ]
+        },
+        {
+          "title": "Format all code",
+          "command": "gofmt -w .",
+          "description": "Rewrites source files in the canonical Go style.",
+          "tags": [
+            "fmt"
+          ]
+        },
+        {
+          "title": "Vet code for suspicious constructs",
+          "command": "go vet ./...",
+          "description": "Reports likely mistakes the compiler does not catch.",
+          "tags": [
+            "vet",
+            "lint"
+          ]
+        },
+        {
+          "title": "Install a Go tool",
+          "command": "go install <module>@latest",
+          "description": "Builds the tool and places it in GOPATH/bin.",
+          "tags": [
+            "install",
+            "tool"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rust-cargo",
+      "name": "Rust & Cargo",
+      "commands": [
+        {
+          "title": "Show Rust and Cargo versions",
+          "command": "rustc --version && cargo --version",
+          "description": "Prints the installed compiler and package manager versions.",
+          "tags": [
+            "version"
+          ]
+        },
+        {
+          "title": "Create a new binary project",
+          "command": "cargo new <name>",
+          "description": "Creates a new Cargo project with a main.rs and git repo.",
+          "tags": [
+            "new"
+          ]
+        },
+        {
+          "title": "Build the project",
+          "command": "cargo build",
+          "description": "Compiles in debug mode into target/debug.",
+          "tags": [
+            "build"
+          ]
+        },
+        {
+          "title": "Build an optimized release",
+          "command": "cargo build --release",
+          "description": "Compiles with optimizations into target/release; slower to build.",
+          "tags": [
+            "build",
+            "release"
+          ]
+        },
+        {
+          "title": "Run the project",
+          "command": "cargo run",
+          "description": "Builds and runs the default binary.",
+          "tags": [
+            "run"
+          ]
+        },
+        {
+          "title": "Run all tests",
+          "command": "cargo test",
+          "description": "Builds and runs unit, integration and doc tests.",
+          "tags": [
+            "test"
+          ]
+        },
+        {
+          "title": "Check code without producing binaries",
+          "command": "cargo check",
+          "description": "Type-checks quickly without generating machine code.",
+          "tags": [
+            "check"
+          ]
+        },
+        {
+          "title": "Lint with Clippy",
+          "command": "cargo clippy --all-targets -- -D warnings",
+          "description": "Runs the Clippy linter and treats warnings as errors.",
+          "tags": [
+            "clippy",
+            "lint"
+          ]
+        },
+        {
+          "title": "Format the code",
+          "command": "cargo fmt",
+          "description": "Formats all source files with rustfmt.",
+          "tags": [
+            "fmt"
+          ]
+        },
+        {
+          "title": "Add a dependency",
+          "command": "cargo add <crate>",
+          "description": "Adds the crate to Cargo.toml with its latest version.",
+          "tags": [
+            "add",
+            "dependency"
+          ]
+        },
+        {
+          "title": "Update dependencies",
+          "command": "cargo update",
+          "description": "Updates Cargo.lock to the newest versions allowed by Cargo.toml.",
+          "tags": [
+            "update"
+          ]
+        },
+        {
+          "title": "Update the Rust toolchain",
+          "command": "rustup update",
+          "description": "Installs the latest stable Rust and updates installed toolchains.",
+          "tags": [
+            "rustup",
+            "update"
+          ]
+        },
+        {
+          "title": "Remove build artifacts",
+          "command": "cargo clean",
+          "description": "Deletes the target directory, which can be many gigabytes.",
+          "tags": [
+            "clean"
+          ]
+        }
+      ]
+    }
+  ]
+}

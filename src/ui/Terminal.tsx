@@ -122,10 +122,17 @@ export function TerminalWorkspace({
   aside,
   asideWidth = 260,
   onAsideResize,
+  rightAside,
+  rightAsideWidth = 300,
+  onRightAsideResize,
   hidden = false,
   footer,
   children,
 }: {
+  /** An optional column to the right of the panel — the command library. */
+  rightAside?: ReactNode;
+  rightAsideWidth?: number;
+  onRightAsideResize?: (width: number) => void;
   /** A strip under the panel — the host status bar. */
   footer?: ReactNode;
   /** Keeps the sessions mounted (processes, scrollback) while another view is shown. */
@@ -143,15 +150,18 @@ export function TerminalWorkspace({
   onAsideResize?: (width: number) => void;
   children?: ReactNode;
 }) {
-  function startAsideDrag(e: ReactPointerEvent<HTMLDivElement>) {
-    if (!onAsideResize || e.button !== 0) return;
+  // `side` is which way the panel grows: dragging the left one's divider
+  // right widens it, the right one's narrows it.
+  function startAsideDrag(e: ReactPointerEvent<HTMLDivElement>, side: 1 | -1) {
+    const resize = side === 1 ? onAsideResize : onRightAsideResize;
+    if (!resize || e.button !== 0) return;
     e.preventDefault();
     const origin = e.clientX;
-    const start = asideWidth;
+    const start = side === 1 ? asideWidth : rightAsideWidth;
     const divider = e.currentTarget;
     divider.setPointerCapture(e.pointerId);
     divider.classList.add("term-aside-divider-dragging");
-    const move = (ev: PointerEvent) => onAsideResize(clampAside(start + ev.clientX - origin));
+    const move = (ev: PointerEvent) => resize(clampAside(start + side * (ev.clientX - origin)));
     const stop = () => {
       divider.classList.remove("term-aside-divider-dragging");
       divider.removeEventListener("pointermove", move);
@@ -181,11 +191,24 @@ export function TerminalWorkspace({
               className={`term-aside-divider${onAsideResize ? "" : " term-aside-divider-fixed"}`}
               role="separator"
               aria-orientation="vertical"
-              onPointerDown={startAsideDrag}
+              onPointerDown={(e) => startAsideDrag(e, 1)}
             />
           </>
         )}
         <div className="term-panel">{empty ? <div className="term-empty">{empty}</div> : children}</div>
+        {rightAside && (
+          <>
+            <div
+              className={`term-aside-divider${onRightAsideResize ? "" : " term-aside-divider-fixed"}`}
+              role="separator"
+              aria-orientation="vertical"
+              onPointerDown={(e) => startAsideDrag(e, -1)}
+            />
+            <aside className="term-aside" style={{ width: clampAside(rightAsideWidth) }}>
+              {rightAside}
+            </aside>
+          </>
+        )}
       </div>
       {footer}
     </div>

@@ -202,13 +202,16 @@ describe("styling discipline", () => {
     // layouts, and the database browser's in-place cell editing, whose changed
     // /deleted row states and cell-level input have no primitive to be built
     // from, and the SFTP tab's side-by-side local/remote panes, a two-column
-    // grid no primitive offers. and the Remote Desktop page's full-height VNC viewer. Everything else composes primitives, which is what keeps styling
+    // grid no primitive offers. and the Remote Desktop page's full-height VNC viewer,
+    // and the command library's folding category tree, whose rows show their
+    // actions on hover in the terminal's narrow side panel. Everything else composes primitives, which is what keeps styling
     // traceable to one owner. Adding a line here should feel like a decision.
     const moduleStyles = STYLES.filter((f) => f.path.startsWith("modules/")).map(
       (f) => f.path,
     );
     expect(moduleStyles.sort()).toEqual([
       "modules/browser/pages/BrowserPage.css",
+      "modules/commands/components/Commands.css",
       "modules/dashboard/pages/DashboardPage.css",
       "modules/databases/browser/browser.css",
       "modules/file-manager/pages/FileManagerPage.css",

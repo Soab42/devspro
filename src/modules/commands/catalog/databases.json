@@ -1,0 +1,852 @@
+{
+  "group": "Databases",
+  "categories": [
+    {
+      "id": "mysql",
+      "name": "MySQL & MariaDB",
+      "commands": [
+        {
+          "title": "Connect to MySQL",
+          "command": "mysql -u <user> -p",
+          "description": "Opens an interactive MySQL client on the local server and asks for the password.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "Connect to a remote MySQL server",
+          "command": "mysql -h <host> -P 3306 -u <user> -p",
+          "description": "Connects to a server on another host and port; the account must be allowed to log in from your IP.",
+          "tags": [
+            "connect",
+            "remote"
+          ]
+        },
+        {
+          "title": "Connect to one database directly",
+          "command": "mysql -u <user> -p <database>",
+          "description": "Opens the client with the given database already selected.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "Run one query and exit",
+          "command": "mysql -u <user> -p -e \"SELECT NOW();\"",
+          "description": "Runs a single statement and prints the result; replace the statement with your own.",
+          "tags": [
+            "query"
+          ]
+        },
+        {
+          "title": "Show all databases",
+          "command": "mysql -u <user> -p -e \"SHOW DATABASES;\"",
+          "description": "Lists the databases the account can see.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Show tables in a database",
+          "command": "mysql -u <user> -p -e \"SHOW TABLES;\" <database>",
+          "description": "Lists every table of the given database.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Describe a table",
+          "command": "mysql -u <user> -p -e \"DESCRIBE <table>;\" <database>",
+          "description": "Shows the columns, types and keys of a table.",
+          "tags": [
+            "schema"
+          ]
+        },
+        {
+          "title": "Dump one database to a file",
+          "command": "mysqldump -u <user> -p --single-transaction --routines <database> > <database>.sql",
+          "description": "Consistent dump of an InnoDB database without locking tables, including stored routines; asks for the password.",
+          "tags": [
+            "backup",
+            "dump"
+          ]
+        },
+        {
+          "title": "Dump all databases",
+          "command": "mysqldump -u <user> -p --all-databases --single-transaction --routines --events > all-databases.sql",
+          "description": "Dumps every database including routines and events into one file; asks for the password.",
+          "tags": [
+            "backup",
+            "dump"
+          ]
+        },
+        {
+          "title": "Dump a single table",
+          "command": "mysqldump -u <user> -p <database> <table> > <table>.sql",
+          "description": "Exports only one table of a database.",
+          "tags": [
+            "backup",
+            "dump"
+          ]
+        },
+        {
+          "title": "Dump a database and gzip it on the fly",
+          "command": "mysqldump -u <user> -p --single-transaction --routines <database> | gzip > <database>.sql.gz",
+          "description": "Pipes the dump straight into gzip so the uncompressed file never touches the disk.",
+          "tags": [
+            "backup",
+            "gzip"
+          ]
+        },
+        {
+          "title": "Restore a database from a .sql file",
+          "command": "mysql -u <user> -p <database> < <file>.sql",
+          "description": "Imports a dump into an existing database; existing tables of the same name are overwritten if the dump drops them.",
+          "tags": [
+            "restore"
+          ]
+        },
+        {
+          "title": "Restore a database from a .sql.gz file",
+          "command": "gunzip < <file>.sql.gz | mysql -u <user> -p <database>",
+          "description": "Decompresses the dump on the fly and feeds it to mysql; the database must already exist.",
+          "tags": [
+            "restore",
+            "gzip"
+          ]
+        },
+        {
+          "title": "Create a database with utf8mb4",
+          "command": "mysql -u <user> -p -e \"CREATE DATABASE <database> CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\"",
+          "description": "Creates a database that fully supports Unicode including emoji.",
+          "tags": [
+            "create"
+          ]
+        },
+        {
+          "title": "Create a user and grant access to a database",
+          "command": "mysql -u <user> -p -e \"CREATE USER '<newuser>'@'localhost' IDENTIFIED BY '<password>'; GRANT ALL PRIVILEGES ON <database>.* TO '<newuser>'@'localhost'; FLUSH PRIVILEGES;\"",
+          "description": "Creates a local account with full rights on one database; the password ends up in your shell history.",
+          "tags": [
+            "user",
+            "grant"
+          ]
+        },
+        {
+          "title": "Show grants for a user",
+          "command": "mysql -u <user> -p -e \"SHOW GRANTS FOR '<newuser>'@'localhost';\"",
+          "description": "Lists the privileges granted to the account.",
+          "tags": [
+            "user",
+            "grant"
+          ]
+        },
+        {
+          "title": "Change a user password",
+          "command": "mysql -u <user> -p -e \"ALTER USER '<newuser>'@'localhost' IDENTIFIED BY '<password>';\"",
+          "description": "Sets a new password for the account; the password ends up in your shell history.",
+          "tags": [
+            "user",
+            "password"
+          ]
+        },
+        {
+          "title": "Flush privileges",
+          "command": "mysql -u <user> -p -e \"FLUSH PRIVILEGES;\"",
+          "description": "Reloads the grant tables after editing them directly; not needed after GRANT or CREATE USER.",
+          "tags": [
+            "user"
+          ]
+        },
+        {
+          "title": "Show running queries",
+          "command": "mysql -u <user> -p -e \"SHOW FULL PROCESSLIST;\"",
+          "description": "Lists every connection with its current query, state and run time.",
+          "tags": [
+            "monitor"
+          ]
+        },
+        {
+          "title": "Kill a running query",
+          "command": "mysql -u <user> -p -e \"KILL QUERY <id>;\"",
+          "description": "Stops the statement of the given process id but keeps the connection; get the id from SHOW PROCESSLIST.",
+          "tags": [
+            "monitor",
+            "kill"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show database sizes",
+          "command": "mysql -u <user> -p -e \"SELECT table_schema AS db, ROUND(SUM(data_length + index_length) / 1024 / 1024, 1) AS size_mb FROM information_schema.tables GROUP BY table_schema ORDER BY size_mb DESC;\"",
+          "description": "Reports the data plus index size of every database in megabytes.",
+          "tags": [
+            "size"
+          ]
+        },
+        {
+          "title": "Show table sizes in a database",
+          "command": "mysql -u <user> -p -e \"SELECT table_name, ROUND((data_length + index_length) / 1024 / 1024, 1) AS size_mb FROM information_schema.tables WHERE table_schema = '<database>' ORDER BY size_mb DESC;\"",
+          "description": "Lists the largest tables of one database first.",
+          "tags": [
+            "size"
+          ]
+        },
+        {
+          "title": "Check and repair all databases",
+          "command": "mysqlcheck -u <user> -p --auto-repair --check --all-databases",
+          "description": "Checks every table and repairs the ones that are corrupted; mostly useful for MyISAM.",
+          "tags": [
+            "repair",
+            "maintenance"
+          ]
+        },
+        {
+          "title": "Optimize all tables in a database",
+          "command": "mysqlcheck -u <user> -p --optimize <database>",
+          "description": "Defragments tables and refreshes statistics; can lock tables while it runs.",
+          "tags": [
+            "maintenance"
+          ]
+        },
+        {
+          "title": "Check slow query log status",
+          "command": "mysql -u <user> -p -e \"SHOW VARIABLES LIKE 'slow_query%'; SHOW VARIABLES LIKE 'long_query_time';\"",
+          "description": "Shows whether the slow query log is on, where the file is and the time threshold.",
+          "tags": [
+            "slow-log"
+          ]
+        },
+        {
+          "title": "Show MySQL service status",
+          "command": "sudo systemctl status mysql",
+          "description": "Shows whether the server is running; on MariaDB or RHEL-style systems use mariadb or mysqld instead.",
+          "tags": [
+            "service"
+          ]
+        },
+        {
+          "title": "Restart the MySQL service",
+          "command": "sudo systemctl restart mysql",
+          "description": "Restarts the server and drops every open connection; on MariaDB use mariadb.",
+          "tags": [
+            "service"
+          ]
+        },
+        {
+          "title": "Run the secure installation script",
+          "command": "sudo mysql_secure_installation",
+          "description": "Walks through setting the root password, removing anonymous users and the test database.",
+          "tags": [
+            "security"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "commands": [
+        {
+          "title": "Connect to PostgreSQL",
+          "command": "psql -U <user> -h <host> -d <database>",
+          "description": "Opens psql against the given host and database; asks for the password.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "Open psql as the postgres superuser",
+          "command": "sudo -u postgres psql",
+          "description": "Uses peer authentication of the local postgres system account, no password needed.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "Connect with a connection URI",
+          "command": "psql \"postgresql://<user>@<host>:5432/<database>\"",
+          "description": "Connects using a URI; add ?sslmode=require for remote servers that need TLS.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "Run one SQL command and exit",
+          "command": "psql -U <user> -d <database> -c \"SELECT version();\"",
+          "description": "Runs a single statement and prints the result.",
+          "tags": [
+            "query"
+          ]
+        },
+        {
+          "title": "List databases",
+          "command": "psql -U <user> -c \"\\l\"",
+          "description": "Shows all databases with owner, encoding and access privileges.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "List tables in a database",
+          "command": "psql -U <user> -d <database> -c \"\\dt\"",
+          "description": "Lists the tables of the public schema; use \\dt *.* for every schema.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Describe a table",
+          "command": "psql -U <user> -d <database> -c \"\\d <table>\"",
+          "description": "Shows the columns, indexes and constraints of a table.",
+          "tags": [
+            "schema"
+          ]
+        },
+        {
+          "title": "Dump a database in custom format",
+          "command": "pg_dump -U <user> -h <host> -Fc -f <database>.dump <database>",
+          "description": "Compressed archive that pg_restore can restore selectively and in parallel.",
+          "tags": [
+            "backup",
+            "dump"
+          ]
+        },
+        {
+          "title": "Dump a database to a plain SQL file",
+          "command": "pg_dump -U <user> -h <host> <database> > <database>.sql",
+          "description": "Plain text dump that can be restored with psql.",
+          "tags": [
+            "backup",
+            "dump"
+          ]
+        },
+        {
+          "title": "Dump all databases and roles",
+          "command": "sudo -u postgres pg_dumpall > all-databases.sql",
+          "description": "Dumps every database plus users and permissions into one SQL file.",
+          "tags": [
+            "backup",
+            "dump"
+          ]
+        },
+        {
+          "title": "Restore a custom-format dump and replace objects",
+          "command": "pg_restore -U <user> -h <host> -d <database> --clean --if-exists <database>.dump",
+          "description": "Drops each existing object before recreating it, so current data is overwritten.",
+          "tags": [
+            "restore"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Restore a plain SQL dump",
+          "command": "psql -U <user> -h <host> -d <database> -f <file>.sql",
+          "description": "Runs the SQL file against an existing, usually empty, database.",
+          "tags": [
+            "restore"
+          ]
+        },
+        {
+          "title": "Create a database",
+          "command": "createdb -U <user> -O <owner> <database>",
+          "description": "Creates a database owned by the given role.",
+          "tags": [
+            "create"
+          ]
+        },
+        {
+          "title": "Drop a database",
+          "command": "dropdb -U <user> <database>",
+          "description": "Deletes the database and all of its data; fails while other sessions are connected.",
+          "tags": [
+            "drop"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Create a role interactively",
+          "command": "sudo -u postgres createuser --interactive --pwprompt",
+          "description": "Asks whether the role is a superuser and creates it with a password prompt.",
+          "tags": [
+            "user"
+          ]
+        },
+        {
+          "title": "Change a user password",
+          "command": "sudo -u postgres psql -c \"ALTER USER <user> WITH PASSWORD '<password>';\"",
+          "description": "Sets a new password for the role; the password ends up in your shell history.",
+          "tags": [
+            "user",
+            "password"
+          ]
+        },
+        {
+          "title": "Grant all privileges on a database",
+          "command": "sudo -u postgres psql -c \"GRANT ALL PRIVILEGES ON DATABASE <database> TO <user>;\"",
+          "description": "Gives the role full rights on the database, but not on tables created by others in it.",
+          "tags": [
+            "user",
+            "grant"
+          ]
+        },
+        {
+          "title": "Show database sizes",
+          "command": "psql -U <user> -c \"SELECT datname, pg_size_pretty(pg_database_size(datname)) AS size FROM pg_database ORDER BY pg_database_size(datname) DESC;\"",
+          "description": "Lists every database with a human-readable size, largest first.",
+          "tags": [
+            "size"
+          ]
+        },
+        {
+          "title": "Show table sizes",
+          "command": "psql -U <user> -d <database> -c \"SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) AS total FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 20;\"",
+          "description": "The 20 largest tables including their indexes and TOAST data.",
+          "tags": [
+            "size"
+          ]
+        },
+        {
+          "title": "Show active connections",
+          "command": "psql -U <user> -c \"SELECT pid, usename, datname, state, query FROM pg_stat_activity WHERE state <> 'idle';\"",
+          "description": "Lists sessions that are currently running or waiting on something.",
+          "tags": [
+            "monitor"
+          ]
+        },
+        {
+          "title": "Terminate a backend connection",
+          "command": "psql -U <user> -c \"SELECT pg_terminate_backend(<pid>);\"",
+          "description": "Forcibly closes the session with the given pid, rolling back its transaction.",
+          "tags": [
+            "monitor",
+            "kill"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Vacuum and analyze a database",
+          "command": "psql -U <user> -d <database> -c \"VACUUM (VERBOSE, ANALYZE);\"",
+          "description": "Reclaims dead rows and refreshes planner statistics for the whole database.",
+          "tags": [
+            "maintenance"
+          ]
+        },
+        {
+          "title": "Reindex a database",
+          "command": "psql -U <user> -d <database> -c \"REINDEX DATABASE <database>;\"",
+          "description": "Rebuilds every index of the database; takes locks so run it off-peak.",
+          "tags": [
+            "maintenance"
+          ]
+        },
+        {
+          "title": "Show the config file location",
+          "command": "sudo -u postgres psql -c \"SHOW config_file;\"",
+          "description": "Prints the path to postgresql.conf of the running server.",
+          "tags": [
+            "config"
+          ]
+        },
+        {
+          "title": "List PostgreSQL clusters",
+          "command": "pg_lsclusters",
+          "description": "Debian and Ubuntu helper that shows version, port, status and data directory of each cluster.",
+          "tags": [
+            "cluster"
+          ]
+        },
+        {
+          "title": "Restart the PostgreSQL service",
+          "command": "sudo systemctl restart postgresql",
+          "description": "Restarts all clusters and drops every open connection.",
+          "tags": [
+            "service"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "redis",
+      "name": "Redis",
+      "commands": [
+        {
+          "title": "Test the connection with ping",
+          "command": "redis-cli ping",
+          "description": "Replies PONG when the local server is reachable.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "Connect to a remote Redis with a password",
+          "command": "redis-cli -h <host> -p 6379 -a <password>",
+          "description": "Opens an interactive session; -a puts the password in the process list, prefer REDISCLI_AUTH.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "Show server information",
+          "command": "redis-cli info",
+          "description": "Prints version, clients, memory, persistence and stats sections.",
+          "tags": [
+            "info"
+          ]
+        },
+        {
+          "title": "Show memory usage",
+          "command": "redis-cli info memory",
+          "description": "Shows used memory, peak, fragmentation ratio and the memory limit.",
+          "tags": [
+            "info",
+            "memory"
+          ]
+        },
+        {
+          "title": "Count keys in the current database",
+          "command": "redis-cli dbsize",
+          "description": "Returns the number of keys in the selected database.",
+          "tags": [
+            "keys"
+          ]
+        },
+        {
+          "title": "Find keys by pattern with KEYS",
+          "command": "redis-cli keys \"<pattern>*\"",
+          "description": "Blocks the server while scanning every key; avoid on production, use SCAN instead.",
+          "tags": [
+            "keys"
+          ]
+        },
+        {
+          "title": "Find keys by pattern with SCAN",
+          "command": "redis-cli --scan --pattern \"<pattern>*\"",
+          "description": "Iterates keys incrementally without blocking the server.",
+          "tags": [
+            "keys"
+          ]
+        },
+        {
+          "title": "Get the value of a key",
+          "command": "redis-cli get <key>",
+          "description": "Prints a string value; use hgetall, lrange or smembers for other types.",
+          "tags": [
+            "keys"
+          ]
+        },
+        {
+          "title": "Set a key",
+          "command": "redis-cli set <key> <value>",
+          "description": "Creates or overwrites a string key.",
+          "tags": [
+            "keys"
+          ]
+        },
+        {
+          "title": "Delete a key",
+          "command": "redis-cli del <key>",
+          "description": "Removes the key and returns how many keys were deleted.",
+          "tags": [
+            "keys"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show the time to live of a key",
+          "command": "redis-cli ttl <key>",
+          "description": "Seconds left before expiry; -1 means no expiry, -2 means the key does not exist.",
+          "tags": [
+            "keys",
+            "ttl"
+          ]
+        },
+        {
+          "title": "Set a key expiry",
+          "command": "redis-cli expire <key> <seconds>",
+          "description": "Makes the key expire after the given number of seconds.",
+          "tags": [
+            "keys",
+            "ttl"
+          ]
+        },
+        {
+          "title": "Watch every command in real time",
+          "command": "redis-cli monitor",
+          "description": "Streams every command the server receives; slows the server, stop it with Ctrl+C.",
+          "tags": [
+            "monitor"
+          ]
+        },
+        {
+          "title": "Show the slow log",
+          "command": "redis-cli slowlog get 10",
+          "description": "Prints the 10 most recent commands that exceeded the slowlog threshold.",
+          "tags": [
+            "monitor",
+            "slow-log"
+          ]
+        },
+        {
+          "title": "Flush the current database",
+          "command": "redis-cli flushdb",
+          "description": "Deletes every key in the selected database.",
+          "tags": [
+            "flush"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Flush all databases",
+          "command": "redis-cli flushall",
+          "description": "Deletes every key in every database on the server.",
+          "tags": [
+            "flush"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show the maxmemory setting",
+          "command": "redis-cli config get maxmemory",
+          "description": "Prints the memory limit in bytes; 0 means unlimited.",
+          "tags": [
+            "config",
+            "memory"
+          ]
+        },
+        {
+          "title": "Find the biggest keys",
+          "command": "redis-cli --bigkeys",
+          "description": "Samples the keyspace and reports the largest key of each type.",
+          "tags": [
+            "memory"
+          ]
+        },
+        {
+          "title": "List connected clients",
+          "command": "redis-cli client list",
+          "description": "Shows address, age, idle time and last command of every connection.",
+          "tags": [
+            "monitor"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mongodb",
+      "name": "MongoDB",
+      "commands": [
+        {
+          "title": "Connect with a connection URI",
+          "command": "mongosh \"<uri>\"",
+          "description": "Opens mongosh using a mongodb:// or mongodb+srv:// connection string.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "Connect to a local server with authentication",
+          "command": "mongosh --host <host> --port 27017 -u <user> --authenticationDatabase admin",
+          "description": "Opens mongosh and asks for the password.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "Show databases",
+          "command": "mongosh \"<uri>\" --eval \"db.adminCommand({ listDatabases: 1 })\"",
+          "description": "Lists databases with their sizes without opening an interactive shell.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "List collections in a database",
+          "command": "mongosh \"<uri>\" --quiet --eval \"db.getCollectionNames()\"",
+          "description": "Prints the collections of the database named in the URI.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Dump a database with a URI",
+          "command": "mongodump --uri=\"<uri>\" --out=<directory>",
+          "description": "Writes BSON dumps of every database the URI can read into a folder.",
+          "tags": [
+            "backup",
+            "dump"
+          ]
+        },
+        {
+          "title": "Dump one database",
+          "command": "mongodump --uri=\"<uri>\" --db=<database> --gzip --archive=<database>.gz",
+          "description": "Compressed single-file archive of one database.",
+          "tags": [
+            "backup",
+            "dump"
+          ]
+        },
+        {
+          "title": "Restore a dump and drop existing collections",
+          "command": "mongorestore --uri=\"<uri>\" --drop <directory>",
+          "description": "Drops each collection before restoring it, so current data is replaced.",
+          "tags": [
+            "restore"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Restore a gzip archive",
+          "command": "mongorestore --uri=\"<uri>\" --gzip --archive=<file>.gz",
+          "description": "Restores a database from an archive made with mongodump --archive --gzip.",
+          "tags": [
+            "restore"
+          ]
+        },
+        {
+          "title": "Export a collection to JSON",
+          "command": "mongoexport --uri=\"<uri>\" --collection=<collection> --out=<collection>.json",
+          "description": "Writes one JSON document per line.",
+          "tags": [
+            "export"
+          ]
+        },
+        {
+          "title": "Export a collection to CSV",
+          "command": "mongoexport --uri=\"<uri>\" --collection=<collection> --type=csv --fields=<fields> --out=<collection>.csv",
+          "description": "CSV export needs an explicit comma-separated field list.",
+          "tags": [
+            "export"
+          ]
+        },
+        {
+          "title": "Import a JSON file into a collection",
+          "command": "mongoimport --uri=\"<uri>\" --collection=<collection> --file=<file>.json",
+          "description": "Inserts the documents from a file with one JSON document per line; add --jsonArray for arrays.",
+          "tags": [
+            "import"
+          ]
+        },
+        {
+          "title": "Show database statistics",
+          "command": "mongosh \"<uri>\" --eval \"db.stats()\"",
+          "description": "Prints object counts, data size, storage size and index size.",
+          "tags": [
+            "size"
+          ]
+        },
+        {
+          "title": "Count documents in a collection",
+          "command": "mongosh \"<uri>\" --eval \"db.<collection>.countDocuments({})\"",
+          "description": "Returns the exact number of documents; pass a filter inside the braces.",
+          "tags": [
+            "query"
+          ]
+        },
+        {
+          "title": "Create a user with a role",
+          "command": "mongosh \"<uri>\" --eval \"db.createUser({ user: '<newuser>', pwd: '<password>', roles: [{ role: 'readWrite', db: '<database>' }] })\"",
+          "description": "Creates a user in the current database; the password ends up in your shell history.",
+          "tags": [
+            "user"
+          ]
+        },
+        {
+          "title": "Show current operations",
+          "command": "mongosh \"<uri>\" --eval \"db.currentOp()\"",
+          "description": "Lists operations currently running on the server.",
+          "tags": [
+            "monitor"
+          ]
+        },
+        {
+          "title": "Show MongoDB service status",
+          "command": "sudo systemctl status mongod",
+          "description": "Shows whether the mongod service is running.",
+          "tags": [
+            "service"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sqlite",
+      "name": "SQLite",
+      "commands": [
+        {
+          "title": "Open a database",
+          "command": "sqlite3 <file>.db",
+          "description": "Opens the interactive shell and creates the file if it does not exist.",
+          "tags": [
+            "connect"
+          ]
+        },
+        {
+          "title": "List tables",
+          "command": "sqlite3 <file>.db \".tables\"",
+          "description": "Prints the names of all tables.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Show the schema",
+          "command": "sqlite3 <file>.db \".schema\"",
+          "description": "Prints the CREATE statements of every table and index; add a table name for one table.",
+          "tags": [
+            "schema"
+          ]
+        },
+        {
+          "title": "Run a query from the shell",
+          "command": "sqlite3 <file>.db \"SELECT * FROM <table> LIMIT 10;\"",
+          "description": "Runs one statement and exits.",
+          "tags": [
+            "query"
+          ]
+        },
+        {
+          "title": "Export a table to CSV",
+          "command": "sqlite3 -header -csv <file>.db \"SELECT * FROM <table>;\" > <table>.csv",
+          "description": "Writes the query result with a header row as CSV.",
+          "tags": [
+            "export"
+          ]
+        },
+        {
+          "title": "Dump the database to SQL",
+          "command": "sqlite3 <file>.db \".dump\" > dump.sql",
+          "description": "Writes the schema and all data as SQL statements.",
+          "tags": [
+            "backup",
+            "dump"
+          ]
+        },
+        {
+          "title": "Restore a database from a dump",
+          "command": "sqlite3 <new-file>.db < dump.sql",
+          "description": "Rebuilds a database from a SQL dump into a new file.",
+          "tags": [
+            "restore"
+          ]
+        },
+        {
+          "title": "Check database integrity",
+          "command": "sqlite3 <file>.db \"PRAGMA integrity_check;\"",
+          "description": "Prints ok when the file is not corrupted.",
+          "tags": [
+            "maintenance"
+          ]
+        },
+        {
+          "title": "Vacuum a database",
+          "command": "sqlite3 <file>.db \"VACUUM;\"",
+          "description": "Rebuilds the file to reclaim free space; needs room for a temporary copy.",
+          "tags": [
+            "maintenance"
+          ]
+        }
+      ]
+    }
+  ]
+}
