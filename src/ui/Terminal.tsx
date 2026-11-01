@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import "@xterm/xterm/css/xterm.css";
 import "./Terminal.css";
 
@@ -83,6 +84,22 @@ export function osc7Path(data: string): string | null {
     return decodeURIComponent(match[1]);
   } catch {
     return match[1];
+  }
+}
+
+/**
+ * The text an OSC 52 payload (`c;aGVsbG8=`) puts on the clipboard; null for a
+ * read request (`c;?`), an empty one, or anything that isn't base64 UTF-8.
+ */
+export function osc52Text(data: string): string | null {
+  const split = data.indexOf(";");
+  if (split < 0) return null;
+  const payload = data.slice(split + 1);
+  if (!payload || payload === "?") return null;
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(decodeBase64(payload)) || null;
+  } catch {
+    return null;
   }
 }
 
@@ -277,6 +294,23 @@ export default function Terminal({
     term.parser.registerOscHandler(7, (data) => {
       const path = osc7Path(data);
       if (path) onCwdRef.current?.(path);
+      return true;
+    });
+
+    // Copy on select, as in most Linux terminals and Termius. xterm reports a
+    // mouse selection once, on mouseup (and again, empty, when it is cleared),
+    // so a drag puts one entry on the clipboard rather than every partial one.
+    term.onSelectionChange(() => {
+      const text = term.getSelection();
+      if (text) writeText(text).catch(() => undefined);
+    });
+
+    // A program in the terminal setting the clipboard: how Claude Code, tmux
+    // and vim copy, and over ssh the only way they can. Reading it back ("?")
+    // is refused; the far end has no business seeing what was copied here.
+    term.parser.registerOscHandler(52, (data) => {
+      const text = osc52Text(data);
+      if (text) writeText(text).catch(() => undefined);
       return true;
     });
 

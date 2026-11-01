@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { looksLikePrompt, osc7Path } from "./Terminal";
+import { looksLikePrompt, osc52Text, osc7Path } from "./Terminal";
 
 describe("osc7Path", () => {
   it("extracts and decodes the path from a file:// URL", () => {
@@ -8,6 +8,22 @@ describe("osc7Path", () => {
     expect(osc7Path("file://box/a%20b")).toBe("/a b");
     expect(osc7Path("http://box/x")).toBeNull();
     expect(osc7Path("")).toBeNull();
+  });
+});
+
+describe("osc52Text", () => {
+  it("decodes the clipboard text, whatever selection it names", () => {
+    expect(osc52Text("c;aGVsbG8=")).toBe("hello");
+    expect(osc52Text(";aGVsbG8=")).toBe("hello");
+    expect(osc52Text("c;w6l0w6k=")).toBe("été");
+  });
+
+  it("refuses reads and ignores empty or malformed payloads", () => {
+    expect(osc52Text("c;?")).toBeNull();
+    expect(osc52Text("c;")).toBeNull();
+    expect(osc52Text("aGVsbG8=")).toBeNull();
+    expect(osc52Text("c;not base64!")).toBeNull();
+    expect(osc52Text("c;/w==")).toBeNull();
   });
 });
 
