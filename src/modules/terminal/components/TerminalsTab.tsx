@@ -1,10 +1,11 @@
 import { DragEvent, Suspense, lazy, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { openTerminalWindow } from "../../../app/popout";
-import { Button, EmptyState, IconButton, Select, Spinner } from "../../../ui";
+import { Badge, Button, EmptyState, IconButton, Select, Spinner, Stack } from "../../../ui";
 import {
   PanelLeft,
   PictureInPicture2,
+  Plug,
   Plus,
   SquareSplitHorizontal,
   SquareSplitVertical,
@@ -17,7 +18,7 @@ import { TerminalWorkspace, clampAside } from "../../../ui/Terminal";
 import { sftpConnect, sftpDisconnect, sftpUpload, writePty, type SshHost } from "../../ssh/api";
 import { useConnectFlow } from "../../ssh/components/useConnectFlow";
 import { elementAtPoint, endFileDrag, hasFileDrag, readFileDrag, useOsFileDrop, type Point } from "../../ssh/dnd";
-import { baseName, cdCommand, errorMessage, followHookCommand, hostLabel, joinPath, shellQuote } from "../../ssh/utils";
+import { AUTH_LABEL, baseName, cdCommand, errorMessage, followHookCommand, hostLabel, joinPath, shellQuote } from "../../ssh/utils";
 import {
   EMPTY_WORKSPACE,
   activeTerminalWindow,
@@ -171,6 +172,13 @@ export default function TerminalsTab({
       }
       return next;
     });
+  }
+  // A host picked from the empty page logs the file browser in alongside the
+  // terminal. The browser connects whenever a remote pane is focused and its
+  // panel is open, so opening the panel is all that takes.
+  function logIn(host: SshHost) {
+    if (!aside.open) toggleAside();
+    openWindow({ ssh: host.id });
   }
   function resizeAside(width: number) {
     setAside((a) => ({ ...a, width }));
@@ -470,12 +478,30 @@ export default function TerminalsTab({
             description={
               hosts.length === 0
                 ? "Start a local shell. Save a host in the SSH module to open remote terminals here too."
-                : "Start a local shell, or pick a saved SSH host above. Split it, add windows, or pop a pane out into its own window."
+                : "Log in to a saved host, with its files beside the terminal, or start a local shell."
             }
             action={
-              <Button variant="primary" icon={Plus} onClick={() => openWindow("local")}>
-                Local terminal
-              </Button>
+              <Stack gap={4} align="center">
+                {hosts.length > 0 && (
+                  <ul className="term-hostlist" aria-label="Saved SSH hosts">
+                    {hosts.map((h) => (
+                      <li key={h.id} className="term-hostlist-row">
+                        <span className="term-hostlist-name">{h.name}</span>
+                        <span className="term-hostlist-target" title={hostLabel(h)}>
+                          {hostLabel(h)}
+                        </span>
+                        <Badge tone="neutral">{AUTH_LABEL[h.auth]}</Badge>
+                        <Button variant="secondary" size="sm" icon={Plug} onClick={() => logIn(h)}>
+                          Connect
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <Button variant="primary" icon={Plus} onClick={() => openWindow("local")}>
+                  Local terminal
+                </Button>
+              </Stack>
             }
           />
         )

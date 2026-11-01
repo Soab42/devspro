@@ -82,6 +82,13 @@ export function sortEntries<T extends SortableEntry>(entries: T[], key: EntrySor
 }
 
 /** "deploy@example.com:2222" — the port only when it isn't the default. */
+/** How a host logs in, as its badge reads in host lists. */
+export const AUTH_LABEL: Record<SshHost["auth"], string> = {
+  agent: "agent",
+  key: "key file",
+  password: "password",
+};
+
 export function hostLabel(host: Pick<SshHost, "username" | "host" | "port">): string {
   const port = host.port === 22 ? "" : `:${host.port}`;
   return `${host.username}@${host.host}${port}`;

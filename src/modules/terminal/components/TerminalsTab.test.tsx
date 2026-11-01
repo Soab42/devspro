@@ -113,6 +113,25 @@ describe("opening an ssh terminal", () => {
     await act(async () => {});
     expect(panes()).toEqual(['"local"']);
   });
+
+  it("logs in to a host from the empty page, file browser and all", async () => {
+    localStorage.setItem("devspro.terminal.aside", "0");
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "ssh_hosts_list") return [host];
+      if (cmd === "ssh_key_permissions") return { mode: 0o600, too_open: false };
+      return undefined;
+    });
+    renderTab();
+    const hosts = screen.getByRole("list", { name: "Saved SSH hosts" });
+    expect(hosts.textContent).toContain("me@web.example");
+    expect(screen.getByRole("button", { name: "Files" }).getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(await screen.findByTestId("pty")).toBeDefined();
+    expect(panes()).toEqual(['{"ssh":"keyed"}']);
+    expect(screen.getByRole("button", { name: "Files" }).getAttribute("aria-pressed")).toBe("true");
+    localStorage.removeItem("devspro.terminal.aside");
+  });
 });
 
 describe("closing terminals", () => {
