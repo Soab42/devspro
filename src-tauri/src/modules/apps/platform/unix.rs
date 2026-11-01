@@ -100,6 +100,20 @@ fn apt_candidate_available(pkg: &str) -> bool {
 /// with none of those PPAs just shows the one default version with no dropdown.
 /// MySQL/Node/Docker/etc. have no standard multi-version apt path without
 /// adding a new repo, so they're left single-version.
+/// None here: apt ships one Docker per distribution release, so there is no
+/// list worth fetching.
+pub fn live_versions_package(_id: &str) -> Option<&'static str> {
+    None
+}
+
+pub fn published_versions(_package: &str) -> Result<Vec<String>, String> {
+    Err("this package manager doesn't list versions".to_string())
+}
+
+pub fn installed_version(_package: &str) -> Option<String> {
+    None
+}
+
 pub fn candidate_versions(id: &str) -> Vec<String> {
     match id {
         "php" => ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]

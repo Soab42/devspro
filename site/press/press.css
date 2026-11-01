@@ -236,7 +236,7 @@ body {
   margin-top: 40px;
   align-items: start;
 }
-.p-trio .panel,
+.p-trio .app-view,
 .p-trio .term {
   box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.8);
 }
@@ -252,11 +252,8 @@ body {
   font-size: 16px;
   line-height: 1.45;
 }
-.p-trio .steps {
-  font-size: 14px;
-}
-.p-trio .treemap {
-  grid-template-rows: 92px 60px 58px;
+.p-trio .app-view {
+  font-size: 13px;
 }
 
 /* ---------------------------------------------------- 4. security slide -- */
@@ -297,19 +294,20 @@ body {
 
 /* ---------------------------------------------------- 6. platforms slide -- */
 .p-platforms {
-  margin-top: 30px;
+  margin-top: 22px;
   border: 1px solid var(--border);
   border-radius: 16px;
   background: rgba(20, 20, 22, 0.9);
   overflow: hidden;
 }
+/* Eleven rows have to fit the slide, so these run tighter than the site's. */
 .p-platforms .platform-table {
-  font-size: 15px;
+  font-size: 13px;
 }
 .p-platforms .platform-table th,
 .p-platforms .platform-table td {
-  padding: 11px 20px;
-  line-height: 1.4;
+  padding: 6px 18px;
+  line-height: 1.35;
 }
 .p-platforms .platform-table thead th {
   background: var(--surface-2);
@@ -443,7 +441,8 @@ body {
 }
 
 /* ---------------------------------------------------------------- icons -- */
-.icon-page {
+.icon-page,
+html:has(> .icon-page) {
   background: transparent;
 }
 .icon-page img {

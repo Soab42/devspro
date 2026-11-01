@@ -167,7 +167,10 @@ export const cleanProjects = (artifactPaths: string[]) =>
 export const scanTree = (scanId: string, root: string) =>
   invoke<StorageTree>("cleaner_scan_tree", { scanId, root });
 
-export const onScanProgress = (handler: (progress: ScanProgress) => void) =>
+/** The space in use when `root` is a drive or mount point; null for other folders. */
+export const treeEstimate = (root: string) => invoke<number | null>("cleaner_tree_estimate", { root });
+
+export const onScanProgress =(handler: (progress: ScanProgress) => void) =>
   listen<ScanProgress>("cleaner://progress", (e) => handler(e.payload));
 
 /** The tab's saved results as the JSON text the frontend stored, or null. */

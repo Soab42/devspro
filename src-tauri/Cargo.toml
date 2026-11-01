@@ -52,6 +52,10 @@ ssh2 = "0.9.6"
 # backend rather than rely on another crate happening to choose one.
 zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 flate2 = "1"
+# The Mail Catcher's built-in Mailpit: verifying the pinned release download and
+# unpacking the .tar.gz builds Linux and macOS ship.
+sha2 = "0.10"
+tar = "0.4"
 base64 = "0.23.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["native-tls"] }
 tokio = { version = "1.53.1", features = ["net", "io-util", "sync", "macros", "time", "rt"] }

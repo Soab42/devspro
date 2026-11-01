@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the Nginx & SSL module's forms — kept out of the components
+ * Pure helpers for the Web Server & SSL module's forms — kept out of the components
  * so the suggestion/slug rules are unit-tested rather than eyeballed.
  */
 

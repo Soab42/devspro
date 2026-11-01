@@ -251,6 +251,7 @@ pub fn nginx_ssl_ca_install(app: tauri::AppHandle) -> Result<String, String> {
             operations.push(crate::elevate::Operation::InstallPackage {
                 manager,
                 packages: vec![package],
+                pinned: Default::default(),
             });
         }
     }

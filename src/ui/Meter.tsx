@@ -8,8 +8,9 @@ export interface MeterProps {
   valueLabel?: string;
   warningAt?: number;
   criticalAt?: number;
-  /** "compact" drops the inline label row — for dense per-core grids. */
-  variant?: "row" | "compact";
+  /** "compact" drops the inline label row — for dense per-core grids.
+   *  "inline" is a short bar and its value, to sit beside a line of text. */
+  variant?: "row" | "compact" | "inline";
 }
 
 export function meterSeverity(
@@ -47,6 +48,15 @@ export function Meter({
         )}
         <Track clamped={clamped} severity={severity} />
       </div>
+    );
+  }
+
+  if (variant === "inline") {
+    return (
+      <span className="meter-inline" title={label}>
+        <Track clamped={clamped} severity={severity} />
+        <span className="meter-inline-value">{valueLabel ?? `${Math.round(clamped)}%`}</span>
+      </span>
     );
   }
 

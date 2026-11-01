@@ -6,7 +6,7 @@ import { caEnsure, caInstall, CaStatus } from "../api";
 
 export default function SslTab({ ca }: { ca: Resource<CaStatus> }) {
   const [busy, setBusy] = useState(false);
-  // Same fix as NginxTab: distinct success and failure states.
+  // Same fix as WebServerTab: distinct success and failure states.
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 

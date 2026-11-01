@@ -35,6 +35,8 @@ export type BulkAction = "start" | "stop" | "restart";
 export type ComposeAction = "up" | "start" | "stop" | "restart" | "pull" | "down";
 
 export const detectDocker = () => invoke<DockerDetection>("docker_detect");
+/** Asks Docker Desktop / the docker service to start; returns before it's up. */
+export const startDockerEngine = () => invoke<string>("docker_start_engine");
 export const listContainers = () => invoke<Container[]>("docker_list_containers");
 export const startContainer = (id: string) => invoke<string>("docker_start", { id });
 export const stopContainer = (id: string) => invoke<string>("docker_stop", { id });

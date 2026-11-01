@@ -25,7 +25,7 @@ export default function UnavailableCallout({ message, onRecheck }: { message: st
     };
   }, [message]);
 
-  const status = dockerBlockedStatus(detection, onRecheck);
+  const status = dockerBlockedStatus(detection, { onRecheck });
   if (status?.kind === "blocked") {
     return (
       <Callout

@@ -6,6 +6,7 @@
 //! | | |
 //! | --- | --- |
 //! | `reload_nginx()` | Make a running nginx pick up the new config. |
+//! | `reload_apache()` | The same for Apache (Unix only — the app restarts it itself on Windows). |
 //! | `install_root_ca()` | Put the root CA where browsers will trust it. |
 //! | `install_package()` | Install named packages with the manager the caller detected. |
 //! | `fix_laravel_permissions()` | Give the PHP process write access to `storage/` and `bootstrap/cache/`. |

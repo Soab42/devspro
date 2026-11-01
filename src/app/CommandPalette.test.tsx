@@ -55,7 +55,7 @@ describe("CommandPalette", () => {
   it("opens the highlighted module in a fresh window on ArrowDown + Enter, without navigating", () => {
     setup();
     const input = screen.getByRole("combobox");
-    // Dashboard (index 0, already the current route) then Nginx & SSL (index 1).
+    // Dashboard (index 0, already the current route) then Web Server & SSL (index 1).
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(openModuleWindow).toHaveBeenCalledTimes(1);
@@ -72,7 +72,7 @@ describe("CommandPalette", () => {
   it("opens the highlighted module in this window on Ctrl+Enter", () => {
     setup();
     const input = screen.getByRole("combobox");
-    fireEvent.keyDown(input, { key: "ArrowDown" }); // highlight Nginx & SSL
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // highlight Web Server & SSL
     fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
 
     expect(openModuleWindow).not.toHaveBeenCalled();

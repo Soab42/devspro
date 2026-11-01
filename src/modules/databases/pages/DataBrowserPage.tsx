@@ -1,7 +1,8 @@
-import { Page, statusOf, useResource } from "../../../ui";
+import { Page, useResource } from "../../../ui";
 import { useModule } from "../../../app/ModuleRegistry";
 import BrowserPanel from "../browser/BrowserPanel";
 import { listDatabases } from "../api";
+import { useDockerGate } from "../../docker/blocked";
 import { isBrowsable } from "../utils";
 
 /**
@@ -20,7 +21,8 @@ import { isBrowsable } from "../utils";
  */
 export default function DataBrowserPage() {
   const module = useModule("data-browser");
-  const databases = useResource(listDatabases);
+  const docker = useDockerGate();
+  const databases = useResource(listDatabases, { enabled: docker.usable });
 
   // DevsPro's own MySQL/Postgres services, offered alongside saved custom
   // connections in the picker. Grouped here rather than in BrowserPanel
@@ -36,7 +38,7 @@ export default function DataBrowserPage() {
     <Page
       title={module.label}
       icon={module.icon}
-      status={statusOf(databases)}
+      status={docker.status(databases)}
       fill
     >
       <BrowserPanel managed={managed} />

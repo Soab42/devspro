@@ -18,7 +18,7 @@ import { UpdateIndicator } from "./UpdateIndicator";
 import { useLayoutMode } from "./useLayoutMode";
 import { CommandPalette } from "./CommandPalette";
 import { TerminalDock } from "./TerminalDock";
-import { useTerminalDock } from "./terminalDock";
+import { useTerminalDock } from "./terminalDockState";
 import {
   POPOUT_ACTIONS_SLOT,
   POPOUT_TABS_SLOT,

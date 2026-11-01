@@ -48,6 +48,7 @@ import {
   tunnelStart,
   tunnelStop,
   TunnelStatus,
+  WebServer,
 } from "../api";
 
 const TUNNEL_POLL_MS = 2000;
@@ -60,7 +61,15 @@ function backendLabel(site: Site): string {
   return `${site.backend.project_path} — ${version}`;
 }
 
-export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
+export default function SitesTab({
+  sites,
+  webServer,
+}: {
+  sites: Resource<Site[]>;
+  /** The server sites are written for; `null` while it loads. */
+  webServer: WebServer | null;
+}) {
+  const serverLabel = webServer === "apache" ? "Apache" : "nginx";
   const confirmAction = useConfirm();
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -162,7 +171,7 @@ export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
 
   async function handleRemove(site: Site) {
     const ok = await confirmAction(
-      `"${site.name}" (${site.hostname}) will lose its nginx config and certificate.`,
+      `"${site.name}" (${site.hostname}) will lose its ${serverLabel} config and certificate.`,
       { title: "Delete site?", confirmLabel: "Delete", danger: true },
     );
     if (!ok) return;
@@ -386,7 +395,7 @@ export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
           icon: Globe,
           title: "No sites yet",
           description:
-            "Add a site to get an nginx vhost and a locally-trusted HTTPS certificate.",
+            `Add a site to get an ${serverLabel} vhost and a locally-trusted HTTPS certificate.`,
           action: (
             <Button variant="primary" icon={Plus} onClick={() => setShowAddModal(true)}>
               Add site
@@ -401,7 +410,7 @@ export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
           loading={sites.loading}
           defaultSort={{ key: "name", dir: "asc" }}
           minWidth={620}
-          caption="Configured nginx sites"
+          caption={`Configured ${serverLabel} sites`}
         />
       </Section>
 
@@ -448,6 +457,7 @@ export default function SitesTab({ sites }: { sites: Resource<Site[]> }) {
       {limitsModalSite && (
         <SiteLimitsModal
           site={limitsModalSite}
+          webServer={webServer ?? "nginx"}
           onClose={() => setLimitsModalSite(null)}
           onSaved={() => {
             setLimitsModalSite(null);

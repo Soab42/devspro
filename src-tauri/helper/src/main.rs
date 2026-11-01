@@ -42,11 +42,26 @@ enum Operation {
         binary_path: String,
         prefix: Option<String>,
     },
+    EnsureApacheConfDInclude { conf_d_dir: String, include_path: String },
+    RunApacheTest {
+        binary_path: String,
+        server_root: Option<String>,
+    },
+    ReloadApache {
+        binary_path: String,
+        pid_file: Option<String>,
+    },
     InstallRootCa {
         cert_path: String,
         nss_db_paths: Vec<String>,
     },
-    InstallPackage { manager: String, packages: Vec<String> },
+    InstallPackage {
+        manager: String,
+        packages: Vec<String>,
+        /// Package → exact version. Absent from manifests that pin nothing.
+        #[serde(default)]
+        pinned: std::collections::BTreeMap<String, String>,
+    },
     FixLaravelPermissions { project_path: String },
     ServiceControl { action: String, unit: String },
     DropCaches,
@@ -394,6 +409,14 @@ fn remove_marked_block(file_path: &str, marker_begin: &str, marker_end: &str) ->
     }
 }
 
+/// Quoted: macOS keeps app data under `~/Library/Application Support/`, and unquoted
+/// that space splits the glob into two arguments and fails `nginx -t`. Inside quotes
+/// nginx still reads `\` as an escape, so it and `"` are escaped too.
+fn confd_include_line(sites_glob: &str) -> String {
+    let escaped = sites_glob.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("include \"{escaped}\";\n")
+}
+
 fn ensure_nginx_confd_include(conf_d_dir: &str, sites_glob: &str) -> OpResult {
     let dir = Path::new(conf_d_dir);
     if !dir.is_dir() {
@@ -403,7 +426,7 @@ fn ensure_nginx_confd_include(conf_d_dir: &str, sites_glob: &str) -> OpResult {
         };
     }
     let dest = dir.join("devspro.conf");
-    let contents = format!("include {sites_glob};\n");
+    let contents = confd_include_line(sites_glob);
     match fs::write(&dest, contents) {
         Ok(()) => OpResult {
             success: true,
@@ -412,6 +435,67 @@ fn ensure_nginx_confd_include(conf_d_dir: &str, sites_glob: &str) -> OpResult {
         Err(e) => OpResult {
             success: false,
             message: format!("failed to write {}: {e}", dest.display()),
+        },
+    }
+}
+
+/// Apache's counterpart of `confd_include_line`. Apache unescapes `\\` and `\"` inside a
+/// quoted argument exactly as nginx does, so the same escaping keeps a path with a space
+/// or a quote one argument.
+fn apache_include_line(include_path: &str) -> String {
+    let escaped = include_path.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("Include \"{escaped}\"\n")
+}
+
+/// Writes exactly one file, `devspro.conf`, into the drop-in directory the distribution's
+/// Apache already includes (`conf.d` on RHEL/Fedora, `conf-enabled` on Debian/Ubuntu,
+/// `other` for macOS's bundled Apache). Like the nginx drop-in, the file name is fixed
+/// here rather than sent, and the main config is never touched.
+fn ensure_apache_confd_include(conf_d_dir: &str, include_path: &str) -> OpResult {
+    let dir = Path::new(conf_d_dir);
+    if !dir.is_dir() {
+        return OpResult {
+            success: false,
+            message: format!("{conf_d_dir} is not a directory"),
+        };
+    }
+    let dest = dir.join("devspro.conf");
+    match fs::write(&dest, apache_include_line(include_path)) {
+        Ok(()) => OpResult {
+            success: true,
+            message: format!("wrote {}", dest.display()),
+        },
+        Err(e) => OpResult {
+            success: false,
+            message: format!("failed to write {}: {e}", dest.display()),
+        },
+    }
+}
+
+/// `-t` on whatever the caller resolved as Apache's entry point: `apachectl`/`apache2ctl`
+/// on Unix, where the control script supplies the environment Debian's `apache2` cannot
+/// start without, and `httpd.exe` on Windows, with `-d` naming the install directory its
+/// relative paths hang off.
+fn run_apache_test(binary_path: &str, server_root: Option<&str>) -> OpResult {
+    let mut command = Command::new(binary_path);
+    if let Some(root) = server_root {
+        command.args(["-d", root]);
+    }
+    match command.arg("-t").output() {
+        Ok(out) => {
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            OpResult {
+                success: out.status.success(),
+                message: combined.trim().to_string(),
+            }
+        }
+        Err(e) => OpResult {
+            success: false,
+            message: format!("failed to run `{binary_path} -t`: {e}"),
         },
     }
 }
@@ -534,6 +618,27 @@ fn run_nginx_test(binary_path: &str, prefix: Option<&str>) -> OpResult {
 /// `^[A-Za-z0-9@._:-]{1,128}$` without a regex crate, plus no leading `-`: a
 /// unit can never be read as a `systemctl` option, and `-.mount` (the root
 /// filesystem) is out of reach.
+/// A version reaches the package manager's argv, so it is held to what real
+/// release numbers look like — digits separated by single dots, `4.96.3` — and
+/// may only pin a package the same operation actually installs.
+fn is_valid_version(version: &str) -> bool {
+    version.len() <= 32
+        && version.split('.').count() <= 4
+        && version.split('.').all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn pinned_problem(packages: &[String], pinned: &std::collections::BTreeMap<String, String>) -> Option<String> {
+    pinned.iter().find_map(|(package, version)| {
+        if !packages.contains(package) {
+            Some(format!("{package} is pinned but not being installed"))
+        } else if !is_valid_version(version) {
+            Some(format!("{version:?} is not a valid version for {package}"))
+        } else {
+            None
+        }
+    })
+}
+
 fn is_valid_unit_name(unit: &str) -> bool {
     !unit.is_empty()
         && unit.len() <= 128
@@ -941,6 +1046,15 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
         Operation::ReloadNginx { binary_path, prefix } => {
             platform::reload_nginx(&binary_path, prefix.as_deref())
         }
+        Operation::EnsureApacheConfDInclude { conf_d_dir, include_path } => {
+            ensure_apache_confd_include(&conf_d_dir, &include_path)
+        }
+        Operation::RunApacheTest { binary_path, server_root } => {
+            run_apache_test(&binary_path, server_root.as_deref())
+        }
+        Operation::ReloadApache { binary_path, pid_file } => {
+            platform::reload_apache(&binary_path, pid_file.as_deref())
+        }
         // The prefix check stays here, not in `platform`: it is the security boundary this
         // binary exists to enforce, and it is the same on every OS. Only what "install into
         // the trust store" means is platform-specific.
@@ -954,14 +1068,19 @@ fn apply(allowed_prefix: &str, op: Operation) -> OpResult {
                 platform::install_root_ca(&cert_path, &nss_db_paths)
             }
         }
-        Operation::InstallPackage { manager, packages } => {
+        Operation::InstallPackage { manager, packages, pinned } => {
             if packages.is_empty() {
                 OpResult {
                     success: false,
                     message: "no packages specified".to_string(),
                 }
+            } else if let Some(problem) = pinned_problem(&packages, &pinned) {
+                OpResult {
+                    success: false,
+                    message: format!("{problem} — refusing to install"),
+                }
             } else {
-                platform::install_package(&manager, &packages)
+                platform::install_package(&manager, &packages, &pinned)
             }
         }
         Operation::FixLaravelPermissions { project_path } => {
@@ -1157,6 +1276,24 @@ mod tests {
     // --- RemoveMarkedBlock -------------------------------------------------------
 
     #[test]
+    fn confd_include_keeps_a_path_with_a_space_one_argument() {
+        assert_eq!(
+            confd_include_line("/Users/me/Library/Application Support/com.soab.devspro/nginx/sites/*.conf"),
+            "include \"/Users/me/Library/Application Support/com.soab.devspro/nginx/sites/*.conf\";\n"
+        );
+        assert_eq!(confd_include_line("/srv/a\"b"), "include \"/srv/a\\\"b\";\n");
+    }
+
+    #[test]
+    fn apache_include_keeps_a_path_with_a_space_one_argument() {
+        assert_eq!(
+            apache_include_line("C:/Users/MD. Talha/AppData/Roaming/com.soab.devspro/apache/devspro.conf"),
+            "Include \"C:/Users/MD. Talha/AppData/Roaming/com.soab.devspro/apache/devspro.conf\"\n"
+        );
+        assert_eq!(apache_include_line("/srv/a\"b"), "Include \"/srv/a\\\"b\"\n");
+    }
+
+    #[test]
     fn remove_takes_the_markers_with_it() {
         let file = TempDirFile::with(&format!("before\n{BEGIN}\ninclude x;\n{END}\nafter\n"));
         let result = remove_marked_block(file.path(), BEGIN, END);
@@ -1242,6 +1379,28 @@ mod ops_tests {
         for bad in ["", "-.mount", "--now", "nginx; reboot", "a b", "$(id)", "a/b", &"x".repeat(129), "ünit"] {
             assert!(!is_valid_unit_name(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn pinned_versions_must_be_plain_release_numbers_for_packages_being_installed() {
+        let packages = vec!["Docker.DockerDesktop".to_string()];
+        let pin = |v: &str| std::collections::BTreeMap::from([("Docker.DockerDesktop".to_string(), v.to_string())]);
+        assert_eq!(pinned_problem(&packages, &pin("4.96.3")), None);
+        assert_eq!(pinned_problem(&packages, &Default::default()), None);
+        for bad in ["", "4..3", "4.96.3 --force", "--version", "4.96.3;calc", "latest", "1.2.3.4.5", "4.96.3-beta"] {
+            assert!(pinned_problem(&packages, &pin(bad)).is_some(), "{bad:?} was accepted");
+        }
+        let other = std::collections::BTreeMap::from([("Git.Git".to_string(), "2.0".to_string())]);
+        assert!(pinned_problem(&packages, &other).unwrap().contains("not being installed"));
+    }
+
+    #[test]
+    fn a_manifest_without_pinned_still_parses() {
+        let manifest: Manifest = serde_json::from_str(
+            r#"{"allowed_write_prefix":"","operations":[{"type":"InstallPackage","manager":"winget","packages":["Git.Git"]}]}"#,
+        )
+        .unwrap();
+        assert!(matches!(&manifest.operations[0], Operation::InstallPackage { pinned, .. } if pinned.is_empty()));
     }
 
     #[test]

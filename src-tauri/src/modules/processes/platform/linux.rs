@@ -61,6 +61,21 @@ fn extract_process_name(process_field: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
+/// `/proc/<pid>/exe` is a link to the binary. It is only readable for the user's own
+/// processes (or as root), so a root-owned server comes back `None`.
+pub fn exe_path(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{pid}/exe"))
+        .ok()
+        .map(|path| path.to_string_lossy().to_string())
+}
+
+/// `/proc/<pid>/comm` is readable for every user's processes, root's included.
+pub fn process_name(pid: u32) -> Option<String> {
+    let name = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 fn read_cmdline(pid: u32) -> Option<String> {
     let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
     let parts: Vec<String> = raw

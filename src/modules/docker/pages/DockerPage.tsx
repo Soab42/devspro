@@ -32,7 +32,6 @@ import {
   Stack,
   StatusPill,
   Toolbar,
-  statusOf,
   useResource,
 } from "../../../ui";
 import {
@@ -57,13 +56,12 @@ import {
   Container,
   ComposeAction,
   composeProjectAction,
-  detectDocker,
   listContainers,
   restartContainer,
   startContainer,
   stopContainer,
 } from "../api";
-import { dockerBlockedStatus } from "../blocked";
+import { useDockerGate } from "../blocked";
 import { listPorts } from "../../processes/api";
 import {
   describeStartCollisions,
@@ -77,10 +75,9 @@ export default function DockerPage() {
   const confirmAction = useConfirm();
   const module = useModule("docker");
 
-  const detection = useResource(detectDocker);
-  const dockerUsable = Boolean(
-    detection.data?.found && detection.data.daemon_reachable,
-  );
+  const docker = useDockerGate();
+  const detection = docker.detection;
+  const dockerUsable = docker.usable;
   const containers = useResource(listContainers, { enabled: dockerUsable });
   /* Listening sockets, for the "this port is already taken" warning shown
      before a start. Not polled: refreshed with the container list, which is
@@ -379,10 +376,7 @@ export default function DockerPage() {
     <Page
       title={module.label}
       icon={module.icon}
-      status={statusOf(
-        detection,
-        dockerBlockedStatus(detection.data, refreshAll),
-      )}
+      status={docker.status(detection)}
       meta={
         detection.data?.version && <Badge mono>{detection.data.version}</Badge>
       }

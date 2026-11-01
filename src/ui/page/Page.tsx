@@ -20,7 +20,9 @@ export type PageStatus =
       title: string;
       message: ReactNode;
       icon?: LucideIcon;
-      action?: { label: string; onClick: () => void };
+      action?: { label: string; onClick: () => void; loading?: boolean };
+      /** A quieter second way out — Recheck beside Start, say. */
+      secondaryAction?: { label: string; onClick: () => void };
       tone?: "neutral" | "warning";
     };
 
@@ -180,10 +182,23 @@ function PageBody({
             title={status.title}
             description={status.message}
             action={
-              status.action && (
-                <Button variant="primary" onClick={status.action.onClick}>
-                  {status.action.label}
-                </Button>
+              (status.action || status.secondaryAction) && (
+                <div className="page-state-actions">
+                  {status.action && (
+                    <Button
+                      variant="primary"
+                      loading={status.action.loading}
+                      onClick={status.action.onClick}
+                    >
+                      {status.action.label}
+                    </Button>
+                  )}
+                  {status.secondaryAction && (
+                    <Button variant="secondary" onClick={status.secondaryAction.onClick}>
+                      {status.secondaryAction.label}
+                    </Button>
+                  )}
+                </div>
               )
             }
           />

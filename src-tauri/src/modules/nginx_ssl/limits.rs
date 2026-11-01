@@ -11,6 +11,12 @@
 //!   - Two sites on the same PHP-FPM pool can hold different limits without
 //!     fighting over a shared file.
 //!
+//! Under Apache the same settings travel as `ProxyFCGISetEnvIf ... PHP_VALUE`, the
+//! upload cap is `LimitRequestBody`, and the read timeout is `ProxyTimeout` — one
+//! `SiteLimits` drives either server, so switching servers keeps every site's tuning.
+//! The raw escape hatch is the exception: nginx and Apache syntax have nothing in
+//! common, so each server has its own box.
+//!
 //! Only `PHP_INI_ALL` / `PHP_INI_PERDIR` directives can be set this way, which is
 //! why the exposed set stops where it does. `opcache.*` and friends are
 //! `PHP_INI_SYSTEM`: settable only in php.ini, and silently ignored if sent
@@ -38,7 +44,14 @@ pub struct SiteLimits {
     /// only for brace balance here; `nginx -t` in the same manifest is the real
     /// check, and a bad value fails the save rather than landing broken.
     pub extra_nginx: Option<String>,
+    /// Verbatim Apache directives injected into the `<VirtualHost *:443>` block —
+    /// the same escape hatch for the other server, checked by `httpd -t` instead.
+    pub extra_apache: Option<String>,
 }
+
+/// Apache's `LimitRequestBody` ceiling. Anything larger is written as `0`, which
+/// Apache reads as "no limit" — the closest it can get to what was asked for.
+const APACHE_MAX_BODY: u64 = 2_147_483_647;
 
 fn blank_to_none(value: Option<String>) -> Option<String> {
     value
@@ -51,6 +64,29 @@ fn blank_to_none(value: Option<String>) -> Option<String> {
 fn valid_size(value: &str) -> bool {
     let digits = value.strip_suffix(['K', 'M', 'G', 'k', 'm', 'g']).unwrap_or(value);
     !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Bytes in an nginx/PHP size. A bare number is already bytes in both.
+fn size_in_bytes(value: &str) -> Option<u64> {
+    let (digits, unit) = match value.char_indices().last()? {
+        (i, c) if c.is_ascii_alphabetic() => (&value[..i], c.to_ascii_uppercase()),
+        _ => (value, 'B'),
+    };
+    let n: u64 = digits.parse().ok()?;
+    let factor: u64 = match unit {
+        'K' => 1 << 10,
+        'M' => 1 << 20,
+        'G' => 1 << 30,
+        _ => 1,
+    };
+    n.checked_mul(factor)
+}
+
+/// The Apache counterpart of `braces_balanced`: a `</VirtualHost>` in the raw box
+/// would close DevsPro's vhost early, and anything after it would land outside any
+/// vhost — valid Apache that silently changes the server-wide config.
+fn stays_inside_virtual_host(block: &str) -> bool {
+    !block.to_ascii_lowercase().contains("virtualhost")
 }
 
 /// Rejects a raw block that would escape the `server{}` it gets embedded in.
@@ -83,6 +119,7 @@ impl SiteLimits {
             max_upload_size: blank_to_none(self.max_upload_size),
             memory_limit: blank_to_none(self.memory_limit),
             extra_nginx: blank_to_none(self.extra_nginx),
+            extra_apache: blank_to_none(self.extra_apache),
             ..self
         };
 
@@ -106,6 +143,14 @@ impl SiteLimits {
             if !braces_balanced(block) {
                 return Err(
                     "the extra nginx directives have unbalanced { } braces — every block must be closed inside this box"
+                        .to_string(),
+                );
+            }
+        }
+        if let Some(block) = &limits.extra_apache {
+            if !stays_inside_virtual_host(block) {
+                return Err(
+                    "the extra Apache directives may not open or close a <VirtualHost> — they already sit inside this site's"
                         .to_string(),
                 );
             }
@@ -139,10 +184,38 @@ impl SiteLimits {
             .map(|secs| format!("{upstream}_read_timeout {}s;", secs + 10))
     }
 
-    /// PHP settings as a single `fastcgi_param PHP_VALUE`, newline-separated —
-    /// the format PHP-FPM parses. `None` when nothing PHP-side is set, so an
-    /// untouched site renders no param at all.
-    pub fn php_value_directive(&self) -> Option<String> {
+    /// The same knobs for Apache's `<VirtualHost>`: the upload cap, the proxy timeout
+    /// raised past PHP's (for the same reason `read_timeout_directive` is), and the raw
+    /// box — last, so a hand-written directive overrides the generated ones.
+    pub fn apache_directives(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if let Some(bytes) = self.max_upload_size.as_deref().and_then(size_in_bytes) {
+            let bytes = if bytes > APACHE_MAX_BODY { 0 } else { bytes };
+            lines.push(format!("LimitRequestBody {bytes}"));
+        }
+        if let Some(secs) = self.max_execution_time {
+            lines.push(format!("ProxyTimeout {}", secs + 10));
+        }
+        if let Some(block) = &self.extra_apache {
+            lines.extend(block.lines().map(|l| l.trim_end().to_string()));
+        }
+        lines
+    }
+
+    /// `php_value_directive` for Apache. `\n` inside an Apache expression string is a
+    /// real newline by the time PHP-FPM reads it — checked against a live Apache 2.4.
+    pub fn apache_php_value_directive(&self) -> Option<String> {
+        let settings = self.php_settings();
+        if settings.is_empty() {
+            return None;
+        }
+        Some(format!(
+            "ProxyFCGISetEnvIf \"true\" PHP_VALUE \"{}\"",
+            settings.join("\\n")
+        ))
+    }
+
+    fn php_settings(&self) -> Vec<String> {
         let mut settings = Vec::new();
         if let Some(size) = &self.max_upload_size {
             settings.push(format!("upload_max_filesize={size}"));
@@ -157,6 +230,14 @@ impl SiteLimits {
         if let Some(vars) = self.max_input_vars {
             settings.push(format!("max_input_vars={vars}"));
         }
+        settings
+    }
+
+    /// PHP settings as a single `fastcgi_param PHP_VALUE`, newline-separated —
+    /// the format PHP-FPM parses. `None` when nothing PHP-side is set, so an
+    /// untouched site renders no param at all.
+    pub fn php_value_directive(&self) -> Option<String> {
+        let settings = self.php_settings();
         if settings.is_empty() {
             return None;
         }
@@ -300,6 +381,7 @@ mod tests {
             max_execution_time: Some(120),
             max_input_vars: Some(5000),
             extra_nginx: Some("gzip on;".into()),
+            extra_apache: Some("Header set X-Dev 1".into()),
         };
         let stored = to_column(&limits).unwrap();
         assert_eq!(from_column(Some(stored)), limits);
@@ -312,5 +394,49 @@ mod tests {
         // Rows written before this column existed, and any value that stops
         // parsing after a future field change, must not break `list()`.
         assert_eq!(from_column(Some("not json".into())), SiteLimits::default());
+    }
+
+    #[test]
+    fn apache_upload_size_is_bytes_and_huge_means_unlimited() {
+        assert_eq!(uploads("64M").apache_directives(), vec!["LimitRequestBody 67108864"]);
+        assert_eq!(uploads("1024").apache_directives(), vec!["LimitRequestBody 1024"]);
+        assert_eq!(uploads("4G").apache_directives(), vec!["LimitRequestBody 0"]);
+    }
+
+    #[test]
+    fn apache_timeout_outlives_php_execution_limit() {
+        let limits = SiteLimits {
+            max_execution_time: Some(120),
+            ..Default::default()
+        };
+        assert_eq!(limits.apache_directives(), vec!["ProxyTimeout 130"]);
+    }
+
+    #[test]
+    fn apache_php_value_is_one_expression_with_escaped_newlines() {
+        let limits = SiteLimits {
+            memory_limit: Some("512M".into()),
+            max_execution_time: Some(120),
+            ..Default::default()
+        };
+        assert_eq!(
+            limits.apache_php_value_directive().as_deref(),
+            Some(r#"ProxyFCGISetEnvIf "true" PHP_VALUE "memory_limit=512M\nmax_execution_time=120""#)
+        );
+        assert_eq!(SiteLimits::default().apache_php_value_directive(), None);
+    }
+
+    #[test]
+    fn extra_apache_cannot_close_the_virtual_host() {
+        let escaping = SiteLimits {
+            extra_apache: Some("</VirtualHost>\n<VirtualHost *:8080>".into()),
+            ..Default::default()
+        };
+        assert!(escaping.validate().is_err());
+        let fine = SiteLimits {
+            extra_apache: Some("Header set X-Dev 1".into()),
+            ..Default::default()
+        };
+        assert_eq!(fine.validate().unwrap().apache_directives(), vec!["Header set X-Dev 1"]);
     }
 }

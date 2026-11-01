@@ -527,7 +527,7 @@ mod tests {
     }
 
     // Windows: `fs_compat` reports every file with one link, so a hard link
-    // is counted twice there (see its module comment).
+    // is listed under both paths there (see its module comment).
     #[cfg(unix)]
     #[test]
     fn a_hard_linked_file_is_listed_once_under_its_first_path() {

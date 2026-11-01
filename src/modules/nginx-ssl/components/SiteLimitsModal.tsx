@@ -11,7 +11,7 @@ import {
   TextInput,
 } from "../../../ui";
 import { SlidersHorizontal } from "../../../ui/icons";
-import { EMPTY_LIMITS, setSiteLimits, Site, SiteLimits } from "../api";
+import { EMPTY_LIMITS, setSiteLimits, Site, SiteLimits, WebServer } from "../api";
 
 /**
  * Every field is a string in here, including the numeric ones, so that clearing a
@@ -28,6 +28,7 @@ function toDraft(limits: SiteLimits): Draft {
     max_execution_time: limits.max_execution_time?.toString() ?? "",
     max_input_vars: limits.max_input_vars?.toString() ?? "",
     extra_nginx: limits.extra_nginx ?? "",
+    extra_apache: limits.extra_apache ?? "",
   };
 }
 
@@ -46,15 +47,44 @@ function count(value: string): number | null {
   return parsed;
 }
 
+/**
+ * What differs per server: the directive names in the hints, and which raw box is
+ * shown. Each server keeps its own box — nginx and Apache syntax have nothing in
+ * common — so switching servers never feeds one the other's directives.
+ */
+const SERVER_TEXT = {
+  nginx: {
+    label: "nginx",
+    extraKey: "extra_nginx",
+    bodyLimit: "client_max_body_size",
+    timeout: "nginx's read timeout is raised to match.",
+    extraDescription: "Added verbatim inside this site's server block.",
+    test: "nginx -t",
+    placeholder: "add_header X-Dev 1;\nclient_body_timeout 120s;",
+  },
+  apache: {
+    label: "Apache",
+    extraKey: "extra_apache",
+    bodyLimit: "LimitRequestBody",
+    timeout: "Apache's ProxyTimeout is raised to match.",
+    extraDescription: "Added verbatim inside this site's <VirtualHost *:443> block.",
+    test: "httpd -t",
+    placeholder: "Header set X-Dev 1\nKeepAliveTimeout 10",
+  },
+} as const;
+
 export default function SiteLimitsModal({
   site,
+  webServer,
   onClose,
   onSaved,
 }: {
   site: Site;
+  webServer: WebServer;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const serverText = SERVER_TEXT[webServer];
   const [draft, setDraft] = useState<Draft>(() => toDraft(site.limits));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +105,7 @@ export default function SiteLimitsModal({
         max_execution_time: count(draft.max_execution_time),
         max_input_vars: count(draft.max_input_vars),
         extra_nginx: text(draft.extra_nginx),
+        extra_apache: text(draft.extra_apache),
       };
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -129,7 +160,7 @@ export default function SiteLimitsModal({
     >
       <Stack gap={4}>
         <Callout tone="info">
-          Applies to this site only, through its nginx config — your system{" "}
+          Applies to this site only, through its {serverText.label} config — your system{" "}
           <code>php.ini</code> is not modified and PHP-FPM does not need
           restarting. Leave a field blank to use the system default.
         </Callout>
@@ -140,8 +171,8 @@ export default function SiteLimitsModal({
             htmlFor="limit-upload"
             hint={
               isPhp
-                ? "Sets client_max_body_size, upload_max_filesize and post_max_size together."
-                : "Sets client_max_body_size. Your app enforces its own body limits."
+                ? `Sets ${serverText.bodyLimit}, upload_max_filesize and post_max_size together.`
+                : `Sets ${serverText.bodyLimit}. Your app enforces its own body limits.`
             }
           >
             <TextInput
@@ -156,7 +187,7 @@ export default function SiteLimitsModal({
           <Field
             label="Max execution time"
             htmlFor="limit-exec"
-            hint="Seconds. nginx's read timeout is raised to match."
+            hint={`Seconds. ${serverText.timeout}`}
           >
             <TextInput
               id="limit-exec"
@@ -203,19 +234,19 @@ export default function SiteLimitsModal({
         </FormGrid>
 
         <Field
-          label="Extra nginx directives"
+          label={`Extra ${serverText.label} directives`}
           htmlFor="limit-extra"
-          description="Added verbatim inside this site's server block."
-          hint="Checked with nginx -t on save — if nginx rejects them, nothing changes."
+          description={serverText.extraDescription}
+          hint={`Checked with ${serverText.test} on save — if ${serverText.label} rejects them, nothing changes.`}
         >
           <TextArea
             id="limit-extra"
             mono
             rows={5}
             spellCheck={false}
-            placeholder={"add_header X-Dev 1;\nclient_body_timeout 120s;"}
-            value={draft.extra_nginx}
-            onChange={(e) => set("extra_nginx", e.target.value)}
+            placeholder={serverText.placeholder}
+            value={draft[serverText.extraKey]}
+            onChange={(e) => set(serverText.extraKey, e.target.value)}
           />
         </Field>
 

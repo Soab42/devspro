@@ -19,7 +19,7 @@ use modules::laravel_log;
 use modules::logs;
 use modules::mailcatcher;
 use modules::memory;
-use modules::nginx_ssl::{ca, laravel, nginx, php_fpm, ports, sites};
+use modules::nginx_ssl::{apache, ca, laravel, locate, nginx, php_fpm, ports, sites, web_server};
 use modules::processes;
 use modules::redis;
 use modules::remote_desktop;
@@ -89,6 +89,7 @@ pub fn run() {
             app.manage(system::SystemState::default());
             app.manage(tunnel::TunnelState::default());
             app.manage(workers::WorkersState::default());
+            app.manage(mailcatcher::MailcatcherState::default());
             app.manage(ssh::SshState::default());
             app.manage(remote_desktop::RemoteDesktopState::default());
             app.manage(memory::MemoryState::default());
@@ -100,6 +101,8 @@ pub fn run() {
             updater::start_background_checks(app.handle().clone());
 
             tray::setup(app.handle())?;
+
+            mailcatcher::on_startup(app.handle());
 
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = app.handle().clone();
@@ -134,6 +137,12 @@ pub fn run() {
             auth::auth_logout,
             nginx::nginx_ssl_detect_nginx,
             nginx::nginx_ssl_install_nginx,
+            apache::nginx_ssl_detect_apache,
+            apache::nginx_ssl_install_apache,
+            web_server::nginx_ssl_get_web_server,
+            locate::nginx_ssl_forget_server_path,
+            sites::nginx_ssl_set_web_server,
+            sites::nginx_ssl_reload_server,
             ca::nginx_ssl_ca_status,
             ca::nginx_ssl_ca_ensure,
             ca::nginx_ssl_ca_install,
@@ -154,6 +163,7 @@ pub fn run() {
             scaffold::scaffold_create_laravel_project,
             scaffold::wizard::scaffold_wizard_run,
             docker::docker_detect,
+            docker::docker_start_engine,
             docker::docker_list_containers,
             docker::docker_start,
             docker::docker_stop,
@@ -242,11 +252,13 @@ pub fn run() {
             http_client::http_history_clear,
             logs::logs_list_sources,
             logs::logs_tail,
-            mailcatcher::mailcatcher_detect_docker,
             mailcatcher::mailcatcher_status,
             mailcatcher::mailcatcher_start,
             mailcatcher::mailcatcher_stop,
-            mailcatcher::mailcatcher_remove,
+            mailcatcher::mailcatcher_remove_container,
+            mailcatcher::mailcatcher_install,
+            mailcatcher::mailcatcher_uninstall,
+            mailcatcher::mailcatcher_set_options,
             cleaner::cleaner_settings_get,
             cleaner::cleaner_settings_set,
             cleaner::cleaner_history_list,
@@ -267,6 +279,7 @@ pub fn run() {
             cleaner::projects::cleaner_scan_projects,
             cleaner::projects::cleaner_clean_projects,
             cleaner::storage_map::cleaner_scan_tree,
+            cleaner::storage_map::cleaner_tree_estimate,
             memory::memory_snapshot,
             memory::memory_stop,
             memory::memory_start,
@@ -291,6 +304,7 @@ pub fn run() {
             ai::ai_custom_agent_save,
             ai::ai_custom_agent_delete,
             apps::apps_list,
+            apps::apps_live_versions,
             apps::apps_install_batch,
             apps::apps_list_nvm_versions,
             apps::apps_write_nvmrc,
@@ -400,6 +414,7 @@ pub fn run() {
                     tunnel::kill_all(app_handle.state::<tunnel::TunnelState>());
                     ssh::pty::kill_all(&app_handle.state::<ssh::SshState>());
                     remote_desktop::vnc::kill_all(&app_handle.state::<remote_desktop::RemoteDesktopState>());
+                    mailcatcher::on_exit(app_handle);
                 }
                 // A popped-out terminal window owns its shells; closing the
                 // window is closing those terminals.

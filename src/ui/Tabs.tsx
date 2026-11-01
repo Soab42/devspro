@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { LucideIcon } from "./icons";
 import { Icon } from "./Icon";
 import "./Tabs.css";
@@ -6,6 +7,8 @@ export interface TabDefinition {
   id: string;
   label: string;
   icon?: LucideIcon;
+  /** Shown after the label — e.g. a <StatusPill> marking which of several tabs is in use. */
+  badge?: ReactNode;
 }
 
 export interface TabsProps {
@@ -37,6 +40,7 @@ export function Tabs({ tabs, active, onChange, ariaLabel }: TabsProps) {
         >
           {tab.icon && <Icon icon={tab.icon} size="sm" />}
           {tab.label}
+          {tab.badge}
         </button>
       ))}
     </div>

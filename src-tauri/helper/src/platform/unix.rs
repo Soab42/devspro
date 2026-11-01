@@ -41,6 +41,59 @@ pub fn reload_nginx(binary_path: &str, _prefix: Option<&str>) -> OpResult {
     }
 }
 
+/// The unit is `apache2` on Debian/Ubuntu and `httpd` on RHEL/Fedora/Arch, so both are
+/// tried before falling back to the control script's graceful restart — which is also
+/// the only route on macOS, where there is no systemd.
+///
+/// A missing pid file means Apache isn't running. That reports success with an
+/// explanation rather than failing the manifest, the same call the Windows nginx reload
+/// makes: the site's config, certificate and hosts entry were all written and will be
+/// served the moment Apache starts.
+pub fn reload_apache(binary_path: &str, pid_file: Option<&str>) -> OpResult {
+    if let Some(pid_file) = pid_file {
+        if !Path::new(pid_file).exists() {
+            return OpResult {
+                success: true,
+                message: format!(
+                    "configuration is in place, but Apache is not running (no {pid_file}) — start Apache to serve it"
+                ),
+            };
+        }
+    }
+    for unit in ["apache2", "httpd"] {
+        if let Ok(out) = Command::new("systemctl").args(["reload", unit]).output() {
+            if out.status.success() {
+                return OpResult {
+                    success: true,
+                    message: format!("reloaded via `systemctl reload {unit}`"),
+                };
+            }
+        }
+    }
+    match Command::new(binary_path).args(["-k", "graceful"]).output() {
+        Ok(out) => {
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let message = if combined.trim().is_empty() {
+                format!("reloaded via `{binary_path} -k graceful`")
+            } else {
+                combined.trim().to_string()
+            };
+            OpResult {
+                success: out.status.success(),
+                message,
+            }
+        }
+        Err(e) => OpResult {
+            success: false,
+            message: format!("failed to reload Apache: {e}"),
+        },
+    }
+}
+
 pub fn install_root_ca(cert_path: &str, nss_db_paths: &[String]) -> OpResult {
     let dest = "/usr/local/share/ca-certificates/devspro-root-ca.crt";
     if let Err(e) = fs::copy(cert_path, dest) {
@@ -86,7 +139,19 @@ pub fn install_root_ca(cert_path: &str, nss_db_paths: &[String]) -> OpResult {
     }
 }
 
-pub fn install_package(manager: &str, packages: &[String]) -> OpResult {
+/// `pinned` is refused here: nothing on these platforms offers a version picker,
+/// and installing the default while a version was asked for would be a lie.
+pub fn install_package(
+    manager: &str,
+    packages: &[String],
+    pinned: &std::collections::BTreeMap<String, String>,
+) -> OpResult {
+    if !pinned.is_empty() {
+        return OpResult {
+            success: false,
+            message: format!("installing a specific version isn't supported with {manager}"),
+        };
+    }
     let mut command = match manager {
         "apt" => {
             let mut c = Command::new("apt-get");

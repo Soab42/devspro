@@ -142,3 +142,11 @@
     width: 100%;
   }
 }
+
+/* Primary and secondary action of a blocked page, centred under its message. */
+.page-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+}

@@ -14,6 +14,9 @@
 //! | `user_bin_dir()` | Where an unprivileged single-binary install lands. |
 //! | `executable_file_name()` | A bare tool name as it must be written on disk to run. |
 //! | `candidate_versions()` | Versions this OS can actually offer for one app. |
+//! | `live_versions_package()` | The package whose every published version is asked for when the picker opens, for apps with too many releases to list here. |
+//! | `published_versions()` | Those versions, newest first, straight from the package manager. |
+//! | `installed_version()` | The version of a package this machine has, to prove a pinned install landed. |
 //! | `is_installed_override()` | Detection for the entries where "is the binary on PATH" is the wrong question here. |
 //! | `install_nvm()` | Set up the Node version manager this OS uses. |
 //! | `installed_node_versions()` | Node releases that version manager has installed. |
