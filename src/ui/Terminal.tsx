@@ -55,6 +55,13 @@ export interface TerminalProps {
    * first OSC 7 it produces, is then wiped so the user never sees it.
    */
   onPrompt?: () => boolean | void;
+  /**
+   * An image was pasted, and saved on this machine at `localPath`. Resolve
+   * with the path to type instead (where a remote shell can read it), or null
+   * to type nothing. Without it the local path is typed, which is right for a
+   * local shell.
+   */
+  onPasteImage?: (localPath: string) => Promise<string | null>;
 }
 
 const PROMPT_END = /[$#%>\u276f]\s*$/;
@@ -108,6 +115,24 @@ export function osc52Text(data: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A saved image's path as typed into the terminal: bare when that reads the
+ * same to a shell, quoted otherwise, and followed by a space as a dropped
+ * file's is. Claude Code attaches an image whose path is pasted.
+ */
+export function pastedPath(path: string): string {
+  return /^[\w@%+=:,./-]+$/.test(path) ? `${path} ` : `'${path.replace(/'/g, `'\\''`)}' `;
+}
+
+/**
+ * Ctrl+V on its own, which a terminal sends as ^V and Claude Code takes as
+ * "paste an image". Matched by key code as xterm does, so it holds on any
+ * keyboard layout.
+ */
+export function isCtrlV(event: KeyboardEvent): boolean {
+  return event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && (event.key === "v" || event.keyCode === 86);
 }
 
 /**
@@ -284,6 +309,7 @@ export default function Terminal({
   onCwd,
   onDetached,
   onPrompt,
+  onPasteImage,
 }: TerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -293,6 +319,7 @@ export default function Terminal({
   const onCwdRef = useRef(onCwd);
   const onDetachedRef = useRef(onDetached);
   const onPromptRef = useRef(onPrompt);
+  const onPasteImageRef = useRef(onPasteImage);
   // On screen, as opposed to a hidden tab kept mounted for its scrollback.
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -301,6 +328,7 @@ export default function Terminal({
   onCwdRef.current = onCwd;
   onDetachedRef.current = onDetached;
   onPromptRef.current = onPrompt;
+  onPasteImageRef.current = onPasteImage;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -359,6 +387,76 @@ export default function Terminal({
     let owns = true;
     let disposed = false;
     const unlisteners: Array<() => void> = [];
+
+    const write = (text: string) => {
+      if (!opened || !owns) return;
+      invoke("pty_write", { id, data: text }).catch((e) => onErrorRef.current?.(String(e)));
+    };
+
+    // Pasting from the clipboard, read through the backend. An image is
+    // saved to a file and its path typed in (see onPasteImage). Ctrl+V pastes
+    // an image when the clipboard holds one and is otherwise sent as the ^V
+    // it always was; a right click pastes text, or else an image, as in
+    // Termius and PuTTY; so does a paste event with no text in it
+    // (Ctrl+Shift+V of a screenshot). Keystrokes typed while the clipboard is
+    // being read wait, so Ctrl+V then j in vim still reaches it in that order.
+    let reading = 0;
+    let typedMeanwhile: string[] = [];
+    let read = Promise.resolve();
+    const pasteClipboard = ({ text, otherwise }: { text: boolean; otherwise: string | null }) => {
+      reading += 1;
+      read = read.then(async () => {
+        let pasted: string | null = null;
+        let image: string | null = null;
+        try {
+          if (text) pasted = await invoke<string | null>("terminal_clipboard_text");
+          if (!pasted) image = await invoke<string | null>("terminal_clipboard_image");
+        } catch (e) {
+          onErrorRef.current?.(String(e));
+        }
+        reading -= 1;
+        if (pasted) term.paste(pasted);
+        else if (!image && otherwise) write(otherwise);
+        if (reading === 0) {
+          const typed = typedMeanwhile;
+          typedMeanwhile = [];
+          for (const keys of typed) write(keys);
+        }
+        if (!image) return;
+        // Not awaited: an upload to a remote host shouldn't hold up the next paste.
+        (onPasteImageRef.current ? onPasteImageRef.current(image) : Promise.resolve(image)).then(
+          (path) => {
+            if (path && !disposed) term.paste(pastedPath(path));
+          },
+          (e) => onErrorRef.current?.(e instanceof Error ? e.message : String(e)),
+        );
+      });
+    };
+    term.attachCustomKeyEventHandler((event) => {
+      if (!isCtrlV(event)) return true;
+      if (event.type === "keydown") {
+        // Or the webview pastes the clipboard's text as well.
+        event.preventDefault();
+        pasteClipboard({ text: false, otherwise: "\x16" });
+      }
+      return false;
+    });
+    // Both ahead of xterm's own handlers: its paste reads text alone, and its
+    // right click only readies the webview's menu.
+    const onPaste = (event: ClipboardEvent) => {
+      if (event.clipboardData?.getData("text/plain")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      pasteClipboard({ text: false, otherwise: null });
+    };
+    const onContextMenu = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      term.focus();
+      pasteClipboard({ text: true, otherwise: null });
+    };
+    host.addEventListener("paste", onPaste, true);
+    host.addEventListener("contextmenu", onContextMenu, true);
 
     // Output that arrives before an adopted session's screen has been handed
     // over is held back, or it would land on a blank screen and be painted
@@ -491,8 +589,8 @@ export default function Terminal({
         }
 
         const data = term.onData((text) => {
-          if (!opened || !owns) return;
-          invoke("pty_write", { id, data: text }).catch((e) => onErrorRef.current?.(String(e)));
+          if (reading > 0) typedMeanwhile.push(text);
+          else write(text);
         });
         const resize = term.onResize(({ cols, rows }) => {
           if (!opened || !owns || pending) return;
@@ -526,6 +624,8 @@ export default function Terminal({
 
     return () => {
       disposed = true;
+      host.removeEventListener("paste", onPaste, true);
+      host.removeEventListener("contextmenu", onContextMenu, true);
       if (handoffTimer !== null) window.clearTimeout(handoffTimer);
       if (promptTimer !== null) window.clearTimeout(promptTimer);
       if (hookTimer !== null) window.clearTimeout(hookTimer);

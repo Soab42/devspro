@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OSC52_MAX, looksLikePrompt, osc52Text, osc7Path } from "./Terminal";
+import { OSC52_MAX, isCtrlV, looksLikePrompt, osc52Text, osc7Path, pastedPath } from "./Terminal";
 
 describe("osc7Path", () => {
   it("extracts and decodes the path from a file:// URL", () => {
@@ -50,5 +50,33 @@ describe("looksLikePrompt", () => {
     expect(looksLikePrompt("Verification code: ")).toBe(false);
     expect(looksLikePrompt("")).toBe(false);
     expect(looksLikePrompt("Last login: Tue")).toBe(false);
+  });
+});
+
+describe("pastedPath", () => {
+  it("types a plain path bare and anything else quoted, with a space after", () => {
+    expect(pastedPath("/tmp/devspro-paste-20261101-142530-1a2b3c4d.png")).toBe("/tmp/devspro-paste-20261101-142530-1a2b3c4d.png ");
+    expect(pastedPath("/home/a b/p.png")).toBe("'/home/a b/p.png' ");
+    expect(pastedPath("/home/o'neil/p.png")).toBe("'/home/o'\\''neil/p.png' ");
+  });
+});
+
+describe("isCtrlV", () => {
+  const key = (init: KeyboardEventInit & { keyCode?: number }) => {
+    const event = new KeyboardEvent("keydown", init);
+    if (init.keyCode) Object.defineProperty(event, "keyCode", { value: init.keyCode });
+    return event;
+  };
+
+  it("is Ctrl+V alone, on any layout", () => {
+    expect(isCtrlV(key({ key: "v", ctrlKey: true }))).toBe(true);
+    expect(isCtrlV(key({ key: "м", ctrlKey: true, keyCode: 86 }))).toBe(true);
+  });
+
+  it("leaves Ctrl+Shift+V to the webview's paste, and other keys alone", () => {
+    expect(isCtrlV(key({ key: "V", ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(isCtrlV(key({ key: "v" }))).toBe(false);
+    expect(isCtrlV(key({ key: "v", ctrlKey: true, altKey: true }))).toBe(false);
+    expect(isCtrlV(key({ key: "c", ctrlKey: true }))).toBe(false);
   });
 });

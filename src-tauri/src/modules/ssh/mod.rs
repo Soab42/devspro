@@ -19,6 +19,7 @@
 pub mod hosts;
 pub mod key_perms;
 pub mod keys;
+pub mod paste;
 pub mod pty;
 pub mod session;
 pub mod sftp;

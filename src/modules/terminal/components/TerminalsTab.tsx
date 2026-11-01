@@ -16,7 +16,7 @@ import {
 import { Icon } from "../../../ui/Icon";
 import { PaneLayout } from "../../../ui/PaneLayout";
 import { TerminalWorkspace, clampAside } from "../../../ui/Terminal";
-import { sftpConnect, sftpDisconnect, sftpUpload, writePty, type SshHost } from "../../ssh/api";
+import { sftpConnect, sftpDisconnect, sftpUpload, sftpUploadTemp, writePty, type SshHost } from "../../ssh/api";
 import { useConnectFlow } from "../../ssh/components/useConnectFlow";
 import { elementAtPoint, endFileDrag, hasFileDrag, readFileDrag, useOsFileDrop, type Point } from "../../ssh/dnd";
 import { AUTH_LABEL, baseName, cdCommand, errorMessage, followHookCommand, hostLabel, joinPath, shellQuote } from "../../ssh/utils";
@@ -232,7 +232,8 @@ export default function TerminalsTab({
   const [sftpFailed, setSftpFailed] = useState<Record<string, string>>({});
   const attachedId = initial?.session.id ?? null;
 
-  async function connectBrowser(host: SshHost) {
+  /** Resolves with the session, or null when it failed or was cancelled. */
+  async function connectBrowser(host: SshHost): Promise<string | null> {
     setSftpConnecting(host.id);
     setSftpFailed((prev) => {
       const next = { ...prev };
@@ -243,8 +244,10 @@ export default function TerminalsTab({
       const id = await connectFlow.run(host, (creds) => sftpConnect(host.id, creds));
       if (id !== null) setSftp((prev) => ({ ...prev, [host.id]: id }));
       else setSftpFailed((prev) => ({ ...prev, [host.id]: "Connection cancelled." }));
+      return id;
     } catch (e) {
       setSftpFailed((prev) => ({ ...prev, [host.id]: errorMessage(e) }));
+      return null;
     } finally {
       setSftpConnecting(null);
     }
@@ -360,6 +363,22 @@ export default function TerminalsTab({
     } catch (e) {
       onError(errorMessage(e));
     }
+  }
+
+  // An image pasted into a remote shell is copied to the host first, over
+  // the file browser's connection (made now if there isn't one), and the
+  // remote path typed instead of the local one.
+  async function pasteImageInto(id: string, local: string): Promise<string | null> {
+    const s = stateRef.current.sessions[id];
+    if (!s || s.command === "local") return local;
+    const hostId = s.command.ssh;
+    const host = hostsRef.current.find((h) => h.id === hostId);
+    const sftpId = sftpRef.current[hostId] ?? (host ? await connectBrowser(host) : null);
+    if (!sftpId) {
+      onError("The image could not be pasted: connect the file browser to this host, so it can be uploaded there.");
+      return null;
+    }
+    return sftpUploadTemp(sftpId, local);
   }
 
   const paneAt = (point: Point) => elementAtPoint<HTMLDivElement>(document.body, point, ".term-pane")?.dataset.sessionId ?? null;
@@ -641,6 +660,7 @@ export default function TerminalsTab({
                           : () => installHook(s.id)
                       }
                       onDetached={() => dispatch({ type: "detach", id: s.id })}
+                      onPasteImage={(local) => pasteImageInto(s.id, local)}
                     />
                   </div>
                 );

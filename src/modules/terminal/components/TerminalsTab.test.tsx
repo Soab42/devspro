@@ -9,9 +9,15 @@ const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: () => Promise.resolve(() => {}) }));
 
-// xterm needs a real canvas; a pane only has to say which command it would run.
+// xterm needs a real canvas; a pane only has to say which command it would
+// run, and hand over what it would do with a pasted image.
+type PasteImage = (local: string) => Promise<string | null>;
+const pasteImage = new Map<string, PasteImage>();
 vi.mock("../../../ui/Terminal", () => ({
-  default: ({ command }: { command: unknown }) => <div data-testid="pty">{JSON.stringify(command)}</div>,
+  default: ({ command, onPasteImage }: { command: unknown; onPasteImage?: PasteImage }) => {
+    if (onPasteImage) pasteImage.set(JSON.stringify(command), onPasteImage);
+    return <div data-testid="pty">{JSON.stringify(command)}</div>;
+  },
   TerminalWorkspace: ({ children, empty, tabs, actions }: { children: ReactNode; empty: ReactNode; tabs?: ReactNode; actions?: ReactNode }) => (
     <div>
       {tabs}
@@ -153,5 +159,41 @@ describe("closing terminals", () => {
     await act(async () => {});
     expect(panes()).toEqual([]);
     expect(screen.queryAllByRole("tab")).toHaveLength(0);
+  });
+});
+
+describe("pasting an image", () => {
+  it("types a local shell's image where it was saved", async () => {
+    const workspace = renderTab();
+    act(() => workspace().openWindow("local"));
+    await expect(pasteImage.get('"local"')?.("/home/me/.cache/p.png")).resolves.toBe("/home/me/.cache/p.png");
+    expect(calls("sftp_upload_temp")).toEqual([]);
+  });
+
+  it("uploads a remote shell's image to the host first, connecting if need be", async () => {
+    invoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "ssh_hosts_list") return [host];
+      if (cmd === "ssh_key_permissions") return { mode: 0o600, too_open: false };
+      if (cmd === "sftp_connect") return "sftp-1";
+      if (cmd === "sftp_upload_temp") return "/tmp/p.png";
+      return undefined;
+    });
+    const workspace = renderTab();
+    act(() => workspace().openWindow({ ssh: "keyed" }));
+    await screen.findByTestId("pty");
+
+    let typed: string | null = null;
+    await act(async () => {
+      typed = (await pasteImage.get('{"ssh":"keyed"}')?.("/home/me/.cache/p.png")) ?? null;
+    });
+    expect(typed).toBe("/tmp/p.png");
+    expect(calls("sftp_connect")).toHaveLength(1);
+    expect(calls("sftp_upload_temp")).toEqual([{ session: "sftp-1", local: "/home/me/.cache/p.png" }]);
+
+    // The connection is kept for the file browser and the next paste.
+    await act(async () => {
+      await pasteImage.get('{"ssh":"keyed"}')?.("/home/me/.cache/q.png");
+    });
+    expect(calls("sftp_connect")).toHaveLength(1);
   });
 });

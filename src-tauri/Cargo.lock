@@ -1019,6 +1019,7 @@ dependencies = [
  "gtk",
  "libc",
  "minisign-verify",
+ "png 0.18.1",
  "portable-pty",
  "rand_core 0.6.4",
  "rcgen",
