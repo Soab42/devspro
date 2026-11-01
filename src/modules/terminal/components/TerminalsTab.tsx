@@ -435,6 +435,7 @@ export default function TerminalsTab({
           if (hosts.some((h) => h.id === id)) openWindow({ ssh: id });
         }}
         options={hosts.map((h) => ({ value: h.id, label: `${h.name} (${hostLabel(h)})` }))}
+        menuWidth="content"
       />
     </>
   );
