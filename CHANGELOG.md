@@ -5,6 +5,14 @@ for the version being released becomes the in-app update notes and the
 website's changelog. Keep the headings in this shape — `## <version> — <date>`
 (or `## Unreleased`), then `### <group>` and `- ` bullets.
 
+## 0.3.1 — 2026-11-01
+
+### New
+- **Paste screenshots into the terminal.** With an image on the clipboard, Ctrl+V saves it and types its path, which Claude Code attaches as an image. In an SSH terminal the image is copied to the server's `/tmp` first, readable by you alone.
+
+### Improved
+- Right-click in a terminal pastes, as in Termius and PuTTY: the clipboard's text, or its image when there is no text.
+
 ## 0.3.0 — 2026-11-01
 
 ### New
