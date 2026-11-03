@@ -5,6 +5,11 @@ for the version being released becomes the in-app update notes and the
 website's changelog. Keep the headings in this shape — `## <version> — <date>`
 (or `## Unreleased`), then `### <group>` and `- ` bullets.
 
+## Unreleased
+
+### New
+- **LLM Traces (beta).** A local Langfuse and LangSmith. Point an LLM app's Langfuse, LangSmith or OpenTelemetry SDK at DevsPro and every trace lands here: a waterfall of its LLM calls, tool calls and steps, with prompts shown as chats, responses, models, tokens, time to first token, errors and scores. Any API key works, apps in Docker containers can send traces too (as `host.docker.internal`), nothing leaves the machine, and the Connect tab has the environment variables or docker-compose snippet for each SDK and a log of what reached the collector.
+
 ## 0.3.1 — 2026-11-01
 
 ### New

@@ -135,6 +135,7 @@ describe("styling discipline", () => {
     "modules/file-manager/components/ContextMenu.tsx", // opens at the pointer, measured at runtime
     "modules/file-manager/components/ImageViewer.tsx", // picture size is the image's own pixels times the zoom
     "modules/databases/browser/ColumnManager.tsx", // portal position, measured at runtime
+    "modules/llm-traces/components/TraceView.tsx", // waterfall bars sit at each span's start and length; rows indent by depth
   ]);
 
   it("inline styles appear only where the value is dynamic", () => {
@@ -204,7 +205,9 @@ describe("styling discipline", () => {
     // from, and the SFTP tab's side-by-side local/remote panes, a two-column
     // grid no primitive offers. and the Remote Desktop page's full-height VNC viewer,
     // and the command library's folding category tree, whose rows show their
-    // actions on hover in the terminal's narrow side panel. Everything else composes primitives, which is what keeps styling
+    // actions on hover in the terminal's narrow side panel, and the LLM trace
+    // view's waterfall: indented rows, each with a bar on the trace's timeline,
+    // beside a detail pane. Everything else composes primitives, which is what keeps styling
     // traceable to one owner. Adding a line here should feel like a decision.
     const moduleStyles = STYLES.filter((f) => f.path.startsWith("modules/")).map(
       (f) => f.path,
@@ -215,6 +218,7 @@ describe("styling discipline", () => {
       "modules/dashboard/pages/DashboardPage.css",
       "modules/databases/browser/browser.css",
       "modules/file-manager/pages/FileManagerPage.css",
+      "modules/llm-traces/components/LlmTraces.css",
       "modules/logs/pages/LogsPage.css",
       "modules/remote-desktop/pages/RemoteDesktopPage.css",
       "modules/sftp/components/SftpTab.css",

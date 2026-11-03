@@ -16,6 +16,7 @@ use modules::file_manager;
 use modules::hosts_file;
 use modules::http_client;
 use modules::laravel_log;
+use modules::llm_traces;
 use modules::logs;
 use modules::mailcatcher;
 use modules::memory;
@@ -93,6 +94,7 @@ pub fn run() {
             app.manage(tunnel::TunnelState::default());
             app.manage(workers::WorkersState::default());
             app.manage(mailcatcher::MailcatcherState::default());
+            app.manage(llm_traces::LlmTracesState::default());
             app.manage(ssh::SshState::default());
             app.manage(remote_desktop::RemoteDesktopState::default());
             app.manage(memory::MemoryState::default());
@@ -106,6 +108,7 @@ pub fn run() {
             tray::setup(app.handle())?;
 
             mailcatcher::on_startup(app.handle());
+            llm_traces::on_startup(app.handle());
 
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = app.handle().clone();
@@ -262,6 +265,15 @@ pub fn run() {
             mailcatcher::mailcatcher_install,
             mailcatcher::mailcatcher_uninstall,
             mailcatcher::mailcatcher_set_options,
+            llm_traces::llm_traces_status,
+            llm_traces::llm_traces_start,
+            llm_traces::llm_traces_stop,
+            llm_traces::llm_traces_set_options,
+            llm_traces::llm_traces_list,
+            llm_traces::llm_traces_get,
+            llm_traces::llm_traces_delete,
+            llm_traces::llm_traces_clear,
+            llm_traces::llm_traces_recent,
             cleaner::cleaner_settings_get,
             cleaner::cleaner_settings_set,
             cleaner::cleaner_history_list,

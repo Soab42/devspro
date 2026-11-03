@@ -68,6 +68,20 @@ tokio-tungstenite = "0.30"
 minisign-verify = "0.3"
 semver = "1"
 futures-util = "0.3.34"
+# LLM Traces: the local collector Langfuse, LangSmith and OpenTelemetry SDKs
+# post to (src/modules/llm_traces). hyper and its helpers are already in the
+# tree through reqwest; only the server half is switched on here. prost decodes
+# OTLP's protobuf body, which the Python exporters send and cannot be told not
+# to — the messages are declared by hand in llm_traces/otel.rs, so no protoc.
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+prost = { version = "0.13", default-features = false, features = ["derive", "std"] }
+# LangSmith's Python SDK zstd-compresses its uploads whenever the zstandard
+# package is installed (it is, as a dependency) and warns on every run if the
+# server can't take them. A pure-Rust decoder, so Windows needs no C toolchain.
+ruzstd = "0.8"
 
 # The Browser module hosts each tab's WebKit widget inside the app window's
 # GTK tree (a Fixed over the app webview) — see modules/browser/host.rs.

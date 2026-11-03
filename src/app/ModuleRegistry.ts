@@ -26,6 +26,7 @@ import {
   Workflow,
   CalendarClock,
   DatabaseZap,
+  Telescope,
 } from "../ui/icons";
 import type { LucideIcon } from "../ui/icons";
 
@@ -152,6 +153,29 @@ export const modules: ModuleDefinition[] = [
     Component: lazy(() => import("../modules/mailcatcher/pages/MailCatcherPage")),
     description: "Catch outgoing email from local apps and read it here.",
     keywords: ["email", "smtp", "mailhog", "mailpit", "inbox"],
+  },
+  {
+    id: "llm-traces",
+    label: "LLM Traces",
+    icon: Telescope,
+    group: "services",
+    path: "/llm-traces",
+    Component: lazy(() => import("../modules/llm-traces/pages/LlmTracesPage")),
+    description: "Catch Langfuse, LangSmith and OpenTelemetry traces from local LLM apps and inspect them here.",
+    keywords: [
+      "langfuse",
+      "langsmith",
+      "langchain",
+      "opentelemetry",
+      "otel",
+      "llm",
+      "ai",
+      "tracing",
+      "observability",
+      "prompts",
+      "tokens",
+      "openai",
+    ],
   },
   {
     id: "workers",

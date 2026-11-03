@@ -232,6 +232,15 @@ export {
   GitCommitHorizontal, // one commit
   History, // file history
   ArrowDown, // next change
+
+  /* ---- LLM Traces ---- */
+  Telescope, // LLM Traces module
+  ListTree, // a trace's observation tree
+  MessageSquare, // a chat message
+  BrainCircuit, // a generation (an LLM call)
+  Coins, // cost
+  Timer, // latency
+  Braces, // raw JSON view
 } from "lucide-react";
 
 /* ---- composed icons ------------------------------------------------------

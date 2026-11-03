@@ -1,0 +1,288 @@
+/* LLM Traces. A module stylesheet because the trace view is a waterfall:
+   indented rows, each with a bar placed on the trace's timeline, beside a
+   detail pane. No primitive draws that. Bar offsets and indents are data, so
+   they're set inline; everything else is here. */
+
+/* ------------------------------------------------------------ the list -- */
+
+.llmt-cell-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llmt-cell-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-weight: var(--fw-medium);
+}
+
+.llmt-cell-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+}
+
+.llmt-cell-project {
+  max-width: 14rem;
+  font-size: var(--text-xs);
+}
+
+/* ------------------------------------------------------- trace header -- */
+
+.llmt-trace-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.llmt-trace-title {
+  font-size: var(--text-lg);
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+
+/* Waterfall on the left, the selected observation on the right; stacked
+   when the window is too narrow for both. */
+.llmt-trace {
+  display: grid;
+  grid-template-columns: minmax(18rem, 5fr) minmax(0, 7fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .llmt-trace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.llmt-detail {
+  min-width: 0;
+}
+
+/* ----------------------------------------------------------- waterfall -- */
+
+.llmt-tree {
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  overflow: auto;
+  padding: var(--space-1) 0;
+}
+
+.llmt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(4rem, 32%);
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--control-h-sm);
+  padding: var(--space-1) var(--space-3);
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.llmt-row:hover {
+  background-color: var(--color-hover);
+}
+
+.llmt-row-active {
+  background-color: var(--color-accent-subtle);
+  border-left-color: var(--color-accent);
+}
+
+.llmt-row-active:hover {
+  background-color: var(--color-accent-subtle);
+}
+
+.llmt-row-error .llmt-row-name {
+  color: var(--color-danger-text);
+}
+
+.llmt-row-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.llmt-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llmt-row-meta {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.llmt-bar-track {
+  position: relative;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-2);
+}
+
+.llmt-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-text-muted);
+}
+
+.llmt-bar-accent {
+  background-color: var(--color-accent);
+}
+
+.llmt-bar-info {
+  background-color: var(--color-info);
+}
+
+.llmt-bar-warning {
+  background-color: var(--color-warning);
+}
+
+.llmt-bar-danger {
+  background-color: var(--color-danger);
+}
+
+.llmt-kind-accent {
+  color: var(--color-accent-text);
+}
+
+.llmt-kind-info {
+  color: var(--color-info-text);
+}
+
+.llmt-kind-warning {
+  color: var(--color-warning-text);
+}
+
+.llmt-kind-neutral {
+  color: var(--color-text-muted);
+}
+
+/* -------------------------------------------------------------- detail -- */
+
+.llmt-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+
+.llmt-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.llmt-label {
+  font-size: var(--text-2xs);
+  line-height: var(--lh-2xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-muted);
+}
+
+.llmt-payload {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.llmt-payload-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--control-h-sm);
+}
+
+.llmt-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.llmt-message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-2);
+}
+
+.llmt-message-user {
+  border-left-color: var(--color-accent);
+}
+
+.llmt-message-assistant {
+  border-left-color: var(--color-success);
+}
+
+.llmt-message-system {
+  border-left-color: var(--color-warning);
+}
+
+.llmt-message-other {
+  border-left-color: var(--color-info);
+}
+
+.llmt-message-role {
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-muted);
+}
+
+.llmt-message-text {
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------- connect -- */
+
+.llmt-snippet {
+  position: relative;
+}
+
+.llmt-snippet-copy {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+}
+
+.llmt-notes {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
