@@ -6,8 +6,8 @@
 //!
 //! Unverified on real hardware, like the rest of the macOS port.
 
-use std::net::IpAddr;
+use super::Networks;
 
-pub fn container_bridge_addrs() -> Vec<IpAddr> {
-    Vec::new()
+pub fn container_networks() -> Networks {
+    Networks::default()
 }

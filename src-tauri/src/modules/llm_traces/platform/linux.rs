@@ -7,16 +7,24 @@
 //!
 //! Those packets arrive on the bridge, not on loopback, so a listener on
 //! 127.0.0.1 refuses them. That is why the collector also binds each bridge
-//! address. They are private to this host: nothing on the LAN routes to them.
+//! address. Binding one is not enough to keep it private, though: Linux takes
+//! a packet for any of its own addresses on any interface, so a machine on
+//! the LAN that routes 172.17.0.0/16 through this one reaches 172.17.0.1 too.
+//! That is why each bridge comes with its subnet, and `server` refuses a
+//! client on a bridge address unless it is on one of these networks or is
+//! this host (see `Networks::admits`).
 //! Podman's rootful bridges (`podman0`, `cni-podman<n>`) work the same way.
 
+use super::{Bridge, Networks};
 use std::ffi::CStr;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-/// The host's IPv4 address on every container bridge, sorted. Empty when
-/// Docker isn't installed or `getifaddrs` fails; never an error.
-pub fn container_bridge_addrs() -> Vec<IpAddr> {
-    let mut found = Vec::new();
+/// The host's IPv4 address on every container bridge, with the bridge's
+/// prefix length, and every address of every interface, each sorted. Empty
+/// when `getifaddrs` fails; no bridges when Docker isn't installed. Never an
+/// error.
+pub fn container_networks() -> Networks {
+    let mut found = Networks::default();
     // SAFETY: getifaddrs hands back a linked list we only read and then free
     // with freeifaddrs. Every pointer is null-checked before it is read, and
     // nothing borrowed from the list outlives the free.
@@ -32,20 +40,38 @@ pub fn container_bridge_addrs() -> Vec<IpAddr> {
             if ifa.ifa_addr.is_null() || ifa.ifa_name.is_null() {
                 continue;
             }
-            if i32::from((*ifa.ifa_addr).sa_family) != libc::AF_INET {
-                continue;
+            match i32::from((*ifa.ifa_addr).sa_family) {
+                libc::AF_INET => {}
+                libc::AF_INET6 => {
+                    let addr = &*(ifa.ifa_addr as *const libc::sockaddr_in6);
+                    found.own.push(IpAddr::V6(Ipv6Addr::from(addr.sin6_addr.s6_addr)));
+                    continue;
+                }
+                _ => continue,
             }
+            let addr = &*(ifa.ifa_addr as *const libc::sockaddr_in);
+            let ip = Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr));
+            found.own.push(IpAddr::V4(ip));
             let name = CStr::from_ptr(ifa.ifa_name).to_string_lossy();
             if !is_container_bridge(&name) {
                 continue;
             }
-            let addr = &*(ifa.ifa_addr as *const libc::sockaddr_in);
-            found.push(IpAddr::V4(Ipv4Addr::from(u32::from_be(addr.sin_addr.s_addr))));
+            // No netmask would be odd for a bridge; /32 then admits only the
+            // host's own address on it.
+            let prefix = if ifa.ifa_netmask.is_null() {
+                32
+            } else {
+                let mask = &*(ifa.ifa_netmask as *const libc::sockaddr_in);
+                u32::from_be(mask.sin_addr.s_addr).count_ones() as u8
+            };
+            found.bridges.push(Bridge { addr: ip, prefix });
         }
         libc::freeifaddrs(list);
     }
-    found.sort();
-    found.dedup();
+    found.bridges.sort();
+    found.bridges.dedup();
+    found.own.sort();
+    found.own.dedup();
     found
 }
 
@@ -78,10 +104,16 @@ mod tests {
 
     #[test]
     fn reading_the_interfaces_never_fails() {
-        // Whatever this machine has, every address found is IPv4 and not loopback.
-        for addr in container_bridge_addrs() {
-            assert!(addr.is_ipv4());
-            assert!(!addr.is_loopback());
+        // Whatever this machine has: loopback is among its own addresses, no
+        // bridge is loopback, and each bridge's subnet holds the host's own
+        // address on it.
+        let networks = container_networks();
+        assert!(networks.own.contains(&IpAddr::from([127, 0, 0, 1])));
+        for bridge in &networks.bridges {
+            assert!(!bridge.addr.is_loopback());
+            assert!(bridge.prefix <= 32);
+            assert!(bridge.contains(bridge.addr.into()));
+            assert!(networks.own.contains(&IpAddr::V4(bridge.addr)));
         }
     }
 }

@@ -13,16 +13,32 @@
 //! Like Mailpit with SMTP credentials, it accepts any API key. It listens on
 //! 127.0.0.1 and ::1, and, unless the user turns it off, on the host's address
 //! on each Docker bridge, so apps in containers can post too (see
-//! `platform`). None of those is reachable from another machine, and nothing
-//! it serves reads stored traces back: the page reads them through Tauri
-//! commands, never over HTTP. A Langfuse public key is still read, because it
-//! names the project.
+//! `platform`). Nothing it serves reads stored traces back: the page reads
+//! them through Tauri commands, never over HTTP. A Langfuse public key is
+//! still read, because it names the project.
+//!
+//! Without a key, who may write is decided by where a request comes from:
+//!
+//! - **Another machine.** A bridge address can be reached from the LAN (see
+//!   `platform`), so a client there is answered only from inside one of the
+//!   container networks or from this host (`Networks::admits`); anyone else
+//!   gets a 403 before the body is read.
+//! - **A web page.** Any site open in a browser can post to 127.0.0.1, and a
+//!   form-style `text/plain` POST skips CORS preflight. Browsers mark their
+//!   requests, and SDKs don't: every browser POST carries `Origin` (DNS
+//!   rebinding included, since the page's origin is still the attacker's), and
+//!   modern ones send `Sec-Fetch-Site` to localhost on every request. Either
+//!   header gets a 403. (Node's `fetch` sends `Sec-Fetch-Mode`, but never
+//!   these two.) `Host` isn't checked: a compose `extra_hosts` alias is a
+//!   fine name for the collector, and the only requests a rebound page could
+//!   still make are GETs of fixed answers.
 //!
 //! Bodies may be gzip-, deflate- or zstd-compressed: the Langfuse SDKs gzip
 //! by default, and LangSmith's Python SDK zstds when `/info` says the server
 //! takes it, which this one's does.
 
 use super::model::{Batch, SOURCE_LANGFUSE, SOURCE_LANGSMITH, SOURCE_OTEL};
+use super::platform::Networks;
 use super::store::{IngestCounts, Store};
 use super::{langfuse, langsmith, otel};
 use base64::Engine;
@@ -93,8 +109,41 @@ impl Ctx {
     }
 }
 
-/// Lists the extra addresses to listen on: the container bridges, in the app.
-pub type ExtraAddrs = fn() -> Vec<IpAddr>;
+/// Lists the extra addresses to listen on, the container bridges, and who
+/// may use them: `platform::container_networks`, in the app.
+pub type ExtraAddrs = fn() -> Networks;
+
+/// The last scan's networks, shared by every bridge listener and refreshed by
+/// each scan.
+struct Bridges {
+    scan: ExtraAddrs,
+    known: Mutex<Networks>,
+}
+
+impl Bridges {
+    fn new(scan: ExtraAddrs) -> Bridges {
+        Bridges { scan, known: Mutex::new(Networks::default()) }
+    }
+
+    /// Reads the interfaces again and remembers what it found.
+    async fn rescan(&self) -> Networks {
+        let found = tokio::task::spawn_blocking(self.scan).await.unwrap_or_default();
+        *self.known.lock().unwrap_or_else(PoisonError::into_inner) = found.clone();
+        found
+    }
+
+    /// A container on any of the networks may use any bridge address: with
+    /// `host-gateway`, `host.docker.internal` is `docker0`'s address even for
+    /// a container on a compose network. A client the last scan doesn't place
+    /// gets one fresh look, so a network `docker compose up` made a moment ago
+    /// works before the next scheduled scan.
+    async fn admit(&self, peer: IpAddr) -> bool {
+        if self.known.lock().unwrap_or_else(PoisonError::into_inner).admits(peer) {
+            return true;
+        }
+        self.rescan().await.admits(peer)
+    }
+}
 
 /// How often to look for container networks created since the last look.
 /// `docker compose up` makes a new bridge for each project.
@@ -128,19 +177,20 @@ pub async fn start(port: u16, ctx: Arc<Ctx>, extra: Option<ExtraAddrs>) -> std::
     let port = v4.local_addr()?.port();
     let v6 = TcpListener::bind(("::1", port)).await.ok();
     let (shutdown, watcher) = watch::channel(false);
-    tokio::spawn(accept_loop(v4, ctx.clone(), watcher.clone()));
+    tokio::spawn(accept_loop(v4, ctx.clone(), watcher.clone(), None));
     if let Some(v6) = v6 {
-        tokio::spawn(accept_loop(v6, ctx.clone(), watcher.clone()));
+        tokio::spawn(accept_loop(v6, ctx.clone(), watcher.clone(), None));
     }
     let bound = Arc::new(Mutex::new(Vec::new()));
     if let Some(list) = extra {
-        bind_new(list, port, &ctx, &watcher, &bound).await;
+        let bridges = Arc::new(Bridges::new(list));
+        bind_new(&bridges, port, &ctx, &watcher, &bound).await;
         let (ctx, bound, mut stop) = (ctx.clone(), bound.clone(), watcher.clone());
         tokio::spawn(async move {
             loop {
                 tokio::select! {
                     _ = stop.changed() => break,
-                    _ = tokio::time::sleep(RESCAN_EVERY) => bind_new(list, port, &ctx, &stop, &bound).await,
+                    _ = tokio::time::sleep(RESCAN_EVERY) => bind_new(&bridges, port, &ctx, &stop, &bound).await,
                 }
             }
         });
@@ -148,33 +198,52 @@ pub async fn start(port: u16, ctx: Arc<Ctx>, extra: Option<ExtraAddrs>) -> std::
     Ok(ServerHandle { port, shutdown, extra: bound })
 }
 
-async fn bind_new(list: ExtraAddrs, port: u16, ctx: &Arc<Ctx>, watcher: &watch::Receiver<bool>, bound: &Mutex<Vec<IpAddr>>) {
-    let wanted = tokio::task::spawn_blocking(list).await.unwrap_or_default();
-    for addr in wanted {
+async fn bind_new(
+    bridges: &Arc<Bridges>,
+    port: u16,
+    ctx: &Arc<Ctx>,
+    watcher: &watch::Receiver<bool>,
+    bound: &Mutex<Vec<IpAddr>>,
+) {
+    for bridge in bridges.rescan().await.bridges {
+        let addr = IpAddr::V4(bridge.addr);
         if bound.lock().unwrap_or_else(PoisonError::into_inner).contains(&addr) {
             continue;
         }
         if let Ok(listener) = TcpListener::bind((addr, port)).await {
-            tokio::spawn(accept_loop(listener, ctx.clone(), watcher.clone()));
+            tokio::spawn(accept_loop(listener, ctx.clone(), watcher.clone(), Some(bridges.clone())));
             bound.lock().unwrap_or_else(PoisonError::into_inner).push(addr);
         }
     }
 }
 
-async fn accept_loop(listener: TcpListener, ctx: Arc<Ctx>, mut shutdown: watch::Receiver<bool>) {
+/// `bridges` is set for a listener on a bridge address, whose clients must
+/// come from a container network; loopback listeners leave it unset.
+async fn accept_loop(
+    listener: TcpListener,
+    ctx: Arc<Ctx>,
+    mut shutdown: watch::Receiver<bool>,
+    bridges: Option<Arc<Bridges>>,
+) {
     loop {
         tokio::select! {
             _ = shutdown.changed() => break,
             accepted = listener.accept() => {
                 let Ok((stream, peer)) = accepted else { continue };
                 let ctx = ctx.clone();
+                let bridges = bridges.clone();
                 let mut shutdown = shutdown.clone();
                 tokio::spawn(async move {
-                    let client = peer.ip().to_canonical().to_string();
+                    let peer = peer.ip().to_canonical();
+                    let admitted = match &bridges {
+                        Some(bridges) => bridges.admit(peer).await,
+                        None => true,
+                    };
+                    let client = peer.to_string();
                     let service = service_fn(move |req| {
                         let ctx = ctx.clone();
                         let client = client.clone();
-                        async move { Ok::<_, Infallible>(handle(ctx, req, client).await) }
+                        async move { Ok::<_, Infallible>(handle(ctx, req, client, admitted).await) }
                     });
                     let conn = http1::Builder::new().serve_connection(TokioIo::new(stream), service);
                     tokio::pin!(conn);
@@ -222,16 +291,25 @@ impl Reply {
     }
 }
 
-async fn handle(ctx: Arc<Ctx>, req: Request<Incoming>, client: String) -> Response<Full<Bytes>> {
+/// `admitted` is false for a client on a bridge address from outside the
+/// container networks (see the module comment).
+async fn handle(ctx: Arc<Ctx>, req: Request<Incoming>, client: String, admitted: bool) -> Response<Full<Bytes>> {
     let method = req.method().clone();
     let path = normalize(req.uri().path());
     let headers = req.headers().clone();
-    let reply = match Limited::new(req.into_body(), MAX_BODY).collect().await {
-        Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, format!("body larger than {} MB", MAX_BODY >> 20)),
-        Ok(collected) => match decode_body(&headers, collected.to_bytes()) {
-            Err(reply) => reply,
-            Ok(body) => route(&ctx, &method, &path, &headers, body).await,
-        },
+    // Both refusals come before the body is read, so neither costs a download.
+    let reply = if !admitted {
+        Reply::error(StatusCode::FORBIDDEN, "only this machine and its containers can send traces here")
+    } else if from_a_browser(&headers) {
+        Reply::error(StatusCode::FORBIDDEN, "web pages can't send traces here; send them from the app's SDK")
+    } else {
+        match Limited::new(req.into_body(), MAX_BODY).collect().await {
+            Err(_) => Reply::error(StatusCode::PAYLOAD_TOO_LARGE, format!("body larger than {} MB", MAX_BODY >> 20)),
+            Ok(collected) => match decode_body(&headers, collected.to_bytes()) {
+                Err(reply) => reply,
+                Ok(body) => route(&ctx, &method, &path, &headers, body).await,
+            },
+        }
     };
     // Say how it arrived as well, so a compressed upload is visibly accepted.
     let encoding = headers.get(CONTENT_ENCODING).and_then(|v| v.to_str().ok()).filter(|e| !e.is_empty());
@@ -252,6 +330,12 @@ async fn handle(ctx: Arc<Ctx>, req: Request<Incoming>, client: String) -> Respon
     *response.status_mut() = reply.status;
     response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static(reply.content_type));
     response
+}
+
+/// A request a web page made: see the module comment for why these two
+/// headers, and not `Sec-Fetch-Mode`.
+fn from_a_browser(headers: &HeaderMap) -> bool {
+    headers.contains_key(hyper::header::ORIGIN) || headers.contains_key("sec-fetch-site")
 }
 
 /// LangSmith's API is mounted at `/api/v1` on a self-hosted install, and the
@@ -315,6 +399,15 @@ fn parse_json(body: &[u8]) -> Result<Value, Reply> {
     serde_json::from_slice(body).map_err(|e| Reply::error(StatusCode::BAD_REQUEST, format!("body is not JSON: {e}")))
 }
 
+/// Parsing and translating a batch is CPU work that grows with the body, up
+/// to `MAX_BODY`, so the batch routes do it on the blocking pool rather than
+/// hold a runtime worker that other connections are waiting on.
+async fn off_runtime<T: Send + 'static>(work: impl FnOnce() -> Result<T, Reply> + Send + 'static) -> Result<T, Reply> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .unwrap_or_else(|e| Err(Reply::error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())))
+}
+
 /// Writes on a blocking thread — SQLite is synchronous — and reports what
 /// was stored in the request log line.
 async fn store_batch(ctx: &Arc<Ctx>, batch: Batch, source: &'static str) -> Result<String, Reply> {
@@ -335,8 +428,12 @@ async fn store_batch(ctx: &Arc<Ctx>, batch: Batch, source: &'static str) -> Resu
     if counts.scores > 0 {
         parts.push(format!("{} score{}", counts.scores, if counts.scores == 1 { "" } else { "s" }));
     }
-    if parts.is_empty() {
+    if parts.is_empty() && (counts.traces > 0 || counts.dropped == 0) {
         parts.push(format!("{} trace update{}", counts.traces, if counts.traces == 1 { "" } else { "s" }));
+    }
+    if counts.dropped > 0 {
+        let s = if counts.dropped == 1 { "" } else { "s" };
+        parts.push(format!("{} observation{s} dropped: the trace is full", counts.dropped));
     }
     Ok(parts.join(", "))
 }
@@ -378,8 +475,10 @@ async fn route(ctx: &Arc<Ctx>, method: &Method, path: &str, headers: &HeaderMap,
             .from(SOURCE_LANGFUSE)
         }
         (&Method::POST, "/api/public/ingestion") => {
-            let value = tryr!(parse_json(&body).map_err(|r| r.from(SOURCE_LANGFUSE)));
-            let ingested = langfuse::ingest(&value, langfuse_public_key(headers).as_deref());
+            let project = langfuse_public_key(headers);
+            let ingested = tryr!(off_runtime(move || Ok(langfuse::ingest(&parse_json(&body)?, project.as_deref())))
+                .await
+                .map_err(|r| r.from(SOURCE_LANGFUSE)));
             let errors = ingested.response["errors"].as_array().map_or(0, Vec::len);
             let note = tryr!(store_batch(ctx, ingested.batch, SOURCE_LANGFUSE).await.map_err(|r| r.from(SOURCE_LANGFUSE)));
             let note = if errors > 0 { format!("{note}; {errors} event(s) rejected") } else { note };
@@ -401,12 +500,12 @@ async fn route(ctx: &Arc<Ctx>, method: &Method, path: &str, headers: &HeaderMap,
         }
         (&Method::POST, "/api/public/otel/v1/traces") => {
             let project = langfuse_public_key(headers);
-            otlp(ctx, headers, &body, otel::Flavor::Langfuse, project.as_deref()).await.from(SOURCE_LANGFUSE)
+            otlp(ctx, headers, body, otel::Flavor::Langfuse, project).await.from(SOURCE_LANGFUSE)
         }
 
         // ---- OpenTelemetry ----
         (&Method::POST, "/v1/traces") | (&Method::POST, "/otel/v1/traces") => {
-            otlp(ctx, headers, &body, otel::Flavor::Generic, None).await.from(SOURCE_OTEL)
+            otlp(ctx, headers, body, otel::Flavor::Generic, None).await.from(SOURCE_OTEL)
         }
 
         // ---- LangSmith ----
@@ -418,10 +517,14 @@ async fn route(ctx: &Arc<Ctx>, method: &Method, path: &str, headers: &HeaderMap,
             accepted(ctx, batch).await
         }
         (&Method::POST, "/runs/batch") => {
-            let value = tryr!(parse_json(&body).map_err(|r| r.from(SOURCE_LANGSMITH)));
-            let list = |key: &str| value.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
-            let batch = tryr!(langsmith::batch_to_batch(&list("post"), &list("patch"))
-                .map_err(|e| Reply::error(StatusCode::UNPROCESSABLE_ENTITY, e).from(SOURCE_LANGSMITH)));
+            let batch = tryr!(off_runtime(move || {
+                let value = parse_json(&body)?;
+                let list = |key: &str| value.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+                langsmith::batch_to_batch(&list("post"), &list("patch"))
+                    .map_err(|e| Reply::error(StatusCode::UNPROCESSABLE_ENTITY, e))
+            })
+            .await
+            .map_err(|r| r.from(SOURCE_LANGSMITH)));
             accepted(ctx, batch).await
         }
         (&Method::POST, "/runs/multipart") => {
@@ -430,10 +533,13 @@ async fn route(ctx: &Arc<Ctx>, method: &Method, path: &str, headers: &HeaderMap,
             let Some(boundary) = langsmith::boundary(raw_type) else {
                 return Reply::error(StatusCode::BAD_REQUEST, "multipart body without a boundary").from(SOURCE_LANGSMITH);
             };
-            let parts = tryr!(langsmith::parse_multipart(&body, &boundary)
-                .map_err(|e| Reply::error(StatusCode::UNPROCESSABLE_ENTITY, e).from(SOURCE_LANGSMITH)));
-            let batch = tryr!(langsmith::multipart_to_batch(&parts)
-                .map_err(|e| Reply::error(StatusCode::UNPROCESSABLE_ENTITY, e).from(SOURCE_LANGSMITH)));
+            let batch = tryr!(off_runtime(move || {
+                langsmith::parse_multipart(&body, &boundary)
+                    .and_then(|parts| langsmith::multipart_to_batch(&parts))
+                    .map_err(|e| Reply::error(StatusCode::UNPROCESSABLE_ENTITY, e))
+            })
+            .await
+            .map_err(|r| r.from(SOURCE_LANGSMITH)));
             accepted(ctx, batch).await
         }
         (&Method::PATCH, p) if p.starts_with("/runs/") => {
@@ -475,16 +581,14 @@ async fn accepted(ctx: &Arc<Ctx>, batch: Batch) -> Reply {
 
 /// OTLP answers in the encoding it was asked in: an empty
 /// `ExportTraceServiceResponse` is zero bytes of protobuf, or `{}`.
-async fn otlp(ctx: &Arc<Ctx>, headers: &HeaderMap, body: &[u8], flavor: otel::Flavor, project: Option<&str>) -> Reply {
+async fn otlp(ctx: &Arc<Ctx>, headers: &HeaderMap, body: Bytes, flavor: otel::Flavor, project: Option<String>) -> Reply {
     let json = content_type(headers).contains("json");
-    let spans = if json {
-        let value = tryr!(parse_json(body));
-        otel::decode_json(&value)
-    } else {
-        otel::decode_protobuf(body)
-    };
-    let spans = tryr!(spans.map_err(|e| Reply::error(StatusCode::BAD_REQUEST, e)));
-    let batch = otel::to_batch(spans, flavor, project);
+    let batch = tryr!(off_runtime(move || {
+        let spans = if json { otel::decode_json(&parse_json(&body)?) } else { otel::decode_protobuf(&body) };
+        let spans = spans.map_err(|e| Reply::error(StatusCode::BAD_REQUEST, e))?;
+        Ok(otel::to_batch(spans, flavor, project.as_deref()))
+    })
+    .await);
     let source = match flavor {
         otel::Flavor::Langfuse => SOURCE_LANGFUSE,
         otel::Flavor::Generic => SOURCE_OTEL,
@@ -612,7 +716,7 @@ mod tests {
         let db = var("LLM_TRACES_DB").unwrap_or_else(|| std::env::temp_dir().join("llm-traces-check.db").display().to_string());
         let store = Arc::new(Store::open(std::path::Path::new(&db)).unwrap());
         let ctx = Arc::new(Ctx::new(store, 10_000, Box::new(|counts| println!("stored {counts:?}"))));
-        let handle = start(port, ctx.clone(), Some(super::super::platform::container_bridge_addrs)).await.unwrap();
+        let handle = start(port, ctx.clone(), Some(super::super::platform::container_networks)).await.unwrap();
         println!("also listening on {:?}", handle.extra_addrs());
         println!("collector listening on http://127.0.0.1:{} (db {db}) for {secs}s", handle.port);
         let stop_file = format!("{db}.stop");
@@ -628,24 +732,81 @@ mod tests {
         handle.stop();
     }
 
-    /// 127.0.0.2 stands in for a Docker bridge: on Linux all of 127/8 is
-    /// loopback, so it can be bound without touching the network.
+    /// 127.0.0.2/30 stands in for a Docker bridge: on Linux all of 127/8 is
+    /// loopback, so it can be bound, and connected from, without touching the
+    /// network. 127.0.0.3 is a container on it, 127.0.0.7 one of the host's
+    /// own addresses, and 127.0.0.9 a machine on the LAN that routed its way
+    /// to the bridge address.
     #[cfg(target_os = "linux")]
     #[tokio::test]
-    async fn extra_addresses_are_bound_and_answer() {
-        fn bridge() -> Vec<IpAddr> {
-            vec![IpAddr::from([127, 0, 0, 2])]
+    async fn bridge_addresses_answer_containers_and_the_host_and_refuse_everyone_else() {
+        fn bridge() -> Networks {
+            Networks {
+                bridges: vec![super::super::platform::Bridge { addr: std::net::Ipv4Addr::new(127, 0, 0, 2), prefix: 30 }],
+                own: vec![IpAddr::from([127, 0, 0, 7])],
+            }
         }
         let ctx = Arc::new(Ctx::new(Arc::new(Store::open_in_memory()), 1000, Box::new(|_| {})));
         let handle = start(0, ctx.clone(), Some(bridge)).await.unwrap();
-        assert_eq!(handle.extra_addrs(), bridge());
-        let r = reqwest::Client::new()
-            .get(format!("http://127.0.0.2:{}/api/public/health", handle.port))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(r.status().as_u16(), 200);
-        assert!(ctx.recent()[0].client.starts_with("127.0.0."));
+        assert_eq!(handle.extra_addrs(), vec![IpAddr::from([127, 0, 0, 2])]);
+        let otlp = json!({"resourceSpans": [{"scopeSpans": [{"spans": [{
+            "traceId": "0102030405060708090a0b0c0d0e0f10", "spanId": "0102030405060708", "name": "from-a-container",
+            "startTimeUnixNano": "1714557600000000000"}]}]}]})
+        .to_string();
+        let post_from = |from: [u8; 4]| {
+            let client = reqwest::Client::builder().local_address(IpAddr::from(from)).build().unwrap();
+            client
+                .post(format!("http://127.0.0.2:{}/v1/traces", handle.port))
+                .header("content-type", "application/json")
+                .body(otlp.clone())
+                .send()
+        };
+
+        assert_eq!(post_from([127, 0, 0, 3]).await.unwrap().status().as_u16(), 200);
+        assert_eq!(ctx.recent()[0].client, "127.0.0.3");
+        assert_eq!(post_from([127, 0, 0, 7]).await.unwrap().status().as_u16(), 200);
+        assert_eq!(ctx.recent()[0].client, "127.0.0.7");
+
+        assert_eq!(post_from([127, 0, 0, 9]).await.unwrap().status().as_u16(), 403);
+        assert_eq!(ctx.recent()[0].client, "127.0.0.9");
+        assert!(ctx.recent()[0].note.contains("only this machine and its containers"));
+        // The two admitted posts carried the same span.
+        assert_eq!(ctx.store.stats().unwrap().observations, 1);
+        handle.stop();
+    }
+
+    /// What a page's `fetch` or form post to the collector looks like, next to
+    /// Node's `fetch`, which also sends `Sec-Fetch-Mode` and must still work.
+    #[tokio::test]
+    async fn requests_from_web_pages_are_refused() {
+        let (handle, ctx, base) = running().await;
+        let client = reqwest::Client::new();
+        let body = json!({"batch": [{"id": "e1", "type": "trace-create", "timestamp": "2024-05-01T10:00:00Z",
+            "body": {"id": "from-a-page"}}]})
+        .to_string();
+        let post = |extra: &[(&'static str, &'static str)]| {
+            let mut request = client
+                .post(format!("{base}/api/public/ingestion"))
+                .header("content-type", "text/plain")
+                .body(body.clone());
+            for (name, value) in extra {
+                request = request.header(*name, *value);
+            }
+            request.send()
+        };
+
+        let r = post(&[("origin", "https://evil.example")]).await.unwrap();
+        assert_eq!(r.status().as_u16(), 403);
+        let r = post(&[("origin", "null")]).await.unwrap();
+        assert_eq!(r.status().as_u16(), 403);
+        let r = post(&[("sec-fetch-site", "cross-site"), ("sec-fetch-mode", "no-cors")]).await.unwrap();
+        assert_eq!(r.status().as_u16(), 403);
+        assert!(ctx.recent()[0].note.contains("web pages can't send traces"));
+        assert_eq!(ctx.store.stats().unwrap().traces, 0);
+
+        let r = post(&[("sec-fetch-mode", "cors"), ("user-agent", "node")]).await.unwrap();
+        assert_eq!(r.status().as_u16(), 207);
+        assert_eq!(ctx.store.stats().unwrap().traces, 1);
         handle.stop();
     }
 

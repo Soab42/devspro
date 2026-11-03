@@ -48,7 +48,7 @@ struct Settings {
     max_traces: u32,
     /// Also listen on the Docker bridges, so containers can post traces.
     /// On by default: apps under `docker compose` are the common case, and
-    /// the bridges are private to this machine.
+    /// the collector answers only containers there (see `server`).
     docker: bool,
 }
 
@@ -204,7 +204,7 @@ async fn start_inner(app: &AppHandle, port: u16, restart: bool) -> Result<(), St
     let restarting = running.take().map(server::ServerHandle::stop).is_some();
     let ctx = ctx(app)?;
     let extra: Option<server::ExtraAddrs> =
-        load_settings(&data_dir(app)?).docker.then_some(platform::container_bridge_addrs as server::ExtraAddrs);
+        load_settings(&data_dir(app)?).docker.then_some(platform::container_networks as server::ExtraAddrs);
     // Our own listeners close on their next poll, so a restart may find the
     // port still held by them for a moment: retry for up to a second then.
     let mut attempts = if restarting { 20 } else { 1 };

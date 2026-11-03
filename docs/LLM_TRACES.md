@@ -93,8 +93,15 @@ Points that shaped the design:
     Podman bridge (`docker0`, `br-<id>`, `podman0`).
   - It re-scans every 10 s, so a network that `docker compose up` creates
     later is picked up too.
-  - These addresses are private to the machine; nothing on the LAN routes to
-    them.
+  - Binding them isn't private by itself: Linux takes a packet for any of its
+    addresses on any interface, so a machine on the LAN that routes the
+    bridge's subnet through this one reaches 172.17.0.1 too. A client on a
+    bridge address is therefore answered only from inside one of the
+    container networks (any of them: with `host-gateway`, a container on a
+    compose network reaches `docker0`'s address) or from one of this
+    machine's own addresses (Docker's masquerade rule makes a host process
+    that connects to 172.17.0.1 arrive from the LAN address). Anyone else
+    gets a 403.
   - It's on by default, with a switch on the Connect tab.
   - Docker Desktop (macOS, Windows) relays `host.docker.internal` to the
     host's loopback itself, so there is nothing to bind there. That part is
@@ -106,6 +113,16 @@ Points that shaped the design:
 - Off until you press Start. "Start with DevsPro" is a switch, and the
   collector stops when DevsPro quits.
 - It accepts gzip, deflate and zstd bodies of up to 64 MB.
+- **Web pages can't post to it.** Any site open in a browser could send a
+  form-style POST to 127.0.0.1, which skips CORS preflight. Browsers mark
+  those requests with `Origin` (on every POST, DNS rebinding included) and
+  `Sec-Fetch-Site`, and the SDKs send neither, so either header gets a 403
+  before the body is read. Node's `fetch` sends `Sec-Fetch-Mode`, which is
+  allowed.
+- **Storage is bounded three ways.** "Keep" sets how many traces stay. A
+  trace takes at most 10,000 observations (later ones are dropped and the
+  request log says so; updates to ones it has still land). Past 2 GB of data
+  the oldest traces go regardless of "Keep".
 - It keeps a log of the last 30 requests (path, status, what was stored, how
   the body was encoded, and which address it came from, so a container shows
   as itself). This is the first place to look when an app "isn't showing

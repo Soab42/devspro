@@ -17,6 +17,7 @@ use super::model::{
     SOURCE_LANGSMITH,
 };
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 
 /// A run being created (`post`) or finished (`patch`). Only a create without
 /// a parent may be taken for a root: a patch leaves `parent_run_id` out
@@ -275,15 +276,15 @@ fn skip_crlf(body: &[u8], pos: usize) -> usize {
 /// (`attachment.<id>.<name>`: images, PDFs) aren't kept; the run notes their
 /// names so the page can say what was left out. Feedback parts become scores.
 pub fn multipart_to_batch(parts: &[Part]) -> Result<Batch, String> {
-    let mut posts: Vec<(String, Map<String, Value>)> = Vec::new();
-    let mut patches: Vec<(String, Map<String, Value>)> = Vec::new();
+    let mut posts = Runs::default();
+    let mut patches = Runs::default();
     let mut scores = Vec::new();
     for part in parts {
         let mut segments = part.name.splitn(3, '.');
         let (Some(verb), Some(id)) = (segments.next(), segments.next()) else { continue };
         let field = segments.next();
         if verb == "attachment" {
-            let run = entry(&mut posts, id);
+            let run = posts.entry(id);
             let names = run.entry("attachments_omitted").or_insert_with(|| Value::Array(Vec::new()));
             if let (Value::Array(list), Some(field)) = (names, field) {
                 list.push(Value::String(field.to_string()));
@@ -296,7 +297,7 @@ pub fn multipart_to_batch(parts: &[Part]) -> Result<Batch, String> {
             "feedback" => scores.push(feedback_to_score(&value)?),
             "post" | "patch" => {
                 let runs = if verb == "post" { &mut posts } else { &mut patches };
-                let run = entry(runs, id);
+                let run = runs.entry(id);
                 match field {
                     None => {
                         if let Value::Object(fields) = value {
@@ -311,8 +312,9 @@ pub fn multipart_to_batch(parts: &[Part]) -> Result<Batch, String> {
             _ => {}
         }
     }
-    let finish = |runs: Vec<(String, Map<String, Value>)>| -> Vec<Value> {
-        runs.into_iter()
+    let finish = |runs: Runs| -> Vec<Value> {
+        runs.order
+            .into_iter()
             .map(|(id, mut run)| {
                 run.entry("id").or_insert(Value::String(id));
                 if let Some(omitted) = run.remove("attachments_omitted") {
@@ -333,15 +335,27 @@ pub fn multipart_to_batch(parts: &[Part]) -> Result<Batch, String> {
     Ok(batch)
 }
 
-fn entry<'a>(runs: &'a mut Vec<(String, Map<String, Value>)>, id: &str) -> &'a mut Map<String, Value> {
-    let index = match runs.iter().position(|(existing, _)| existing == id) {
-        Some(index) => index,
-        None => {
-            runs.push((id.to_string(), Map::new()));
-            runs.len() - 1
-        }
-    };
-    &mut runs[index].1
+/// Runs being reassembled, in the order their first part arrived. Found by
+/// id through `index`: a body can hold hundreds of thousands of parts, and a
+/// scan of the list for each one would take minutes on them.
+#[derive(Default)]
+struct Runs {
+    order: Vec<(String, Map<String, Value>)>,
+    index: HashMap<String, usize>,
+}
+
+impl Runs {
+    fn entry(&mut self, id: &str) -> &mut Map<String, Value> {
+        let index = match self.index.get(id) {
+            Some(&index) => index,
+            None => {
+                self.order.push((id.to_string(), Map::new()));
+                self.index.insert(id.to_string(), self.order.len() - 1);
+                self.order.len() - 1
+            }
+        };
+        &mut self.order[index].1
+    }
 }
 
 /// `GET /info`. The SDKs read `batch_ingest_config` to size their batches
@@ -483,6 +497,21 @@ mod tests {
         assert_eq!(batch.traces[1].output, Some(json!({"answer": "a tool"})));
         assert_eq!(batch.scores[0].value, Some(1.0));
         assert_eq!(batch.scores[0].observation_id.as_deref(), Some(TRACE));
+    }
+
+    /// A list scanned for each part would take minutes here: 400,000 lookups
+    /// among up to 200,000 runs.
+    #[test]
+    fn runs_are_found_by_id_however_many_there_are() {
+        let mut runs = Runs::default();
+        for round in 0..2 {
+            for i in 0..200_000 {
+                runs.entry(&format!("run-{i}")).insert(format!("field-{round}"), Value::Null);
+            }
+        }
+        assert_eq!(runs.order.len(), 200_000);
+        assert_eq!(runs.order[7].0, "run-7");
+        assert_eq!(runs.order[7].1.len(), 2);
     }
 
     #[test]

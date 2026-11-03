@@ -16,6 +16,7 @@ use super::model::{now_us, Batch, ObservationUpsert, ScoreUpsert, TraceUpsert};
 use rusqlite::{named_params, params, params_from_iter, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
@@ -26,6 +27,19 @@ use std::sync::{Mutex, PoisonError};
 const MAX_FIELD_BYTES: usize = 512 * 1024;
 const EXCERPT_BYTES: usize = 32 * 1024;
 const PREVIEW_CHARS: usize = 160;
+
+/// `max_traces` alone doesn't bound the file: one trace id can collect
+/// observations without end, from a loop in an app or anything else that can
+/// reach the collector. Past this a trace takes no new observations (updates
+/// to ones it has still land). A long agent run is a few thousand, and the
+/// trace view draws every one.
+const MAX_OBSERVATIONS_PER_TRACE: i64 = 10_000;
+/// Past this much data the oldest traces go, whatever `max_traces` says.
+/// Typical traces are a few kB each, so retention by count is what normally
+/// applies; this is the backstop for traces full of large prompts.
+const MAX_STORE_BYTES: u64 = 2 << 30;
+/// Scores still waiting for their observation, newest kept (see `upsert_score`).
+const MAX_WAITING_SCORES: u32 = 10_000;
 
 /// This file's own schema history. Append only, as with `db::later_migrations`.
 const MIGRATIONS: &[&str] = &["
@@ -100,6 +114,17 @@ pub struct IngestCounts {
     pub traces: usize,
     pub observations: usize,
     pub scores: usize,
+    /// New observations refused because their trace was full.
+    pub dropped: usize,
+}
+
+/// What `ingest` trims the store to: the app's settings and the constants
+/// above, or small numbers in tests.
+#[derive(Debug, Clone, Copy)]
+struct Limits {
+    traces: u32,
+    observations_per_trace: i64,
+    bytes: u64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -232,8 +257,17 @@ impl Store {
     }
 
     /// Applies one request's upserts in a single transaction, then trims the
-    /// store back to `max_traces`, oldest first.
+    /// store back to `max_traces` and `MAX_STORE_BYTES`, oldest first.
     pub fn ingest(&self, batch: &Batch, implicit_source: &'static str, max_traces: u32) -> Result<IngestCounts, String> {
+        let limits = Limits {
+            traces: max_traces,
+            observations_per_trace: MAX_OBSERVATIONS_PER_TRACE,
+            bytes: MAX_STORE_BYTES,
+        };
+        self.ingest_within(batch, implicit_source, limits)
+    }
+
+    fn ingest_within(&self, batch: &Batch, implicit_source: &'static str, limits: Limits) -> Result<IngestCounts, String> {
         let mut conn = self.lock();
         let tx = conn.transaction().map_err(err)?;
         let now = now_us();
@@ -242,8 +276,26 @@ impl Store {
             upsert_trace(&tx, trace, now)?;
             counts.traces += 1;
         }
+        // Each trace's observation count, read once per request and kept up
+        // to date as this request adds to it.
+        let mut held: HashMap<String, i64> = HashMap::new();
         for obs in &batch.observations {
-            upsert_observation(&tx, obs, implicit_source, now)?;
+            let trace_id = resolve_trace_id(&tx, obs)?;
+            if !observation_exists(&tx, &obs.id)? {
+                let count = match held.entry(trace_id.clone()) {
+                    Entry::Occupied(held) => held.into_mut(),
+                    Entry::Vacant(slot) => slot.insert(
+                        tx.query_row("SELECT COUNT(*) FROM observations WHERE trace_id = ?1", [&trace_id], |r| r.get(0))
+                            .map_err(err)?,
+                    ),
+                };
+                if *count >= limits.observations_per_trace {
+                    counts.dropped += 1;
+                    continue;
+                }
+                *count += 1;
+            }
+            upsert_observation(&tx, obs, &trace_id, implicit_source, now)?;
             counts.observations += 1;
         }
         for score in &batch.scores {
@@ -251,7 +303,7 @@ impl Store {
                 counts.scores += 1;
             }
         }
-        prune(&tx, max_traces)?;
+        prune(&tx, limits)?;
         tx.commit().map_err(err)?;
         Ok(counts)
     }
@@ -574,15 +626,28 @@ fn resolve_trace_id(conn: &Connection, obs: &ObservationUpsert) -> Result<String
     Ok(obs.id.clone())
 }
 
-fn upsert_observation(conn: &Connection, o: &ObservationUpsert, implicit_source: &'static str, now: i64) -> Result<(), String> {
-    let trace_id = resolve_trace_id(conn, o)?;
+fn observation_exists(conn: &Connection, id: &str) -> Result<bool, String> {
+    conn.query_row("SELECT 1 FROM observations WHERE id = ?1", [id], |_| Ok(()))
+        .optional()
+        .map(|found| found.is_some())
+        .map_err(err)
+}
+
+/// `trace_id` is `resolve_trace_id`'s answer for `o`.
+fn upsert_observation(
+    conn: &Connection,
+    o: &ObservationUpsert,
+    trace_id: &str,
+    implicit_source: &'static str,
+    now: i64,
+) -> Result<(), String> {
     // Every observation's trace exists, even when the SDK never sent one: the
     // stub takes the observation's times and fills in as more arrives.
     let end = o.end_us.or(o.start_us);
     upsert_trace(
         conn,
         &TraceUpsert {
-            id: trace_id.clone(),
+            id: trace_id.to_string(),
             source: implicit_source,
             start_us: o.start_us,
             end_us: end,
@@ -703,28 +768,60 @@ fn upsert_score(conn: &Connection, s: &ScoreUpsert, implicit_source: &'static st
     Ok(true)
 }
 
-fn prune(conn: &Connection, max_traces: u32) -> Result<(), String> {
-    // Scores still waiting for an observation after a day never will get one.
+fn prune(conn: &Connection, limits: Limits) -> Result<(), String> {
+    // Scores still waiting for an observation after a day never will get one,
+    // and only so many are kept waiting at all.
     conn.execute(
         "DELETE FROM scores WHERE trace_id IS NULL AND time_us < ?1",
         [now_us() - 86_400_000_000],
     )
     .map_err(err)?;
-    let count: i64 = conn.query_row("SELECT COUNT(*) FROM traces", [], |r| r.get(0)).map_err(err)?;
-    if count <= max_traces as i64 {
-        return Ok(());
-    }
     conn.execute(
-        "DELETE FROM traces WHERE id NOT IN (SELECT id FROM traces ORDER BY start_us DESC LIMIT ?1)",
-        [max_traces],
+        "DELETE FROM scores WHERE trace_id IS NULL AND id NOT IN \
+         (SELECT id FROM scores WHERE trace_id IS NULL ORDER BY time_us DESC LIMIT ?1)",
+        [MAX_WAITING_SCORES],
     )
     .map_err(err)?;
-    conn.execute_batch(
-        "DELETE FROM observations WHERE trace_id NOT IN (SELECT id FROM traces);
-         DELETE FROM scores WHERE trace_id NOT IN (SELECT id FROM traces);",
-    )
-    .map_err(err)?;
+    let count: i64 = conn.query_row("SELECT COUNT(*) FROM traces", [], |r| r.get(0)).map_err(err)?;
+    if count > i64::from(limits.traces) {
+        conn.execute(
+            "DELETE FROM traces WHERE id NOT IN (SELECT id FROM traces ORDER BY start_us DESC LIMIT ?1)",
+            [limits.traces],
+        )
+        .map_err(err)?;
+        conn.execute_batch(
+            "DELETE FROM observations WHERE trace_id NOT IN (SELECT id FROM traces);
+             DELETE FROM scores WHERE trace_id NOT IN (SELECT id FROM traces);",
+        )
+        .map_err(err)?;
+    }
+    // Over the size budget, the oldest tenth goes until it fits. Deleted
+    // pages are free for reuse at once, so the file stops growing here,
+    // though it doesn't shrink until "Clear all" vacuums it.
+    while used_bytes(conn)? > limits.bytes {
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM traces", [], |r| r.get(0)).map_err(err)?;
+        let oldest: Vec<String> = {
+            let mut stmt = conn.prepare("SELECT id FROM traces ORDER BY start_us ASC LIMIT ?1").map_err(err)?;
+            let ids = stmt.query_map([(count / 10).max(1)], |r| r.get(0)).map_err(err)?;
+            ids.collect::<Result<_, _>>().map_err(err)?
+        };
+        if oldest.is_empty() {
+            break;
+        }
+        for id in &oldest {
+            conn.execute("DELETE FROM observations WHERE trace_id = ?1", [id]).map_err(err)?;
+            conn.execute("DELETE FROM scores WHERE trace_id = ?1", [id]).map_err(err)?;
+            conn.execute("DELETE FROM traces WHERE id = ?1", [id]).map_err(err)?;
+        }
+    }
     Ok(())
+}
+
+/// The database's size less its free pages, as of this transaction.
+fn used_bytes(conn: &Connection) -> Result<u64, String> {
+    let pragma = |name: &str| conn.query_row(&format!("PRAGMA {name}"), [], |r| r.get::<_, i64>(0)).map_err(err);
+    let pages = pragma("page_count")? - pragma("freelist_count")?;
+    Ok(pages.max(0) as u64 * pragma("page_size")?.max(0) as u64)
 }
 
 /// Columns 0–11 of the list query.
@@ -1055,6 +1152,72 @@ mod tests {
         let list = store.list(&ListQuery::default()).unwrap();
         assert_eq!(list.traces.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), vec!["t4", "t3", "t2"]);
         assert_eq!(store.stats().unwrap().observations, 3);
+    }
+
+    #[test]
+    fn a_full_trace_takes_updates_but_no_new_observations() {
+        let store = Store::open_in_memory();
+        let limits = Limits { traces: 1000, observations_per_trace: 3, bytes: u64::MAX };
+        let batch = |ids: &[&str]| Batch { observations: ids.iter().map(|id| obs(id, Some("t"), None)).collect(), ..Default::default() };
+        let counts = store.ingest_within(&batch(&["a", "b", "c", "d", "e"]), "otel", limits).unwrap();
+        assert_eq!((counts.observations, counts.dropped), (3, 2));
+
+        let mut update = obs("a", Some("t"), None);
+        update.output = Some(json!("done"));
+        let counts = store
+            .ingest_within(&Batch { observations: vec![update, obs("f", Some("t"), None)], ..Default::default() }, "otel", limits)
+            .unwrap();
+        assert_eq!((counts.observations, counts.dropped), (1, 1));
+
+        let detail = store.get("t").unwrap().unwrap();
+        assert_eq!(detail.observations.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), vec!["a", "b", "c"]);
+        assert_eq!(detail.observations[0].output, Some(json!("done")));
+        // Another trace has room of its own.
+        let counts = store.ingest_within(&Batch { observations: vec![obs("g", Some("u"), None)], ..Default::default() }, "otel", limits).unwrap();
+        assert_eq!(counts.observations, 1);
+    }
+
+    #[test]
+    fn past_the_size_budget_the_oldest_traces_go() {
+        let store = Store::open_in_memory();
+        let budget = 2 << 20;
+        let limits = Limits { traces: 1000, observations_per_trace: 1000, bytes: budget };
+        // 40 traces of about 200 kB each (a root's input is kept on the trace
+        // too): four times the budget.
+        for i in 0..40 {
+            let mut o = obs(&format!("o{i}"), Some(&format!("t{i:02}")), None);
+            o.start_us = Some(i * 1000);
+            o.input = Some(Value::String(format!("{i:02}").repeat(50_000)));
+            store.ingest_within(&Batch { observations: vec![o], ..Default::default() }, "otel", limits).unwrap();
+        }
+        assert!(used_bytes(&store.lock()).unwrap() <= budget);
+        let list = store.list(&ListQuery { limit: Some(100), ..Default::default() }).unwrap();
+        let ids: Vec<_> = list.traces.iter().map(|t| t.id.clone()).collect();
+        assert!((5..40).contains(&ids.len()), "{} traces kept", ids.len());
+        // The newest ones, with no gaps: the oldest went first.
+        let newest: Vec<_> = (40 - ids.len()..40).rev().map(|i| format!("t{i:02}")).collect();
+        assert_eq!(ids, newest);
+        assert_eq!(store.stats().unwrap().observations, ids.len() as i64);
+    }
+
+    #[test]
+    fn only_so_many_scores_wait_for_their_run() {
+        let store = Store::open_in_memory();
+        let waiting = |i: u32| ScoreUpsert {
+            id: format!("s{i}"),
+            observation_id: Some(format!("run{i}")),
+            name: "n".into(),
+            time_us: Some(now_us() + i64::from(i)),
+            ..Default::default()
+        };
+        let scores = (0..MAX_WAITING_SCORES + 5).map(waiting).collect();
+        store.ingest(&Batch { scores, ..Default::default() }, "langsmith", 10).unwrap();
+        let conn = store.lock();
+        let kept: i64 = conn.query_row("SELECT COUNT(*) FROM scores", [], |r| r.get(0)).unwrap();
+        assert_eq!(kept, i64::from(MAX_WAITING_SCORES));
+        let oldest_gone: bool =
+            conn.query_row("SELECT NOT EXISTS (SELECT 1 FROM scores WHERE id = 's0')", [], |r| r.get(0)).unwrap();
+        assert!(oldest_gone);
     }
 
     #[test]
