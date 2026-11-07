@@ -1,0 +1,1673 @@
+{
+  "group": "Containers & Cloud",
+  "categories": [
+    {
+      "id": "docker",
+      "name": "Docker",
+      "commands": [
+        {
+          "title": "List running containers",
+          "command": "docker ps",
+          "description": "Shows containers that are currently running.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "List all containers including stopped",
+          "command": "docker ps -a",
+          "description": "Includes exited containers, useful for finding ones to restart or remove.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "List container IDs only",
+          "command": "docker ps -aq",
+          "description": "Prints just the IDs of all containers, handy for scripting.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Show containers with a custom format",
+          "command": "docker ps --format \"table {{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}\"",
+          "description": "Prints a compact table of name, image, status and ports.",
+          "tags": [
+            "list",
+            "format"
+          ]
+        },
+        {
+          "title": "Filter containers by name",
+          "command": "docker ps -a --filter \"name=<name>\"",
+          "description": "Lists containers whose name contains the given text.",
+          "tags": [
+            "list",
+            "filter"
+          ]
+        },
+        {
+          "title": "List exited containers",
+          "command": "docker ps -a --filter \"status=exited\"",
+          "description": "Shows only containers that have stopped.",
+          "tags": [
+            "list",
+            "filter"
+          ]
+        },
+        {
+          "title": "List local images",
+          "command": "docker images",
+          "description": "Shows images stored locally with tag, ID and size.",
+          "tags": [
+            "images"
+          ]
+        },
+        {
+          "title": "List dangling images",
+          "command": "docker images -f dangling=true",
+          "description": "Shows untagged images left behind by rebuilds.",
+          "tags": [
+            "images",
+            "cleanup"
+          ]
+        },
+        {
+          "title": "Run a container in the background",
+          "command": "docker run -d --name <name> <image>",
+          "description": "Starts a detached container with a name.",
+          "tags": [
+            "run"
+          ]
+        },
+        {
+          "title": "Run a container with a port mapping",
+          "command": "docker run -d -p <host-port>:<container-port> --name <name> <image>",
+          "description": "Publishes a container port on the host.",
+          "tags": [
+            "run",
+            "ports"
+          ]
+        },
+        {
+          "title": "Run an interactive throwaway container",
+          "command": "docker run --rm -it <image> sh",
+          "description": "Opens a shell in a new container that is deleted on exit. Use bash if the image has it.",
+          "tags": [
+            "run",
+            "shell"
+          ]
+        },
+        {
+          "title": "Run a container with environment variables",
+          "command": "docker run -d -e <key>=<value> --name <name> <image>",
+          "description": "Passes an environment variable into the container; repeat -e for more.",
+          "tags": [
+            "run",
+            "env"
+          ]
+        },
+        {
+          "title": "Run a container with an env file",
+          "command": "docker run -d --env-file .env --name <name> <image>",
+          "description": "Loads environment variables from a file in the current directory.",
+          "tags": [
+            "run",
+            "env"
+          ]
+        },
+        {
+          "title": "Run a container with a bind mount",
+          "command": "docker run -d -v \"$(pwd)\":/app --name <name> <image>",
+          "description": "Mounts the current directory into the container at /app.",
+          "tags": [
+            "run",
+            "volume"
+          ]
+        },
+        {
+          "title": "Run a container with a named volume",
+          "command": "docker run -d -v <volume>:/data --name <name> <image>",
+          "description": "Stores /data in a named volume so it survives container removal.",
+          "tags": [
+            "run",
+            "volume"
+          ]
+        },
+        {
+          "title": "Run a container that restarts automatically",
+          "command": "docker run -d --restart unless-stopped --name <name> <image>",
+          "description": "Restarts the container after crashes and reboots unless you stop it manually.",
+          "tags": [
+            "run",
+            "restart"
+          ]
+        },
+        {
+          "title": "Run a container on a network",
+          "command": "docker run -d --network <network> --name <name> <image>",
+          "description": "Attaches the new container to an existing network.",
+          "tags": [
+            "run",
+            "network"
+          ]
+        },
+        {
+          "title": "Run a container with resource limits",
+          "command": "docker run -d --memory 512m --cpus 1 --name <name> <image>",
+          "description": "Caps memory and CPU use; the container is killed if it exceeds the memory limit.",
+          "tags": [
+            "run",
+            "limits"
+          ]
+        },
+        {
+          "title": "Open a shell in a running container",
+          "command": "docker exec -it <container> sh",
+          "description": "Starts an interactive shell inside the container. Use bash if available.",
+          "tags": [
+            "exec",
+            "shell"
+          ]
+        },
+        {
+          "title": "Run a command in a running container",
+          "command": "docker exec <container> <command>",
+          "description": "Runs a single command in the container and prints its output.",
+          "tags": [
+            "exec"
+          ]
+        },
+        {
+          "title": "Open a shell as root in a container",
+          "command": "docker exec -it -u root <container> sh",
+          "description": "Useful when the image runs as an unprivileged user.",
+          "tags": [
+            "exec",
+            "shell"
+          ]
+        },
+        {
+          "title": "Follow a container's logs",
+          "command": "docker logs -f --tail 100 <container>",
+          "description": "Shows the last 100 lines and keeps streaming new output until you press Ctrl+C.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Show logs from the last 10 minutes",
+          "command": "docker logs --since 10m <container>",
+          "description": "Prints only recent log lines; accepts durations like 30s or 2h.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Show logs with timestamps",
+          "command": "docker logs -t --tail 50 <container>",
+          "description": "Prefixes each of the last 50 lines with its timestamp.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Build an image from a Dockerfile",
+          "command": "docker build -t <image>:<tag> .",
+          "description": "Builds from the Dockerfile in the current directory and tags the result.",
+          "tags": [
+            "build"
+          ]
+        },
+        {
+          "title": "Build without cache",
+          "command": "docker build --no-cache -t <image>:<tag> .",
+          "description": "Forces every step to run again, which is slower but avoids stale layers.",
+          "tags": [
+            "build"
+          ]
+        },
+        {
+          "title": "Build with a specific Dockerfile",
+          "command": "docker build -f <dockerfile> -t <image>:<tag> .",
+          "description": "Uses a Dockerfile with a non-default name or path.",
+          "tags": [
+            "build"
+          ]
+        },
+        {
+          "title": "Build with a build argument",
+          "command": "docker build --build-arg <key>=<value> -t <image>:<tag> .",
+          "description": "Sets an ARG declared in the Dockerfile.",
+          "tags": [
+            "build"
+          ]
+        },
+        {
+          "title": "Tag an image",
+          "command": "docker tag <image>:<tag> <registry>/<image>:<new-tag>",
+          "description": "Adds another name to an existing image, typically before pushing.",
+          "tags": [
+            "tag"
+          ]
+        },
+        {
+          "title": "Push an image to a registry",
+          "command": "docker push <registry>/<image>:<tag>",
+          "description": "Uploads the image; run docker login first for private registries.",
+          "tags": [
+            "push",
+            "registry"
+          ]
+        },
+        {
+          "title": "Pull an image",
+          "command": "docker pull <image>:<tag>",
+          "description": "Downloads an image or updates the local copy of that tag.",
+          "tags": [
+            "pull",
+            "registry"
+          ]
+        },
+        {
+          "title": "Log in to a registry",
+          "command": "docker login <registry>",
+          "description": "Prompts for credentials and stores them for later pushes and pulls.",
+          "tags": [
+            "login",
+            "registry"
+          ]
+        },
+        {
+          "title": "Stop a container",
+          "command": "docker stop <container>",
+          "description": "Sends SIGTERM, then SIGKILL after 10 seconds.",
+          "tags": [
+            "lifecycle"
+          ]
+        },
+        {
+          "title": "Start a stopped container",
+          "command": "docker start <container>",
+          "description": "Starts an existing container with its previous configuration.",
+          "tags": [
+            "lifecycle"
+          ]
+        },
+        {
+          "title": "Restart a container",
+          "command": "docker restart <container>",
+          "description": "Stops and starts the container again.",
+          "tags": [
+            "lifecycle"
+          ]
+        },
+        {
+          "title": "Remove a container",
+          "command": "docker rm <container>",
+          "description": "Deletes a stopped container; its anonymous volumes remain unless you add -v.",
+          "tags": [
+            "lifecycle",
+            "cleanup"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Force remove a running container",
+          "command": "docker rm -f <container>",
+          "description": "Kills and deletes the container immediately.",
+          "tags": [
+            "lifecycle",
+            "cleanup"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Remove all stopped containers",
+          "command": "docker container prune",
+          "description": "Deletes every stopped container after a confirmation prompt.",
+          "tags": [
+            "cleanup"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Remove an image",
+          "command": "docker rmi <image>:<tag>",
+          "description": "Deletes a local image; fails if a container still uses it.",
+          "tags": [
+            "images",
+            "cleanup"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Remove all unused images",
+          "command": "docker image prune -a",
+          "description": "Deletes every image not used by a container. Asks before it runs.",
+          "tags": [
+            "images",
+            "cleanup",
+            "disk"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Remove dangling images",
+          "command": "docker image prune",
+          "description": "Deletes untagged images only. Asks before it runs.",
+          "tags": [
+            "images",
+            "cleanup",
+            "disk"
+          ]
+        },
+        {
+          "title": "Clear the build cache",
+          "command": "docker builder prune",
+          "description": "Removes dangling build cache after a confirmation prompt; add -a to remove all of it.",
+          "tags": [
+            "build",
+            "cleanup",
+            "disk"
+          ]
+        },
+        {
+          "title": "Remove all build cache",
+          "command": "docker builder prune -a",
+          "description": "Deletes all build cache, so the next builds start cold.",
+          "tags": [
+            "build",
+            "cleanup",
+            "disk"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Remove all unused images, containers and networks",
+          "command": "docker system prune -a",
+          "description": "Deletes every stopped container, unused network and image not used by a container. Asks before it runs.",
+          "tags": [
+            "cleanup",
+            "disk"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show Docker disk usage",
+          "command": "docker system df",
+          "description": "Summarizes space used by images, containers, volumes and build cache.",
+          "tags": [
+            "disk"
+          ]
+        },
+        {
+          "title": "Inspect a container",
+          "command": "docker inspect <container>",
+          "description": "Prints the full JSON configuration and state of a container.",
+          "tags": [
+            "inspect"
+          ]
+        },
+        {
+          "title": "Get a container's IP address",
+          "command": "docker inspect -f \"{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}\" <container>",
+          "description": "Prints the IP on each network the container is attached to.",
+          "tags": [
+            "inspect",
+            "network"
+          ]
+        },
+        {
+          "title": "Show live resource usage",
+          "command": "docker stats",
+          "description": "Streams CPU, memory, network and disk I/O for running containers.",
+          "tags": [
+            "stats"
+          ]
+        },
+        {
+          "title": "Show resource usage once",
+          "command": "docker stats --no-stream",
+          "description": "Prints a single snapshot instead of streaming.",
+          "tags": [
+            "stats"
+          ]
+        },
+        {
+          "title": "Copy a file from a container to the host",
+          "command": "docker cp <container>:<path> .",
+          "description": "Copies a file or directory out of the container into the current directory.",
+          "tags": [
+            "cp"
+          ]
+        },
+        {
+          "title": "Copy a file from the host into a container",
+          "command": "docker cp <file> <container>:<path>",
+          "description": "Copies a local file into the container's filesystem.",
+          "tags": [
+            "cp"
+          ]
+        },
+        {
+          "title": "List networks",
+          "command": "docker network ls",
+          "description": "Shows all Docker networks and their drivers.",
+          "tags": [
+            "network"
+          ]
+        },
+        {
+          "title": "Create a network",
+          "command": "docker network create <network>",
+          "description": "Creates a user-defined bridge network where containers resolve each other by name.",
+          "tags": [
+            "network"
+          ]
+        },
+        {
+          "title": "Inspect a network",
+          "command": "docker network inspect <network>",
+          "description": "Shows the subnet and the containers attached to a network.",
+          "tags": [
+            "network",
+            "inspect"
+          ]
+        },
+        {
+          "title": "List volumes",
+          "command": "docker volume ls",
+          "description": "Shows all local volumes.",
+          "tags": [
+            "volume"
+          ]
+        },
+        {
+          "title": "Create a volume",
+          "command": "docker volume create <volume>",
+          "description": "Creates a named volume for persistent data.",
+          "tags": [
+            "volume"
+          ]
+        },
+        {
+          "title": "Inspect a volume",
+          "command": "docker volume inspect <volume>",
+          "description": "Shows the volume's mountpoint and driver.",
+          "tags": [
+            "volume",
+            "inspect"
+          ]
+        },
+        {
+          "title": "Remove a volume",
+          "command": "docker volume rm <volume>",
+          "description": "Permanently deletes the volume and its data; fails if a container uses it.",
+          "tags": [
+            "volume",
+            "cleanup"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Save an image to a tar file",
+          "command": "docker save -o <file>.tar <image>:<tag>",
+          "description": "Exports an image so it can be moved to a machine without registry access.",
+          "tags": [
+            "save"
+          ]
+        },
+        {
+          "title": "Load an image from a tar file",
+          "command": "docker load -i <file>.tar",
+          "description": "Imports an image previously exported with docker save.",
+          "tags": [
+            "load"
+          ]
+        },
+        {
+          "title": "Show processes in a container",
+          "command": "docker top <container>",
+          "description": "Lists the processes running inside the container.",
+          "tags": [
+            "top"
+          ]
+        },
+        {
+          "title": "Show a container's port mappings",
+          "command": "docker port <container>",
+          "description": "Prints how container ports map to host ports.",
+          "tags": [
+            "ports"
+          ]
+        },
+        {
+          "title": "Rename a container",
+          "command": "docker rename <container> <new-name>",
+          "description": "Changes the container's name without recreating it.",
+          "tags": [
+            "lifecycle"
+          ]
+        },
+        {
+          "title": "Change a container's restart policy",
+          "command": "docker update --restart unless-stopped <container>",
+          "description": "Updates the restart policy of an existing container without recreating it.",
+          "tags": [
+            "restart"
+          ]
+        },
+        {
+          "title": "Show Docker version and daemon info",
+          "command": "docker info",
+          "description": "Prints server details such as storage driver, runtime and container counts.",
+          "tags": [
+            "info"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docker-compose",
+      "name": "Docker Compose",
+      "commands": [
+        {
+          "title": "Start services in the background",
+          "command": "docker compose up -d",
+          "description": "Creates and starts all services defined in the compose file.",
+          "tags": [
+            "up"
+          ]
+        },
+        {
+          "title": "Rebuild images and start services",
+          "command": "docker compose up -d --build",
+          "description": "Rebuilds images before starting so code changes are picked up.",
+          "tags": [
+            "up",
+            "build"
+          ]
+        },
+        {
+          "title": "Start in the foreground",
+          "command": "docker compose up",
+          "description": "Streams logs from all services; Ctrl+C stops them.",
+          "tags": [
+            "up"
+          ]
+        },
+        {
+          "title": "Stop and remove services",
+          "command": "docker compose down",
+          "description": "Removes containers and networks but keeps named volumes.",
+          "tags": [
+            "down"
+          ]
+        },
+        {
+          "title": "Stop and remove services and volumes",
+          "command": "docker compose down -v",
+          "description": "Also deletes named volumes declared in the file, wiping their data.",
+          "tags": [
+            "down",
+            "volume"
+          ],
+          "danger": true
+        },
+        {
+          "title": "List the project's containers",
+          "command": "docker compose ps",
+          "description": "Shows the status of the services in this project.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Follow logs of all services",
+          "command": "docker compose logs -f --tail 100",
+          "description": "Streams the last 100 lines of every service until you press Ctrl+C.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Follow logs of one service",
+          "command": "docker compose logs -f <service>",
+          "description": "Streams logs for a single service.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Open a shell in a service",
+          "command": "docker compose exec <service> sh",
+          "description": "Starts an interactive shell in the running service container.",
+          "tags": [
+            "exec",
+            "shell"
+          ]
+        },
+        {
+          "title": "Run a one-off command in a service",
+          "command": "docker compose run --rm <service> <command>",
+          "description": "Starts a temporary container for the service and removes it afterwards.",
+          "tags": [
+            "run"
+          ]
+        },
+        {
+          "title": "Restart a service",
+          "command": "docker compose restart <service>",
+          "description": "Restarts the service container without rebuilding it.",
+          "tags": [
+            "restart"
+          ]
+        },
+        {
+          "title": "Pull the latest images",
+          "command": "docker compose pull",
+          "description": "Downloads newer images for every service; run up -d afterwards to apply.",
+          "tags": [
+            "pull"
+          ]
+        },
+        {
+          "title": "Validate and print the resolved config",
+          "command": "docker compose config",
+          "description": "Shows the merged compose file with variables substituted and catches syntax errors.",
+          "tags": [
+            "config"
+          ]
+        },
+        {
+          "title": "Stop services without removing them",
+          "command": "docker compose stop",
+          "description": "Stops containers but keeps them and their data.",
+          "tags": [
+            "lifecycle"
+          ]
+        },
+        {
+          "title": "Start existing stopped services",
+          "command": "docker compose start",
+          "description": "Starts containers that were previously stopped.",
+          "tags": [
+            "lifecycle"
+          ]
+        },
+        {
+          "title": "Show processes of services",
+          "command": "docker compose top",
+          "description": "Lists processes running inside each service container.",
+          "tags": [
+            "top"
+          ]
+        },
+        {
+          "title": "List images used by the project",
+          "command": "docker compose images",
+          "description": "Shows the images behind each service container.",
+          "tags": [
+            "images"
+          ]
+        },
+        {
+          "title": "Scale a service",
+          "command": "docker compose up -d --scale <service>=3",
+          "description": "Runs three replicas of a service; it must not publish a fixed host port.",
+          "tags": [
+            "scale"
+          ]
+        },
+        {
+          "title": "Use a specific compose file",
+          "command": "docker compose -f <file>.yml up -d",
+          "description": "Starts services from a compose file other than the default.",
+          "tags": [
+            "file"
+          ]
+        },
+        {
+          "title": "Combine compose files",
+          "command": "docker compose -f docker-compose.yml -f <override>.yml up -d",
+          "description": "Merges an override file over the base file.",
+          "tags": [
+            "file"
+          ]
+        },
+        {
+          "title": "Use a project name",
+          "command": "docker compose -p <project> up -d",
+          "description": "Sets the project name, so the same file can run side by side as separate stacks.",
+          "tags": [
+            "project"
+          ]
+        },
+        {
+          "title": "Rebuild a service without cache",
+          "command": "docker compose build --no-cache <service>",
+          "description": "Rebuilds the service image from scratch.",
+          "tags": [
+            "build"
+          ]
+        },
+        {
+          "title": "Remove orphan containers on down",
+          "command": "docker compose down --remove-orphans",
+          "description": "Also removes containers for services no longer in the compose file.",
+          "tags": [
+            "down",
+            "cleanup"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kubernetes",
+      "name": "Kubernetes",
+      "commands": [
+        {
+          "title": "List pods",
+          "command": "kubectl get pods",
+          "description": "Shows pods in the current namespace.",
+          "tags": [
+            "pods"
+          ]
+        },
+        {
+          "title": "List pods with node and IP",
+          "command": "kubectl get pods -o wide",
+          "description": "Adds node, pod IP and other columns.",
+          "tags": [
+            "pods"
+          ]
+        },
+        {
+          "title": "List pods in all namespaces",
+          "command": "kubectl get pods -A",
+          "description": "Shows pods across the whole cluster.",
+          "tags": [
+            "pods"
+          ]
+        },
+        {
+          "title": "List pods in a namespace",
+          "command": "kubectl get pods -n <namespace>",
+          "description": "Shows pods in the given namespace.",
+          "tags": [
+            "pods"
+          ]
+        },
+        {
+          "title": "List pods by label",
+          "command": "kubectl get pods -l <key>=<value>",
+          "description": "Filters pods using a label selector.",
+          "tags": [
+            "pods",
+            "filter"
+          ]
+        },
+        {
+          "title": "Watch pods change",
+          "command": "kubectl get pods -w",
+          "description": "Streams updates as pods change state; Ctrl+C to stop.",
+          "tags": [
+            "pods"
+          ]
+        },
+        {
+          "title": "List services",
+          "command": "kubectl get svc",
+          "description": "Shows services in the current namespace.",
+          "tags": [
+            "services"
+          ]
+        },
+        {
+          "title": "List deployments",
+          "command": "kubectl get deploy",
+          "description": "Shows deployments with ready and available replica counts.",
+          "tags": [
+            "deployments"
+          ]
+        },
+        {
+          "title": "List nodes",
+          "command": "kubectl get nodes -o wide",
+          "description": "Shows nodes with status, version and IPs.",
+          "tags": [
+            "nodes"
+          ]
+        },
+        {
+          "title": "List most resources in all namespaces",
+          "command": "kubectl get all -A",
+          "description": "Shows pods, services, deployments and more; it omits ingresses, configmaps and secrets.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Describe a pod",
+          "command": "kubectl describe pod <pod>",
+          "description": "Shows pod details and recent events, the first stop for crash loops.",
+          "tags": [
+            "describe",
+            "pods"
+          ]
+        },
+        {
+          "title": "Describe a node",
+          "command": "kubectl describe node <node>",
+          "description": "Shows capacity, allocated resources, conditions and events.",
+          "tags": [
+            "describe",
+            "nodes"
+          ]
+        },
+        {
+          "title": "Show a pod's YAML",
+          "command": "kubectl get pod <pod> -o yaml",
+          "description": "Prints the live manifest including status.",
+          "tags": [
+            "pods",
+            "yaml"
+          ]
+        },
+        {
+          "title": "Follow a pod's logs",
+          "command": "kubectl logs -f <pod>",
+          "description": "Streams logs until you press Ctrl+C.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Show the previous container's logs",
+          "command": "kubectl logs <pod> --previous",
+          "description": "Prints logs from the last crashed container instance.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Show logs of a specific container",
+          "command": "kubectl logs <pod> -c <container>",
+          "description": "Picks one container in a multi-container pod.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Show recent logs",
+          "command": "kubectl logs <pod> --since=15m --tail=200",
+          "description": "Limits output to the last 15 minutes and 200 lines.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Open a shell in a pod",
+          "command": "kubectl exec -it <pod> -- sh",
+          "description": "Starts an interactive shell. Add -c <container> for multi-container pods.",
+          "tags": [
+            "exec",
+            "shell"
+          ]
+        },
+        {
+          "title": "Run a command in a pod",
+          "command": "kubectl exec <pod> -- <command>",
+          "description": "Runs one command in the pod and prints its output.",
+          "tags": [
+            "exec"
+          ]
+        },
+        {
+          "title": "Apply a manifest",
+          "command": "kubectl apply -f <file>.yaml",
+          "description": "Creates or updates resources from a file.",
+          "tags": [
+            "apply"
+          ]
+        },
+        {
+          "title": "Preview a change with diff",
+          "command": "kubectl diff -f <file>.yaml",
+          "description": "Shows what apply would change without changing anything.",
+          "tags": [
+            "apply"
+          ]
+        },
+        {
+          "title": "Delete resources from a manifest",
+          "command": "kubectl delete -f <file>.yaml",
+          "description": "Deletes every resource defined in the file.",
+          "tags": [
+            "delete"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Delete a pod",
+          "command": "kubectl delete pod <pod>",
+          "description": "Deletes the pod; a controller will usually recreate it.",
+          "tags": [
+            "delete",
+            "pods"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Check rollout status",
+          "command": "kubectl rollout status deploy/<deployment>",
+          "description": "Waits and reports until the rollout finishes or fails.",
+          "tags": [
+            "rollout"
+          ]
+        },
+        {
+          "title": "Restart a deployment",
+          "command": "kubectl rollout restart deploy/<deployment>",
+          "description": "Recreates the pods gradually with a rolling update.",
+          "tags": [
+            "rollout"
+          ]
+        },
+        {
+          "title": "Roll back a deployment",
+          "command": "kubectl rollout undo deploy/<deployment>",
+          "description": "Reverts to the previous revision.",
+          "tags": [
+            "rollout"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show rollout history",
+          "command": "kubectl rollout history deploy/<deployment>",
+          "description": "Lists the recorded revisions of a deployment.",
+          "tags": [
+            "rollout"
+          ]
+        },
+        {
+          "title": "Scale a deployment",
+          "command": "kubectl scale deploy/<deployment> --replicas=<count>",
+          "description": "Sets the number of replicas.",
+          "tags": [
+            "scale"
+          ]
+        },
+        {
+          "title": "Forward a local port to a pod",
+          "command": "kubectl port-forward pod/<pod> <local-port>:<pod-port>",
+          "description": "Makes a pod port reachable on localhost until you press Ctrl+C.",
+          "tags": [
+            "port-forward"
+          ]
+        },
+        {
+          "title": "Forward a local port to a service",
+          "command": "kubectl port-forward svc/<service> <local-port>:<service-port>",
+          "description": "Tunnels localhost to a service port.",
+          "tags": [
+            "port-forward"
+          ]
+        },
+        {
+          "title": "List contexts",
+          "command": "kubectl config get-contexts",
+          "description": "Shows configured clusters and which context is active.",
+          "tags": [
+            "config",
+            "context"
+          ]
+        },
+        {
+          "title": "Switch context",
+          "command": "kubectl config use-context <context>",
+          "description": "Changes the active cluster and user.",
+          "tags": [
+            "config",
+            "context"
+          ]
+        },
+        {
+          "title": "Show the current context",
+          "command": "kubectl config current-context",
+          "description": "Prints the name of the active context.",
+          "tags": [
+            "config",
+            "context"
+          ]
+        },
+        {
+          "title": "Set the default namespace",
+          "command": "kubectl config set-context --current --namespace=<namespace>",
+          "description": "Saves a namespace on the current context so -n is not needed.",
+          "tags": [
+            "config",
+            "namespace"
+          ]
+        },
+        {
+          "title": "Show pod resource usage",
+          "command": "kubectl top pods",
+          "description": "Shows CPU and memory per pod; needs metrics-server.",
+          "tags": [
+            "top",
+            "pods"
+          ]
+        },
+        {
+          "title": "Show node resource usage",
+          "command": "kubectl top nodes",
+          "description": "Shows CPU and memory per node; needs metrics-server.",
+          "tags": [
+            "top",
+            "nodes"
+          ]
+        },
+        {
+          "title": "Create a namespace",
+          "command": "kubectl create namespace <namespace>",
+          "description": "Creates a new namespace.",
+          "tags": [
+            "namespace"
+          ]
+        },
+        {
+          "title": "List namespaces",
+          "command": "kubectl get namespaces",
+          "description": "Shows all namespaces in the cluster.",
+          "tags": [
+            "namespace"
+          ]
+        },
+        {
+          "title": "List events by time",
+          "command": "kubectl get events --sort-by=.metadata.creationTimestamp",
+          "description": "Shows recent events oldest to newest, useful for debugging scheduling problems.",
+          "tags": [
+            "events"
+          ]
+        },
+        {
+          "title": "Copy a file from a pod",
+          "command": "kubectl cp <namespace>/<pod>:<path> ./<file>",
+          "description": "Copies a file out of a pod; the container needs tar installed.",
+          "tags": [
+            "cp"
+          ]
+        },
+        {
+          "title": "Copy a file into a pod",
+          "command": "kubectl cp ./<file> <namespace>/<pod>:<path>",
+          "description": "Copies a local file into a pod; the container needs tar installed.",
+          "tags": [
+            "cp"
+          ]
+        },
+        {
+          "title": "Update a deployment's image",
+          "command": "kubectl set image deploy/<deployment> <container>=<image>:<tag>",
+          "description": "Triggers a rolling update to the new image.",
+          "tags": [
+            "set-image",
+            "rollout"
+          ]
+        },
+        {
+          "title": "Cordon a node",
+          "command": "kubectl cordon <node>",
+          "description": "Marks a node unschedulable without touching running pods.",
+          "tags": [
+            "nodes"
+          ]
+        },
+        {
+          "title": "Drain a node",
+          "command": "kubectl drain <node> --ignore-daemonsets --delete-emptydir-data",
+          "description": "Evicts pods from the node, discarding emptyDir data. Use before maintenance.",
+          "tags": [
+            "nodes"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Uncordon a node",
+          "command": "kubectl uncordon <node>",
+          "description": "Makes a node schedulable again.",
+          "tags": [
+            "nodes"
+          ]
+        },
+        {
+          "title": "Check whether you can do something",
+          "command": "kubectl auth can-i <verb> <resource>",
+          "description": "Answers yes or no for your current user; add --as to test another identity.",
+          "tags": [
+            "auth",
+            "rbac"
+          ]
+        },
+        {
+          "title": "List everything you can do",
+          "command": "kubectl auth can-i --list",
+          "description": "Shows the permissions of the current user in the namespace.",
+          "tags": [
+            "auth",
+            "rbac"
+          ]
+        },
+        {
+          "title": "Decode a secret value",
+          "command": "kubectl get secret <secret> -o jsonpath=\"{.data.<key>}\" | base64 -d",
+          "description": "Prints one secret key decoded; avoid running it on shared screens.",
+          "tags": [
+            "secrets"
+          ]
+        },
+        {
+          "title": "Run a temporary debug pod",
+          "command": "kubectl run <pod> --rm -it --image=busybox --restart=Never -- sh",
+          "description": "Starts a throwaway pod with a shell for testing connectivity.",
+          "tags": [
+            "debug"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "helm",
+      "name": "Helm",
+      "commands": [
+        {
+          "title": "Add a chart repository",
+          "command": "helm repo add <name> <url>",
+          "description": "Registers a chart repository under a local name.",
+          "tags": [
+            "repo"
+          ]
+        },
+        {
+          "title": "Update chart repositories",
+          "command": "helm repo update",
+          "description": "Refreshes the local index of every added repository.",
+          "tags": [
+            "repo"
+          ]
+        },
+        {
+          "title": "Search for a chart",
+          "command": "helm search repo <keyword>",
+          "description": "Finds charts in the added repositories.",
+          "tags": [
+            "search"
+          ]
+        },
+        {
+          "title": "List releases",
+          "command": "helm list -A",
+          "description": "Shows installed releases in all namespaces.",
+          "tags": [
+            "releases"
+          ]
+        },
+        {
+          "title": "Install a chart",
+          "command": "helm install <release> <chart> -n <namespace> --create-namespace",
+          "description": "Installs a chart as a named release, creating the namespace if needed.",
+          "tags": [
+            "install"
+          ]
+        },
+        {
+          "title": "Install with a values file",
+          "command": "helm install <release> <chart> -f <values>.yaml",
+          "description": "Overrides chart defaults with your values file.",
+          "tags": [
+            "install",
+            "values"
+          ]
+        },
+        {
+          "title": "Upgrade or install a release",
+          "command": "helm upgrade --install <release> <chart> -n <namespace> -f <values>.yaml",
+          "description": "Upgrades the release, or installs it if it does not exist yet.",
+          "tags": [
+            "upgrade"
+          ]
+        },
+        {
+          "title": "Render templates locally",
+          "command": "helm template <release> <chart> -f <values>.yaml",
+          "description": "Prints the Kubernetes manifests without touching the cluster.",
+          "tags": [
+            "template"
+          ]
+        },
+        {
+          "title": "Show a release's history",
+          "command": "helm history <release> -n <namespace>",
+          "description": "Lists revisions, which you can roll back to.",
+          "tags": [
+            "history"
+          ]
+        },
+        {
+          "title": "Roll back a release",
+          "command": "helm rollback <release> <revision> -n <namespace>",
+          "description": "Reverts the release to a given revision.",
+          "tags": [
+            "rollback"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Uninstall a release",
+          "command": "helm uninstall <release> -n <namespace>",
+          "description": "Deletes the release and the resources it created.",
+          "tags": [
+            "uninstall"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show a chart's default values",
+          "command": "helm show values <chart>",
+          "description": "Prints values.yaml, a good start for your own overrides.",
+          "tags": [
+            "values"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "aws-cli",
+      "name": "AWS CLI",
+      "commands": [
+        {
+          "title": "Show the current AWS identity",
+          "command": "aws sts get-caller-identity",
+          "description": "Prints the account, user ARN and ID behind the active credentials.",
+          "tags": [
+            "sts",
+            "identity"
+          ]
+        },
+        {
+          "title": "Configure credentials",
+          "command": "aws configure",
+          "description": "Prompts for access key, secret key, default region and output format.",
+          "tags": [
+            "configure"
+          ]
+        },
+        {
+          "title": "Configure a named profile",
+          "command": "aws configure --profile <profile>",
+          "description": "Stores credentials under a separate profile name.",
+          "tags": [
+            "configure",
+            "profile"
+          ]
+        },
+        {
+          "title": "Configure SSO login",
+          "command": "aws configure sso",
+          "description": "Walks through setting up an IAM Identity Center profile.",
+          "tags": [
+            "configure",
+            "sso"
+          ]
+        },
+        {
+          "title": "Log in with SSO",
+          "command": "aws sso login --profile <profile>",
+          "description": "Opens the browser to refresh SSO credentials.",
+          "tags": [
+            "sso",
+            "profile"
+          ]
+        },
+        {
+          "title": "List S3 buckets",
+          "command": "aws s3 ls",
+          "description": "Shows all buckets in the account.",
+          "tags": [
+            "s3"
+          ]
+        },
+        {
+          "title": "List objects in a bucket",
+          "command": "aws s3 ls s3://<bucket>/ --recursive --human-readable --summarize",
+          "description": "Lists every object with sizes and a total.",
+          "tags": [
+            "s3"
+          ]
+        },
+        {
+          "title": "Copy a file to S3",
+          "command": "aws s3 cp <file> s3://<bucket>/<key>",
+          "description": "Uploads a local file.",
+          "tags": [
+            "s3",
+            "upload"
+          ]
+        },
+        {
+          "title": "Download a file from S3",
+          "command": "aws s3 cp s3://<bucket>/<key> .",
+          "description": "Downloads an object into the current directory.",
+          "tags": [
+            "s3",
+            "download"
+          ]
+        },
+        {
+          "title": "Sync a folder to S3",
+          "command": "aws s3 sync <folder> s3://<bucket>/<prefix>",
+          "description": "Uploads new and changed files; add --delete to remove extras remotely.",
+          "tags": [
+            "s3",
+            "sync"
+          ]
+        },
+        {
+          "title": "Delete an object from S3",
+          "command": "aws s3 rm s3://<bucket>/<key>",
+          "description": "Permanently deletes one object, or a versioned marker if versioning is on.",
+          "tags": [
+            "s3"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Delete everything under an S3 prefix",
+          "command": "aws s3 rm s3://<bucket>/<prefix> --recursive",
+          "description": "Deletes all matching objects; try --dryrun first.",
+          "tags": [
+            "s3"
+          ],
+          "danger": true
+        },
+        {
+          "title": "List EC2 instances in a table",
+          "command": "aws ec2 describe-instances --query \"Reservations[].Instances[].[InstanceId,State.Name,InstanceType,PrivateIpAddress,Tags[?Key=='Name']|[0].Value]\" --output table",
+          "description": "Shows ID, state, type, IP and Name tag for each instance in the region.",
+          "tags": [
+            "ec2"
+          ]
+        },
+        {
+          "title": "List running EC2 instances",
+          "command": "aws ec2 describe-instances --filters Name=instance-state-name,Values=running --query \"Reservations[].Instances[].InstanceId\" --output text",
+          "description": "Prints IDs of running instances only.",
+          "tags": [
+            "ec2",
+            "filter"
+          ]
+        },
+        {
+          "title": "Log Docker in to ECR",
+          "command": "aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <account-id>.dkr.ecr.<region>.amazonaws.com",
+          "description": "Authenticates Docker against your private ECR registry; the token lasts 12 hours.",
+          "tags": [
+            "ecr",
+            "docker"
+          ]
+        },
+        {
+          "title": "Tail CloudWatch logs",
+          "command": "aws logs tail <log-group> --follow --since 10m",
+          "description": "Streams log events from a log group until you press Ctrl+C.",
+          "tags": [
+            "logs",
+            "cloudwatch"
+          ]
+        },
+        {
+          "title": "Start an SSM session",
+          "command": "aws ssm start-session --target <instance-id>",
+          "description": "Opens a shell on an instance without SSH; needs the Session Manager plugin.",
+          "tags": [
+            "ssm",
+            "shell"
+          ]
+        },
+        {
+          "title": "List Lambda functions",
+          "command": "aws lambda list-functions --query \"Functions[].FunctionName\" --output table",
+          "description": "Shows the names of functions in the region.",
+          "tags": [
+            "lambda"
+          ]
+        },
+        {
+          "title": "Invoke a Lambda function",
+          "command": "aws lambda invoke --function-name <function> --cli-binary-format raw-in-base64-out --payload '{}' out.json",
+          "description": "Runs the function with an empty JSON payload and writes the response to out.json.",
+          "tags": [
+            "lambda"
+          ]
+        },
+        {
+          "title": "Invalidate a CloudFront cache",
+          "command": "aws cloudfront create-invalidation --distribution-id <distribution-id> --paths \"/*\"",
+          "description": "Clears cached copies at the edge; large numbers of paths can incur cost.",
+          "tags": [
+            "cloudfront"
+          ]
+        },
+        {
+          "title": "Describe ElastiCache clusters",
+          "command": "aws elasticache describe-cache-clusters --show-cache-node-info",
+          "description": "Lists clusters with node endpoints.",
+          "tags": [
+            "elasticache"
+          ]
+        },
+        {
+          "title": "Describe RDS instances",
+          "command": "aws rds describe-db-instances --query \"DBInstances[].[DBInstanceIdentifier,Engine,DBInstanceStatus,Endpoint.Address]\" --output table",
+          "description": "Shows identifier, engine, status and endpoint of each database.",
+          "tags": [
+            "rds"
+          ]
+        },
+        {
+          "title": "Run a command with a profile and region",
+          "command": "aws <service> <command> --profile <profile> --region <region>",
+          "description": "Overrides the default profile and region for a single call.",
+          "tags": [
+            "profile",
+            "region"
+          ]
+        },
+        {
+          "title": "Use a profile for the whole shell",
+          "command": "export AWS_PROFILE=<profile>",
+          "description": "Makes later aws commands in this shell use that profile.",
+          "tags": [
+            "profile"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "terraform",
+      "name": "Terraform",
+      "commands": [
+        {
+          "title": "Initialize a working directory",
+          "command": "terraform init",
+          "description": "Downloads providers and modules and configures the backend.",
+          "tags": [
+            "init"
+          ]
+        },
+        {
+          "title": "Upgrade providers",
+          "command": "terraform init -upgrade",
+          "description": "Re-resolves providers and modules to the newest allowed versions.",
+          "tags": [
+            "init"
+          ]
+        },
+        {
+          "title": "Preview changes",
+          "command": "terraform plan",
+          "description": "Shows what Terraform would create, change or destroy.",
+          "tags": [
+            "plan"
+          ]
+        },
+        {
+          "title": "Save a plan to a file",
+          "command": "terraform plan -out=tfplan",
+          "description": "Saves the plan so apply runs exactly what you reviewed.",
+          "tags": [
+            "plan"
+          ]
+        },
+        {
+          "title": "Apply changes",
+          "command": "terraform apply",
+          "description": "Shows the plan and asks for confirmation before changing infrastructure.",
+          "tags": [
+            "apply"
+          ]
+        },
+        {
+          "title": "Apply a saved plan",
+          "command": "terraform apply tfplan",
+          "description": "Applies exactly the saved plan without another prompt.",
+          "tags": [
+            "apply"
+          ]
+        },
+        {
+          "title": "Apply without confirmation",
+          "command": "terraform apply -auto-approve",
+          "description": "Skips the approval prompt, so use it only when you trust the plan.",
+          "tags": [
+            "apply"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Destroy all managed infrastructure",
+          "command": "terraform destroy",
+          "description": "Deletes every resource in the state after you confirm.",
+          "tags": [
+            "destroy"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Format configuration files",
+          "command": "terraform fmt -recursive",
+          "description": "Rewrites .tf files to canonical style in this directory and below.",
+          "tags": [
+            "fmt"
+          ]
+        },
+        {
+          "title": "Validate the configuration",
+          "command": "terraform validate",
+          "description": "Checks syntax and internal consistency without contacting providers.",
+          "tags": [
+            "validate"
+          ]
+        },
+        {
+          "title": "Show outputs",
+          "command": "terraform output",
+          "description": "Prints all root module outputs; add a name for a single value.",
+          "tags": [
+            "output"
+          ]
+        },
+        {
+          "title": "List resources in state",
+          "command": "terraform state list",
+          "description": "Shows the addresses of every resource Terraform tracks.",
+          "tags": [
+            "state"
+          ]
+        },
+        {
+          "title": "Show a resource in state",
+          "command": "terraform state show <address>",
+          "description": "Prints the recorded attributes of one resource.",
+          "tags": [
+            "state"
+          ]
+        },
+        {
+          "title": "Remove a resource from state",
+          "command": "terraform state rm <address>",
+          "description": "Stops tracking the resource without destroying it; Terraform may try to recreate it later.",
+          "tags": [
+            "state"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Import an existing resource",
+          "command": "terraform import <address> <id>",
+          "description": "Brings an existing real resource under Terraform management.",
+          "tags": [
+            "import"
+          ]
+        },
+        {
+          "title": "List workspaces",
+          "command": "terraform workspace list",
+          "description": "Shows workspaces, with an asterisk on the current one.",
+          "tags": [
+            "workspace"
+          ]
+        },
+        {
+          "title": "Select a workspace",
+          "command": "terraform workspace select <workspace>",
+          "description": "Switches to another state workspace.",
+          "tags": [
+            "workspace"
+          ]
+        },
+        {
+          "title": "Create a workspace",
+          "command": "terraform workspace new <workspace>",
+          "description": "Creates and switches to a new workspace with empty state.",
+          "tags": [
+            "workspace"
+          ]
+        },
+        {
+          "title": "Plan a single resource",
+          "command": "terraform plan -target=<address>",
+          "description": "Limits the plan to one resource and its dependencies; avoid it as a routine habit.",
+          "tags": [
+            "plan",
+            "target"
+          ]
+        },
+        {
+          "title": "Apply with a variables file",
+          "command": "terraform apply -var-file=<file>.tfvars",
+          "description": "Loads variable values from the given file.",
+          "tags": [
+            "apply",
+            "variables"
+          ]
+        }
+      ]
+    }
+  ]
+}

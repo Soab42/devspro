@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import "@xterm/xterm/css/xterm.css";
 import "./Terminal.css";
 
@@ -60,6 +61,13 @@ export interface TerminalProps {
    * first OSC 7 it produces, is then wiped so the user never sees it.
    */
   onPrompt?: () => boolean | void;
+  /**
+   * An image was pasted, and saved on this machine at `localPath`. Resolve
+   * with the path to type instead (where a remote shell can read it), or null
+   * to type nothing. Without it the local path is typed, which is right for a
+   * local shell.
+   */
+  onPasteImage?: (localPath: string) => Promise<string | null>;
 }
 
 const PROMPT_END = /[$#%>\u276f]\s*$/;
@@ -103,6 +111,47 @@ export function osc7Path(data: string): string | null {
   }
 }
 
+/** The most base64 an OSC 52 copy may carry: about 768 KB of text. */
+export const OSC52_MAX = 1 << 20;
+
+/**
+ * The text an OSC 52 payload (`c;aGVsbG8=`) puts on the clipboard; null for a
+ * read request (`c;?`), an empty one, one over OSC52_MAX, or anything that
+ * isn't base64 UTF-8. Control characters other than tab and newline are
+ * dropped, so a copy can't carry escape sequences into wherever it's pasted.
+ */
+export function osc52Text(data: string): string | null {
+  const split = data.indexOf(";");
+  if (split < 0) return null;
+  const payload = data.slice(split + 1);
+  if (!payload || payload === "?" || payload.length > OSC52_MAX) return null;
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(decodeBase64(payload));
+    // eslint-disable-next-line no-control-regex
+    return text.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "") || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A saved image's path as typed into the terminal: bare when that reads the
+ * same to a shell, quoted otherwise, and followed by a space as a dropped
+ * file's is. Claude Code attaches an image whose path is pasted.
+ */
+export function pastedPath(path: string): string {
+  return /^[\w@%+=:,./-]+$/.test(path) ? `${path} ` : `'${path.replace(/'/g, `'\\''`)}' `;
+}
+
+/**
+ * Ctrl+V on its own, which a terminal sends as ^V and Claude Code takes as
+ * "paste an image". Matched by key code as xterm does, so it holds on any
+ * keyboard layout.
+ */
+export function isCtrlV(event: KeyboardEvent): boolean {
+  return event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && (event.key === "v" || event.keyCode === 86);
+}
+
 /**
  * Wrapper that makes a terminal fill the page: `toolbar` above, the terminal
  * body below taking every remaining pixel. Kept here rather than in a module
@@ -115,10 +164,17 @@ export function TerminalWorkspace({
   aside,
   asideWidth = 260,
   onAsideResize,
+  rightAside,
+  rightAsideWidth = 300,
+  onRightAsideResize,
   hidden = false,
   footer,
   children,
 }: {
+  /** An optional column to the right of the panel — the command library. */
+  rightAside?: ReactNode;
+  rightAsideWidth?: number;
+  onRightAsideResize?: (width: number) => void;
   /** A strip under the panel — the host status bar. */
   footer?: ReactNode;
   /** Keeps the sessions mounted (processes, scrollback) while another view is shown. */
@@ -136,15 +192,18 @@ export function TerminalWorkspace({
   onAsideResize?: (width: number) => void;
   children?: ReactNode;
 }) {
-  function startAsideDrag(e: ReactPointerEvent<HTMLDivElement>) {
-    if (!onAsideResize || e.button !== 0) return;
+  // `side` is which way the panel grows: dragging the left one's divider
+  // right widens it, the right one's narrows it.
+  function startAsideDrag(e: ReactPointerEvent<HTMLDivElement>, side: 1 | -1) {
+    const resize = side === 1 ? onAsideResize : onRightAsideResize;
+    if (!resize || e.button !== 0) return;
     e.preventDefault();
     const origin = e.clientX;
-    const start = asideWidth;
+    const start = side === 1 ? asideWidth : rightAsideWidth;
     const divider = e.currentTarget;
     divider.setPointerCapture(e.pointerId);
     divider.classList.add("term-aside-divider-dragging");
-    const move = (ev: PointerEvent) => onAsideResize(clampAside(start + ev.clientX - origin));
+    const move = (ev: PointerEvent) => resize(clampAside(start + side * (ev.clientX - origin)));
     const stop = () => {
       divider.classList.remove("term-aside-divider-dragging");
       divider.removeEventListener("pointermove", move);
@@ -174,11 +233,24 @@ export function TerminalWorkspace({
               className={`term-aside-divider${onAsideResize ? "" : " term-aside-divider-fixed"}`}
               role="separator"
               aria-orientation="vertical"
-              onPointerDown={startAsideDrag}
+              onPointerDown={(e) => startAsideDrag(e, 1)}
             />
           </>
         )}
         <div className="term-panel">{empty ? <div className="term-empty">{empty}</div> : children}</div>
+        {rightAside && (
+          <>
+            <div
+              className={`term-aside-divider${onRightAsideResize ? "" : " term-aside-divider-fixed"}`}
+              role="separator"
+              aria-orientation="vertical"
+              onPointerDown={(e) => startAsideDrag(e, -1)}
+            />
+            <aside className="term-aside" style={{ width: clampAside(rightAsideWidth) }}>
+              {rightAside}
+            </aside>
+          </>
+        )}
       </div>
       {footer}
     </div>
@@ -250,6 +322,9 @@ interface TerminalCallbacks {
   onCwd?: (path: string) => void;
   onDetached?: () => void;
   onPrompt?: () => boolean | void;
+  onPasteImage?: (localPath: string) => Promise<string | null>;
+  /** On screen, as opposed to a hidden tab kept mounted for its scrollback. */
+  active?: boolean;
 }
 
 /** One live terminal: the xterm screen, its element, and the PTY behind it. */
@@ -315,12 +390,114 @@ function createSession(
     return true;
   });
 
+  // Copy on select, as in most Linux terminals and Termius. xterm reports a
+  // mouse selection once, on mouseup (and again, empty, when it is cleared),
+  // so a drag puts one entry on the clipboard rather than every partial one.
+  term.onSelectionChange(() => {
+    const text = term.getSelection();
+    if (text) writeText(text).catch(() => undefined);
+  });
+
+  // A program in the terminal setting the clipboard: how Claude Code, tmux
+  // and vim copy, and over ssh the only way they can. Reading it back ("?")
+  // is refused; the far end has no business seeing what was copied here.
+  // Only the pane holding the keyboard, in the window the user is in, may
+  // set it, so output scrolling past in a background one (a log, a file
+  // being cat'ed) can't swap it underneath them. Read from the DOM rather
+  // than the `focused` prop, which the dock and AI page leave at its default;
+  // and on screen too, in case a hidden tab's input kept focus. A kept
+  // session whose page is away has no mounted component, so it counts as off
+  // screen.
+  term.parser.registerOscHandler(52, (data) => {
+    if (!mounted.has(id) || holder.cb.current.active === false) return true;
+    if (!document.hasFocus() || document.activeElement !== term.textarea) return true;
+    const text = osc52Text(data);
+    if (text) writeText(text).catch(() => undefined);
+    return true;
+  });
+
   let opened = false;
   // False once another window has adopted the session: from then on this
   // terminal is a stale view and must not kill the process on unmount.
   let owns = true;
   let disposed = false;
   const unlisteners: Array<() => void> = [];
+
+  const write = (text: string) => {
+    if (!opened || !owns) return;
+    invoke("pty_write", { id, data: text }).catch((e) => holder.cb.current.onError?.(String(e)));
+  };
+
+  // Pasting from the clipboard, read through the backend. An image is
+  // saved to a file and its path typed in (see onPasteImage). Ctrl+V pastes
+  // an image when the clipboard holds one and is otherwise sent as the ^V
+  // it always was; a right click pastes text, or else an image, as in
+  // Termius and PuTTY; so does a paste event with no text in it
+  // (Ctrl+Shift+V of a screenshot). Keystrokes typed while the clipboard is
+  // being read wait, so Ctrl+V then j in vim still reaches it in that order.
+  let reading = 0;
+  let typedMeanwhile: string[] = [];
+  let read = Promise.resolve();
+  const pasteClipboard = ({ text, otherwise }: { text: boolean; otherwise: string | null }) => {
+    reading += 1;
+    read = read.then(async () => {
+      let pasted: string | null = null;
+      let image: string | null = null;
+      try {
+        if (text) pasted = await invoke<string | null>("terminal_clipboard_text");
+        if (!pasted) image = await invoke<string | null>("terminal_clipboard_image");
+      } catch (e) {
+        holder.cb.current.onError?.(String(e));
+      }
+      reading -= 1;
+      if (pasted) term.paste(pasted);
+      else if (!image && otherwise) write(otherwise);
+      if (reading === 0) {
+        const typed = typedMeanwhile;
+        typedMeanwhile = [];
+        for (const keys of typed) write(keys);
+      }
+      if (!image) return;
+      // Not awaited: an upload to a remote host shouldn't hold up the next paste.
+      const onPasteImage = holder.cb.current.onPasteImage;
+      (onPasteImage ? onPasteImage(image) : Promise.resolve(image)).then(
+        (path) => {
+          if (path && !disposed) term.paste(pastedPath(path));
+        },
+        (e) => holder.cb.current.onError?.(e instanceof Error ? e.message : String(e)),
+      );
+    });
+  };
+  term.attachCustomKeyEventHandler((event) => {
+    if (!isCtrlV(event)) return true;
+    if (event.type === "keydown") {
+      // Or the webview pastes the clipboard's text as well.
+      event.preventDefault();
+      pasteClipboard({ text: false, otherwise: "\x16" });
+    }
+    return false;
+  });
+  // Both ahead of xterm's own handlers: its paste reads text alone, and its
+  // right click only readies the webview's menu. On the session's own
+  // element, which travels with it between hosts.
+  const onPaste = (event: ClipboardEvent) => {
+    if (event.clipboardData?.getData("text/plain")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    pasteClipboard({ text: false, otherwise: null });
+  };
+  const onContextMenu = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    term.focus();
+    pasteClipboard({ text: true, otherwise: null });
+  };
+  element.addEventListener("paste", onPaste, true);
+  element.addEventListener("contextmenu", onContextMenu, true);
+  unlisteners.push(
+    () => element.removeEventListener("paste", onPaste, true),
+    () => element.removeEventListener("contextmenu", onContextMenu, true),
+  );
 
   // Output that arrives before an adopted session's screen has been handed
   // over is held back, or it would land on a blank screen and be painted
@@ -462,8 +639,8 @@ function createSession(
       }
 
       const data = term.onData((text) => {
-        if (!opened || !owns) return;
-        invoke("pty_write", { id, data: text }).catch((e) => holder.cb.current.onError?.(String(e)));
+        if (reading > 0) typedMeanwhile.push(text);
+        else write(text);
       });
       const resize = term.onResize(({ cols, rows }) => {
         if (!opened || !owns || pending) return;
@@ -513,12 +690,13 @@ export default function Terminal({
   onCwd,
   onDetached,
   onPrompt,
+  onPasteImage,
 }: TerminalProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const termRef = useRef<XTerm | null>(null);
   const cbRef = useRef<TerminalCallbacks>({});
-  cbRef.current = { onExit, onError, onCwd, onDetached, onPrompt };
+  cbRef.current = { onExit, onError, onCwd, onDetached, onPrompt, onPasteImage, active };
   const persistRef = useRef(persist);
   persistRef.current = persist;
 

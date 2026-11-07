@@ -189,6 +189,7 @@ export function SftpControls({
             value: s.id,
             label: `${s.host.name} (${hostLabel(s.host)})`,
           }))}
+          menuWidth="content"
         />
       )}
       <SegmentedControl
@@ -215,6 +216,7 @@ export function SftpControls({
           value: h.id,
           label: `${h.name} (${hostLabel(h)})`,
         }))}
+        menuWidth="content"
       />
       {active && (
         <Button

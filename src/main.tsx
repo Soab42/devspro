@@ -15,6 +15,7 @@ import { ZoomIndicator } from "./app/ZoomIndicator";
 import { installZoom } from "./app/zoom";
 import { installDragShim } from "./app/dragShim";
 import { isWindows } from "./app/platform";
+import { ErrorBoundary } from "./ui/ErrorBoundary";
 
 // Every window (main, pop-outs, new ones) runs this bundle, so each applies
 // the stored zoom and handles the shortcuts itself.
@@ -26,13 +27,17 @@ if (isWindows && "__TAURI_INTERNALS__" in window) installDragShim();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ThemeProvider>
-      <ConfirmProvider>
-        <AuthProvider>
-          <App />
-          <ZoomIndicator />
-        </AuthProvider>
-      </ConfirmProvider>
-    </ThemeProvider>
+    {/* The last resort: the shell has its own per page, so this one only
+        catches what breaks the app around them. */}
+    <ErrorBoundary>
+      <ThemeProvider>
+        <ConfirmProvider>
+          <AuthProvider>
+            <App />
+            <ZoomIndicator />
+          </AuthProvider>
+        </ConfirmProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );

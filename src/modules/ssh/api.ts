@@ -189,6 +189,14 @@ export const forgetPassword = (hostId: string) => invoke<void>("ssh_password_for
 export const sftpTrustHost = (hostId: string) =>
   invoke<string>("sftp_trust_host", { hostId });
 
+/**
+ * Copies a local file into the server's /tmp (else home), readable by its
+ * owner alone, and returns where it went: a screenshot pasted into a remote
+ * terminal.
+ */
+export const sftpUploadTemp = (session: string, local: string) =>
+  invoke<string>("sftp_upload_temp", { session, local });
+
 export const sftpDisconnect = (session: string) =>
   invoke<void>("sftp_disconnect", { session });
 

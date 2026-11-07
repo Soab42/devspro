@@ -60,11 +60,11 @@ fn binary_names(server: WebServer) -> &'static [&'static str] {
     }
 }
 
+/// The file name, lowercased and without `.exe`, is one of `names`. Either
+/// separator ends a folder, so a Windows path reads the same on any OS;
+/// `Path` splits on `/` only off Windows, and took `C:\…\httpd.exe` whole.
 fn stem_is(path_or_name: &str, names: &[&str]) -> bool {
-    let name = Path::new(path_or_name)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
+    let name = path_or_name.rsplit(['/', '\\']).next().unwrap_or_default().to_ascii_lowercase();
     let stem = name.strip_suffix(".exe").unwrap_or(&name);
     names.contains(&stem)
 }

@@ -25,6 +25,156 @@
         }
       })();
     </script>
+    <style>
+      /* Plain colours: tokens.css comes in with the app, which may be what failed. */
+      #boot-failure {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 32px;
+        overflow: auto;
+        background: #ffffff;
+        color: #18181b;
+        font: 14px/1.5 system-ui, sans-serif;
+      }
+      [data-theme="dark"] #boot-failure {
+        background: #0c0c0e;
+        color: #fafafa;
+      }
+      #boot-failure h1 {
+        margin: 0;
+        font-size: 18px;
+      }
+      #boot-failure p {
+        margin: 0;
+        max-width: 48rem;
+        opacity: 0.8;
+      }
+      #boot-failure pre {
+        margin: 0;
+        padding: 12px;
+        max-height: 50vh;
+        overflow: auto;
+        border: 1px solid rgba(127, 127, 127, 0.4);
+        border-radius: 6px;
+        font: 12px/1.5 ui-monospace, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      #boot-failure div {
+        display: flex;
+        gap: 8px;
+      }
+      #boot-failure button {
+        padding: 6px 14px;
+        border: 1px solid rgba(127, 127, 127, 0.5);
+        border-radius: 6px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+      #boot-failure button:first-child {
+        background: #3b5bd0;
+        border-color: #3b5bd0;
+        color: #ffffff;
+      }
+    </style>
+    <script>
+      // The net under React's error boundaries. Those only work once React is
+      // running: if a module throws or fails to load while the app starts, or
+      // React drops the whole tree, the window would sit blank with no clue
+      // why. This shows what went wrong, and a Reload button, instead.
+      (function () {
+        var errors = [];
+        var box = null;
+        var everRendered = false;
+
+        function rootEmpty() {
+          var root = document.getElementById("root");
+          return !root || root.childElementCount === 0;
+        }
+
+        function record(text) {
+          if (errors.indexOf(text) < 0) errors.push(text);
+          if (box) box.querySelector("pre").textContent = errors.join("\n\n");
+        }
+
+        function show() {
+          if (box || !rootEmpty()) return;
+          box = document.createElement("div");
+          box.id = "boot-failure";
+          box.setAttribute("role", "alert");
+          box.innerHTML =
+            "<h1>DevsPro stopped before it could draw</h1>" +
+            "<p>Something failed outside the screens that catch their own errors. " +
+            "Reloading usually fixes it; if it comes back, copy the details below into a bug report.</p>" +
+            "<pre></pre><div><button type='button'>Reload</button><button type='button'>Copy details</button></div>";
+          box.querySelector("pre").textContent =
+            errors.join("\n\n") || "No error was reported; the interface was removed.";
+          var buttons = box.querySelectorAll("button");
+          buttons[0].onclick = function () {
+            location.reload();
+          };
+          buttons[1].onclick = function () {
+            if (navigator.clipboard) navigator.clipboard.writeText(box.querySelector("pre").textContent);
+          };
+          document.body.appendChild(box);
+        }
+
+        // After a beat, so a render already under way can still fill the root.
+        function checkSoon() {
+          setTimeout(function () {
+            if (rootEmpty()) show();
+          }, 400);
+        }
+
+        window.addEventListener(
+          "error",
+          function (e) {
+            var target = e.target;
+            if (target && target.tagName === "SCRIPT") {
+              record("Could not load " + (target.src || "a script"));
+            } else if (e.message) {
+              var where = e.filename ? " (" + e.filename + ":" + e.lineno + ":" + e.colno + ")" : "";
+              record(e.message + where + (e.error && e.error.stack ? "\n" + e.error.stack : ""));
+            } else {
+              return; // an image or stylesheet that failed: not ours to report
+            }
+            checkSoon();
+          },
+          true,
+        );
+        window.addEventListener("unhandledrejection", function (e) {
+          var reason = e.reason;
+          record("Unhandled rejection: " + (reason && reason.stack ? reason.stack : String(reason)));
+          checkSoon();
+        });
+
+        // React emptying a root it had drawn into means the whole tree is gone.
+        // The app drawing after all (a slow first load that happened to see
+        // an error) takes the notice away again.
+        document.addEventListener("DOMContentLoaded", function () {
+          var root = document.getElementById("root");
+          if (!root) return;
+          everRendered = !rootEmpty();
+          new MutationObserver(function () {
+            if (!rootEmpty()) {
+              everRendered = true;
+              if (box) {
+                box.remove();
+                box = null;
+              }
+            } else if (everRendered) {
+              checkSoon();
+            }
+          }).observe(root, { childList: true });
+        });
+      })();
+    </script>
   </head>
 
   <body>

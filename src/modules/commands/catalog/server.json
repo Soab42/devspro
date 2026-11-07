@@ -1,0 +1,1538 @@
+{
+  "group": "Server Management",
+  "categories": [
+    {
+      "id": "systemd",
+      "name": "Services (systemd)",
+      "commands": [
+        {
+          "title": "Show a service's status",
+          "command": "systemctl status <service>",
+          "description": "Shows whether the service is running, its main PID and its most recent log lines.",
+          "tags": [
+            "status"
+          ]
+        },
+        {
+          "title": "Start a service",
+          "command": "sudo systemctl start <service>",
+          "description": "Starts the service now; it will not start at boot unless it is also enabled.",
+          "tags": [
+            "start"
+          ]
+        },
+        {
+          "title": "Stop a service",
+          "command": "sudo systemctl stop <service>",
+          "description": "Stops the running service; it stays enabled and returns at the next boot.",
+          "tags": [
+            "stop"
+          ]
+        },
+        {
+          "title": "Restart a service",
+          "command": "sudo systemctl restart <service>",
+          "description": "Stops and starts the service, dropping active connections.",
+          "tags": [
+            "restart"
+          ]
+        },
+        {
+          "title": "Reload a service's configuration",
+          "command": "sudo systemctl reload <service>",
+          "description": "Asks the service to re-read its config without dropping connections; not every unit supports it.",
+          "tags": [
+            "reload"
+          ]
+        },
+        {
+          "title": "Enable a service and start it now",
+          "command": "sudo systemctl enable --now <service>",
+          "description": "Makes the service start at boot and starts it immediately.",
+          "tags": [
+            "enable"
+          ]
+        },
+        {
+          "title": "Disable a service and stop it now",
+          "command": "sudo systemctl disable --now <service>",
+          "description": "Stops the service and prevents it from starting at boot.",
+          "tags": [
+            "disable"
+          ]
+        },
+        {
+          "title": "Check if a service is running",
+          "command": "systemctl is-active <service>",
+          "description": "Prints active, inactive or failed and exits non-zero when the service is not active; handy in scripts.",
+          "tags": [
+            "status"
+          ]
+        },
+        {
+          "title": "Check if a service starts at boot",
+          "command": "systemctl is-enabled <service>",
+          "description": "Prints enabled, disabled, masked or static for the unit.",
+          "tags": [
+            "boot"
+          ]
+        },
+        {
+          "title": "List failed units",
+          "command": "systemctl list-units --failed",
+          "description": "Shows every unit that is in a failed state; check this first after a bad boot.",
+          "tags": [
+            "failed"
+          ]
+        },
+        {
+          "title": "List all running services",
+          "command": "systemctl list-units --type=service --state=running",
+          "description": "Shows the services that are currently running.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "List installed unit files",
+          "command": "systemctl list-unit-files --type=service",
+          "description": "Shows every installed service and whether it is enabled, disabled or static.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Reload systemd after editing unit files",
+          "command": "sudo systemctl daemon-reload",
+          "description": "Makes systemd re-read unit files; required after creating or changing a .service file.",
+          "tags": [
+            "unit"
+          ]
+        },
+        {
+          "title": "Show a unit's full file",
+          "command": "systemctl cat <service>",
+          "description": "Prints the unit file and any drop-in overrides that apply to it.",
+          "tags": [
+            "unit"
+          ]
+        },
+        {
+          "title": "Override a unit with a drop-in",
+          "command": "sudo systemctl edit <service>",
+          "description": "Opens an override file that survives package updates; run daemon-reload if prompted, then restart the service.",
+          "tags": [
+            "unit",
+            "edit"
+          ]
+        },
+        {
+          "title": "Reset a failed unit",
+          "command": "sudo systemctl reset-failed <service>",
+          "description": "Clears the failed state so the unit can be started again after hitting the restart limit.",
+          "tags": [
+            "failed"
+          ]
+        },
+        {
+          "title": "Mask a service",
+          "command": "sudo systemctl mask <service>",
+          "description": "Links the unit to /dev/null so it cannot be started by anyone or any dependency; undo with unmask.",
+          "tags": [
+            "mask"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show the boot time breakdown",
+          "command": "systemd-analyze blame",
+          "description": "Lists units by how long they took to start, slowest first.",
+          "tags": [
+            "boot"
+          ]
+        },
+        {
+          "title": "Reboot the server",
+          "command": "sudo systemctl reboot",
+          "description": "Restarts the machine; every SSH session, including this one, is dropped.",
+          "tags": [
+            "reboot"
+          ],
+          "danger": true
+        }
+      ]
+    },
+    {
+      "id": "logs",
+      "name": "Logs & journalctl",
+      "commands": [
+        {
+          "title": "Follow a service's logs",
+          "command": "sudo journalctl -u <service> -f",
+          "description": "Streams new log lines for the unit as they arrive; press Ctrl+C to stop.",
+          "tags": [
+            "follow"
+          ]
+        },
+        {
+          "title": "Show a service's recent logs",
+          "command": "sudo journalctl -u <service> -n 100 --no-pager",
+          "description": "Prints the last 100 log lines for the unit.",
+          "tags": [
+            "service"
+          ]
+        },
+        {
+          "title": "Show logs since a time",
+          "command": "sudo journalctl --since \"1 hour ago\"",
+          "description": "Shows everything logged since the given time; accepts values like yesterday or 2025-01-31 10:00.",
+          "tags": [
+            "time"
+          ]
+        },
+        {
+          "title": "Show logs for a time window",
+          "command": "sudo journalctl --since \"<start>\" --until \"<end>\"",
+          "description": "Limits output to a window, using a format such as 2025-01-31 09:00:00 for both ends.",
+          "tags": [
+            "time"
+          ]
+        },
+        {
+          "title": "Show errors from this boot",
+          "command": "sudo journalctl -p err -b",
+          "description": "Shows only error and more severe messages since the last boot.",
+          "tags": [
+            "errors"
+          ]
+        },
+        {
+          "title": "Show logs from the previous boot",
+          "command": "sudo journalctl -b -1",
+          "description": "Shows the whole log of the previous boot; useful after a crash or unexpected reboot.",
+          "tags": [
+            "boot"
+          ]
+        },
+        {
+          "title": "Show the latest journal entries",
+          "command": "sudo journalctl -n 50 --no-pager",
+          "description": "Prints the 50 most recent entries from every unit.",
+          "tags": [
+            "recent"
+          ]
+        },
+        {
+          "title": "Follow the whole journal",
+          "command": "sudo journalctl -f",
+          "description": "Streams new entries from every service as they are written.",
+          "tags": [
+            "follow"
+          ]
+        },
+        {
+          "title": "Show how much disk the journal uses",
+          "command": "journalctl --disk-usage",
+          "description": "Prints the total size of archived and active journal files.",
+          "tags": [
+            "disk"
+          ]
+        },
+        {
+          "title": "Shrink the journal to a size",
+          "command": "sudo journalctl --vacuum-size=500M",
+          "description": "Deletes the oldest archived journal files until the total is under the size.",
+          "tags": [
+            "disk",
+            "vacuum"
+          ]
+        },
+        {
+          "title": "Delete journal entries older than a period",
+          "command": "sudo journalctl --vacuum-time=2weeks",
+          "description": "Removes archived journal files older than the given time.",
+          "tags": [
+            "disk",
+            "vacuum"
+          ]
+        },
+        {
+          "title": "Show kernel messages from the journal",
+          "command": "sudo journalctl -k",
+          "description": "Shows only kernel messages for the current boot.",
+          "tags": [
+            "kernel"
+          ]
+        },
+        {
+          "title": "Show kernel ring buffer with timestamps",
+          "command": "sudo dmesg -T",
+          "description": "Prints kernel messages with human-readable times; good for hardware, disk and OOM issues.",
+          "tags": [
+            "kernel"
+          ]
+        },
+        {
+          "title": "Follow the system log",
+          "command": "sudo tail -f /var/log/syslog",
+          "description": "Streams the general system log on Ubuntu; press Ctrl+C to stop.",
+          "tags": [
+            "syslog"
+          ]
+        },
+        {
+          "title": "Follow the authentication log",
+          "command": "sudo tail -f /var/log/auth.log",
+          "description": "Streams logins, sudo use and SSH attempts on Debian and Ubuntu.",
+          "tags": [
+            "auth"
+          ]
+        },
+        {
+          "title": "Show recent logins",
+          "command": "last -n 20",
+          "description": "Lists the last 20 logins and reboots from /var/log/wtmp.",
+          "tags": [
+            "login"
+          ]
+        },
+        {
+          "title": "Show failed login attempts",
+          "command": "sudo lastb -n 20",
+          "description": "Lists the last 20 failed logins from /var/log/btmp.",
+          "tags": [
+            "login"
+          ]
+        },
+        {
+          "title": "Find the Out-Of-Memory killer in the logs",
+          "command": "sudo journalctl -k | grep -i \"out of memory\"",
+          "description": "Shows when the kernel killed a process because the machine ran out of memory.",
+          "tags": [
+            "oom"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nginx",
+      "name": "Nginx",
+      "commands": [
+        {
+          "title": "Test the Nginx configuration",
+          "command": "sudo nginx -t",
+          "description": "Checks the config for syntax errors; always run before reloading.",
+          "tags": [
+            "config"
+          ]
+        },
+        {
+          "title": "Dump the full effective configuration",
+          "command": "sudo nginx -T",
+          "description": "Tests the config and prints it with every included file, handy for support and debugging.",
+          "tags": [
+            "config"
+          ]
+        },
+        {
+          "title": "Reload Nginx",
+          "command": "sudo systemctl reload nginx",
+          "description": "Applies config changes gracefully without dropping connections.",
+          "tags": [
+            "reload"
+          ]
+        },
+        {
+          "title": "Restart Nginx",
+          "command": "sudo systemctl restart nginx",
+          "description": "Fully restarts Nginx, which drops active connections; prefer reload for config changes.",
+          "tags": [
+            "restart"
+          ]
+        },
+        {
+          "title": "Show Nginx's status",
+          "command": "systemctl status nginx",
+          "description": "Shows whether Nginx is running and its latest log lines.",
+          "tags": [
+            "status"
+          ]
+        },
+        {
+          "title": "Test and reload Nginx in one go",
+          "command": "sudo nginx -t && sudo systemctl reload nginx",
+          "description": "Reloads only if the config test passes, so a typo cannot take the site down.",
+          "tags": [
+            "reload"
+          ]
+        },
+        {
+          "title": "Enable a site",
+          "command": "sudo ln -s /etc/nginx/sites-available/<site> /etc/nginx/sites-enabled/<site>",
+          "description": "Links a server block into sites-enabled; test and reload afterwards.",
+          "tags": [
+            "site"
+          ]
+        },
+        {
+          "title": "Disable a site",
+          "command": "sudo unlink /etc/nginx/sites-enabled/<site>",
+          "description": "Removes the symlink only; the file in sites-available is kept. Reload Nginx afterwards.",
+          "tags": [
+            "site"
+          ]
+        },
+        {
+          "title": "List available and enabled sites",
+          "command": "ls -l /etc/nginx/sites-available /etc/nginx/sites-enabled",
+          "description": "Shows which server blocks exist and which are linked as enabled.",
+          "tags": [
+            "site"
+          ]
+        },
+        {
+          "title": "Follow the access log",
+          "command": "sudo tail -f /var/log/nginx/access.log",
+          "description": "Streams incoming requests as they are logged.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Follow the error log",
+          "command": "sudo tail -f /var/log/nginx/error.log",
+          "description": "Streams Nginx errors such as upstream failures and permission problems.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Show Nginx version and build options",
+          "command": "nginx -V",
+          "description": "Prints the version, compiler flags and compiled-in modules.",
+          "tags": [
+            "version"
+          ]
+        },
+        {
+          "title": "Count requests per IP",
+          "command": "sudo awk '{print $1}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head -20",
+          "description": "Lists the 20 busiest client addresses in the access log.",
+          "tags": [
+            "logs",
+            "ip"
+          ]
+        },
+        {
+          "title": "Find 5xx responses in the access log",
+          "command": "sudo awk '$9 ~ /^5/' /var/log/nginx/access.log | tail -50",
+          "description": "Shows the last 50 requests answered with a server error, assuming the default log format.",
+          "tags": [
+            "logs",
+            "errors"
+          ]
+        },
+        {
+          "title": "List the most requested URLs",
+          "command": "sudo awk '{print $7}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head -20",
+          "description": "Shows which paths are hit most often.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Count responses by status code",
+          "command": "sudo awk '{print $9}' /var/log/nginx/access.log | sort | uniq -c | sort -rn",
+          "description": "Summarises how many 200s, 404s, 500s and so on were served.",
+          "tags": [
+            "logs",
+            "status"
+          ]
+        },
+        {
+          "title": "Find which process is using port 80",
+          "command": "sudo ss -ltnp 'sport = :80'",
+          "description": "Shows the process listening on port 80, useful when Nginx fails to start.",
+          "tags": [
+            "port"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "apache",
+      "name": "Apache",
+      "commands": [
+        {
+          "title": "Test the Apache configuration",
+          "command": "sudo apachectl configtest",
+          "description": "Checks the config for syntax errors; look for Syntax OK before reloading.",
+          "tags": [
+            "config"
+          ]
+        },
+        {
+          "title": "Enable a site",
+          "command": "sudo a2ensite <site>",
+          "description": "Enables a virtual host from sites-available; reload Apache afterwards.",
+          "tags": [
+            "site"
+          ]
+        },
+        {
+          "title": "Disable a site",
+          "command": "sudo a2dissite <site>",
+          "description": "Disables a virtual host; its file stays in sites-available. Reload Apache afterwards.",
+          "tags": [
+            "site"
+          ]
+        },
+        {
+          "title": "Enable a module",
+          "command": "sudo a2enmod <module>",
+          "description": "Enables an Apache module such as rewrite, ssl or headers; restart Apache afterwards.",
+          "tags": [
+            "module"
+          ]
+        },
+        {
+          "title": "Disable a module",
+          "command": "sudo a2dismod <module>",
+          "description": "Disables an Apache module; restart Apache afterwards.",
+          "tags": [
+            "module"
+          ]
+        },
+        {
+          "title": "Reload Apache",
+          "command": "sudo systemctl reload apache2",
+          "description": "Applies config changes gracefully without dropping connections.",
+          "tags": [
+            "reload"
+          ]
+        },
+        {
+          "title": "Restart Apache",
+          "command": "sudo systemctl restart apache2",
+          "description": "Fully restarts Apache, dropping active connections; needed after enabling modules.",
+          "tags": [
+            "restart"
+          ]
+        },
+        {
+          "title": "Show virtual hosts and ports",
+          "command": "sudo apachectl -S",
+          "description": "Lists the parsed virtual hosts, their config files and the listening ports.",
+          "tags": [
+            "vhost"
+          ]
+        },
+        {
+          "title": "List loaded modules",
+          "command": "sudo apachectl -M",
+          "description": "Shows every static and shared module Apache has loaded.",
+          "tags": [
+            "module"
+          ]
+        },
+        {
+          "title": "Follow the Apache error log",
+          "command": "sudo tail -f /var/log/apache2/error.log",
+          "description": "Streams errors such as PHP failures and permission problems.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Follow the Apache access log",
+          "command": "sudo tail -f /var/log/apache2/access.log",
+          "description": "Streams incoming requests as they are logged.",
+          "tags": [
+            "logs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ssl",
+      "name": "SSL & Certificates",
+      "commands": [
+        {
+          "title": "Get a certificate for Nginx",
+          "command": "sudo certbot --nginx -d <domain>",
+          "description": "Requests a Let's Encrypt certificate and edits the Nginx config to use it; the domain must point at this server.",
+          "tags": [
+            "certbot"
+          ]
+        },
+        {
+          "title": "Get a certificate for Apache",
+          "command": "sudo certbot --apache -d <domain>",
+          "description": "Requests a Let's Encrypt certificate and edits the Apache config to use it.",
+          "tags": [
+            "certbot"
+          ]
+        },
+        {
+          "title": "Get a certificate with the webroot method",
+          "command": "sudo certbot certonly --webroot -w <webroot> -d <domain>",
+          "description": "Obtains a certificate without changing server config; the web server must serve the webroot.",
+          "tags": [
+            "certbot"
+          ]
+        },
+        {
+          "title": "Test certificate renewal",
+          "command": "sudo certbot renew --dry-run",
+          "description": "Simulates renewal of all certificates against the staging server without changing anything.",
+          "tags": [
+            "certbot",
+            "renew"
+          ]
+        },
+        {
+          "title": "Renew all certificates",
+          "command": "sudo certbot renew",
+          "description": "Renews any certificate close to expiry; normally done automatically by a timer.",
+          "tags": [
+            "certbot",
+            "renew"
+          ]
+        },
+        {
+          "title": "List certbot certificates",
+          "command": "sudo certbot certificates",
+          "description": "Shows each certificate, its domains, expiry date and file paths.",
+          "tags": [
+            "certbot"
+          ]
+        },
+        {
+          "title": "Delete a certificate",
+          "command": "sudo certbot delete --cert-name <cert-name>",
+          "description": "Removes the certificate and its renewal config; update the web server config first or it will fail to start.",
+          "tags": [
+            "certbot"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show a certificate's validity dates",
+          "command": "sudo openssl x509 -in <cert-file> -noout -dates",
+          "description": "Prints the notBefore and notAfter dates of a certificate file.",
+          "tags": [
+            "openssl",
+            "expiry"
+          ]
+        },
+        {
+          "title": "Show a certificate's full details",
+          "command": "openssl x509 -in <cert-file> -noout -text",
+          "description": "Prints the subject, issuer, SANs, key size and extensions of a certificate.",
+          "tags": [
+            "openssl"
+          ]
+        },
+        {
+          "title": "Inspect a remote server's certificate",
+          "command": "openssl s_client -connect <host>:443 -servername <host> < /dev/null",
+          "description": "Opens a TLS connection and prints the certificate chain; the servername selects the right virtual host.",
+          "tags": [
+            "openssl",
+            "remote"
+          ]
+        },
+        {
+          "title": "Check a remote certificate's expiry",
+          "command": "echo | openssl s_client -connect <host>:443 -servername <host> 2> /dev/null | openssl x509 -noout -dates",
+          "description": "Prints when the certificate served by a remote host starts and expires.",
+          "tags": [
+            "openssl",
+            "expiry"
+          ]
+        },
+        {
+          "title": "Generate a private key and CSR",
+          "command": "openssl req -new -newkey rsa:2048 -nodes -keyout <domain>.key -out <domain>.csr",
+          "description": "Creates a 2048-bit key without a passphrase and a signing request to send to a certificate authority.",
+          "tags": [
+            "openssl",
+            "csr"
+          ]
+        },
+        {
+          "title": "Create a self-signed certificate",
+          "command": "openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout <domain>.key -out <domain>.crt",
+          "description": "Creates a key and a one-year self-signed certificate; browsers will warn unless you trust it.",
+          "tags": [
+            "openssl",
+            "self-signed"
+          ]
+        },
+        {
+          "title": "Check that a key and certificate match",
+          "command": "diff <(openssl x509 -noout -modulus -in <cert-file>) <(openssl rsa -noout -modulus -in <key-file>) && echo match",
+          "description": "Compares the RSA modulus of both files; any difference means they do not belong together. Needs bash or zsh.",
+          "tags": [
+            "openssl",
+            "key"
+          ]
+        },
+        {
+          "title": "Export a certificate to PKCS#12",
+          "command": "openssl pkcs12 -export -out <name>.p12 -inkey <key-file> -in <cert-file>",
+          "description": "Bundles a key and certificate into a .p12 file, asking for an export password.",
+          "tags": [
+            "openssl",
+            "pkcs12"
+          ]
+        },
+        {
+          "title": "Verify a certificate chain",
+          "command": "openssl verify -CAfile <ca-file> <cert-file>",
+          "description": "Checks that the certificate was issued by the given CA bundle.",
+          "tags": [
+            "openssl",
+            "chain"
+          ]
+        },
+        {
+          "title": "Check whether a certificate expires soon",
+          "command": "openssl x509 -in <cert-file> -noout -checkend 2592000",
+          "description": "Exits non-zero if the certificate expires within 30 days (2592000 seconds); useful in scripts.",
+          "tags": [
+            "openssl",
+            "expiry"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "firewall",
+      "name": "Firewall",
+      "commands": [
+        {
+          "title": "Show UFW status in detail",
+          "command": "sudo ufw status verbose",
+          "description": "Shows whether UFW is active, default policies and all rules.",
+          "tags": [
+            "ufw"
+          ]
+        },
+        {
+          "title": "List UFW rules with numbers",
+          "command": "sudo ufw status numbered",
+          "description": "Shows rules with index numbers, which ufw delete needs.",
+          "tags": [
+            "ufw"
+          ]
+        },
+        {
+          "title": "Allow SSH through UFW",
+          "command": "sudo ufw allow ssh",
+          "description": "Opens port 22; do this before enabling UFW on a remote server or you will lock yourself out.",
+          "tags": [
+            "ufw",
+            "ssh"
+          ]
+        },
+        {
+          "title": "Allow a port",
+          "command": "sudo ufw allow <port>/tcp",
+          "description": "Opens a TCP port to everyone.",
+          "tags": [
+            "ufw",
+            "port"
+          ]
+        },
+        {
+          "title": "Allow a port from one IP",
+          "command": "sudo ufw allow from <ip> to any port <port> proto tcp",
+          "description": "Opens a TCP port only to the given address.",
+          "tags": [
+            "ufw",
+            "port"
+          ]
+        },
+        {
+          "title": "Allow Nginx web traffic",
+          "command": "sudo ufw allow 'Nginx Full'",
+          "description": "Opens ports 80 and 443 using the Nginx application profile.",
+          "tags": [
+            "ufw",
+            "web"
+          ]
+        },
+        {
+          "title": "Deny a port",
+          "command": "sudo ufw deny <port>",
+          "description": "Blocks incoming traffic on the port.",
+          "tags": [
+            "ufw",
+            "port"
+          ]
+        },
+        {
+          "title": "Delete a UFW rule by number",
+          "command": "sudo ufw delete <number>",
+          "description": "Removes the rule with that index from ufw status numbered; later numbers shift.",
+          "tags": [
+            "ufw"
+          ]
+        },
+        {
+          "title": "Rate-limit SSH connections",
+          "command": "sudo ufw limit ssh",
+          "description": "Denies an address that makes 6 or more connections in 30 seconds, slowing brute-force attacks.",
+          "tags": [
+            "ufw",
+            "ssh"
+          ]
+        },
+        {
+          "title": "Enable UFW",
+          "command": "sudo ufw enable",
+          "description": "Turns the firewall on and at boot; allow SSH first or you can lock yourself out.",
+          "tags": [
+            "ufw"
+          ]
+        },
+        {
+          "title": "Disable UFW",
+          "command": "sudo ufw disable",
+          "description": "Turns the firewall off, leaving the server exposed.",
+          "tags": [
+            "ufw"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Reset UFW to defaults",
+          "command": "sudo ufw reset",
+          "description": "Deletes every rule and disables UFW.",
+          "tags": [
+            "ufw"
+          ],
+          "danger": true
+        },
+        {
+          "title": "List iptables rules",
+          "command": "sudo iptables -L -n -v --line-numbers",
+          "description": "Shows all chains with packet counts, numeric addresses and rule numbers.",
+          "tags": [
+            "iptables"
+          ]
+        },
+        {
+          "title": "Accept a port with iptables",
+          "command": "sudo iptables -A INPUT -p tcp --dport <port> -j ACCEPT",
+          "description": "Appends a rule that accepts TCP traffic on the port; it is lost on reboot unless saved.",
+          "tags": [
+            "iptables",
+            "port"
+          ]
+        },
+        {
+          "title": "Flush all iptables rules",
+          "command": "sudo iptables -F",
+          "description": "Removes every rule in the filter table; if the default policy is DROP this locks you out.",
+          "tags": [
+            "iptables"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Show firewalld rules",
+          "command": "sudo firewall-cmd --list-all",
+          "description": "Shows the active zone, its services, ports and rules on RHEL-based systems.",
+          "tags": [
+            "firewalld"
+          ]
+        },
+        {
+          "title": "Open a port in firewalld",
+          "command": "sudo firewall-cmd --permanent --add-port=<port>/tcp",
+          "description": "Adds the port to the permanent config; it applies after a reload.",
+          "tags": [
+            "firewalld",
+            "port"
+          ]
+        },
+        {
+          "title": "Reload firewalld",
+          "command": "sudo firewall-cmd --reload",
+          "description": "Applies permanent changes to the running firewall.",
+          "tags": [
+            "firewalld"
+          ]
+        },
+        {
+          "title": "Show Fail2ban status",
+          "command": "sudo fail2ban-client status",
+          "description": "Lists the active jails.",
+          "tags": [
+            "fail2ban"
+          ]
+        },
+        {
+          "title": "Show banned IPs in the SSH jail",
+          "command": "sudo fail2ban-client status sshd",
+          "description": "Shows failed and currently banned addresses for the sshd jail.",
+          "tags": [
+            "fail2ban",
+            "ssh"
+          ]
+        },
+        {
+          "title": "Unban an IP in Fail2ban",
+          "command": "sudo fail2ban-client set sshd unbanip <ip>",
+          "description": "Removes the address from the sshd jail's ban list.",
+          "tags": [
+            "fail2ban"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "users",
+      "name": "Users & Permissions",
+      "commands": [
+        {
+          "title": "Add a user",
+          "command": "sudo adduser <user>",
+          "description": "Creates the user, home directory and group interactively.",
+          "tags": [
+            "user"
+          ]
+        },
+        {
+          "title": "Add a user to the sudo group",
+          "command": "sudo usermod -aG sudo <user>",
+          "description": "Gives the user admin rights; the -a is essential or existing groups are replaced.",
+          "tags": [
+            "sudo"
+          ]
+        },
+        {
+          "title": "Add a user to the docker group",
+          "command": "sudo usermod -aG docker <user>",
+          "description": "Lets the user run Docker without sudo, which is effectively root access; they must log in again.",
+          "tags": [
+            "docker"
+          ]
+        },
+        {
+          "title": "Delete a user and their home",
+          "command": "sudo userdel -r <user>",
+          "description": "Removes the account and its home directory and mail spool permanently.",
+          "tags": [
+            "user"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Change a user's password",
+          "command": "sudo passwd <user>",
+          "description": "Sets a new password for the user.",
+          "tags": [
+            "password"
+          ]
+        },
+        {
+          "title": "Show a user's password aging",
+          "command": "sudo chage -l <user>",
+          "description": "Shows when the password was changed and when it expires.",
+          "tags": [
+            "password"
+          ]
+        },
+        {
+          "title": "Show a user's ID and groups",
+          "command": "id <user>",
+          "description": "Prints the UID, GID and every group the user belongs to.",
+          "tags": [
+            "id"
+          ]
+        },
+        {
+          "title": "List a user's groups",
+          "command": "groups <user>",
+          "description": "Prints the groups the user belongs to.",
+          "tags": [
+            "groups"
+          ]
+        },
+        {
+          "title": "Show logged-in users",
+          "command": "who",
+          "description": "Lists who is logged in, from which terminal and since when.",
+          "tags": [
+            "sessions"
+          ]
+        },
+        {
+          "title": "Show what logged-in users are doing",
+          "command": "w",
+          "description": "Shows logged-in users, their idle time and the command they are running.",
+          "tags": [
+            "sessions"
+          ]
+        },
+        {
+          "title": "Start a root shell",
+          "command": "sudo -i",
+          "description": "Opens a login shell as root with root's environment.",
+          "tags": [
+            "root"
+          ]
+        },
+        {
+          "title": "Switch to another user",
+          "command": "sudo su - <user>",
+          "description": "Opens a login shell as that user.",
+          "tags": [
+            "su"
+          ]
+        },
+        {
+          "title": "Change owner recursively",
+          "command": "sudo chown -R <user>:<group> <path>",
+          "description": "Gives the user and group ownership of the directory and everything in it.",
+          "tags": [
+            "chown"
+          ]
+        },
+        {
+          "title": "Make a file readable by everyone",
+          "command": "chmod 644 <file>",
+          "description": "Owner can read and write; group and others can read.",
+          "tags": [
+            "chmod"
+          ]
+        },
+        {
+          "title": "Make a directory or script executable by all",
+          "command": "chmod 755 <path>",
+          "description": "Owner has full access; others can read and execute.",
+          "tags": [
+            "chmod"
+          ]
+        },
+        {
+          "title": "Make a file private to its owner",
+          "command": "chmod 600 <file>",
+          "description": "Only the owner can read and write; required for SSH private keys.",
+          "tags": [
+            "chmod"
+          ]
+        },
+        {
+          "title": "Add the execute bit to a file",
+          "command": "chmod +x <file>",
+          "description": "Makes the file executable, such as a script.",
+          "tags": [
+            "chmod"
+          ]
+        },
+        {
+          "title": "Find world-writable files",
+          "command": "sudo find <path> -type f -perm 777",
+          "description": "Lists files anyone can read, write and execute; usually a misconfiguration.",
+          "tags": [
+            "find",
+            "security"
+          ]
+        },
+        {
+          "title": "Edit the sudoers file safely",
+          "command": "sudo visudo",
+          "description": "Opens sudoers and checks syntax on save so a typo cannot break sudo.",
+          "tags": [
+            "sudo"
+          ]
+        },
+        {
+          "title": "Copy your SSH key to a server",
+          "command": "ssh-copy-id <user>@<host>",
+          "description": "Installs your public key in the remote authorized_keys so you can log in without a password.",
+          "tags": [
+            "ssh"
+          ]
+        },
+        {
+          "title": "Fix SSH directory permissions",
+          "command": "chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys",
+          "description": "Sets the strict permissions sshd requires, otherwise key login silently fails.",
+          "tags": [
+            "ssh"
+          ]
+        },
+        {
+          "title": "Look up a user in the account database",
+          "command": "getent passwd <user>",
+          "description": "Shows the user's passwd entry, including LDAP or other sources.",
+          "tags": [
+            "user"
+          ]
+        },
+        {
+          "title": "List all human users",
+          "command": "getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}'",
+          "description": "Prints accounts with regular user IDs.",
+          "tags": [
+            "user"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "packages",
+      "name": "Packages",
+      "commands": [
+        {
+          "title": "Update and upgrade all packages",
+          "command": "sudo apt update && sudo apt upgrade -y",
+          "description": "Refreshes the package index and installs available updates.",
+          "tags": [
+            "apt",
+            "upgrade"
+          ]
+        },
+        {
+          "title": "Refresh the package index",
+          "command": "sudo apt update",
+          "description": "Downloads the latest package lists without installing anything.",
+          "tags": [
+            "apt"
+          ]
+        },
+        {
+          "title": "Install a package",
+          "command": "sudo apt install <package>",
+          "description": "Installs the package and its dependencies.",
+          "tags": [
+            "apt"
+          ]
+        },
+        {
+          "title": "Remove a package",
+          "command": "sudo apt remove <package>",
+          "description": "Removes the package but keeps its configuration files.",
+          "tags": [
+            "apt"
+          ]
+        },
+        {
+          "title": "Purge a package",
+          "command": "sudo apt purge <package>",
+          "description": "Removes the package and its system-wide configuration files.",
+          "tags": [
+            "apt"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Remove unused dependencies",
+          "command": "sudo apt autoremove",
+          "description": "Removes packages that were installed as dependencies and are no longer needed.",
+          "tags": [
+            "apt"
+          ]
+        },
+        {
+          "title": "List installed packages",
+          "command": "apt list --installed",
+          "description": "Prints every installed package with its version.",
+          "tags": [
+            "apt"
+          ]
+        },
+        {
+          "title": "List upgradable packages",
+          "command": "apt list --upgradable",
+          "description": "Shows packages that have a newer version available.",
+          "tags": [
+            "apt",
+            "upgrade"
+          ]
+        },
+        {
+          "title": "Search for a package",
+          "command": "apt search <term>",
+          "description": "Searches package names and descriptions.",
+          "tags": [
+            "apt"
+          ]
+        },
+        {
+          "title": "Show package details",
+          "command": "apt show <package>",
+          "description": "Shows the version, dependencies, size and description of a package.",
+          "tags": [
+            "apt"
+          ]
+        },
+        {
+          "title": "Show candidate versions of a package",
+          "command": "apt policy <package>",
+          "description": "Shows the installed version, the candidate and which repository provides each.",
+          "tags": [
+            "apt"
+          ]
+        },
+        {
+          "title": "Check if a package is installed",
+          "command": "dpkg -l | grep <package>",
+          "description": "Lists installed packages whose names match; ii at the start means installed.",
+          "tags": [
+            "dpkg"
+          ]
+        },
+        {
+          "title": "List files installed by a package",
+          "command": "dpkg -L <package>",
+          "description": "Prints every file the installed package put on disk.",
+          "tags": [
+            "dpkg"
+          ]
+        },
+        {
+          "title": "Find which package owns a file",
+          "command": "dpkg -S <path>",
+          "description": "Tells you which installed package a file belongs to.",
+          "tags": [
+            "dpkg"
+          ]
+        },
+        {
+          "title": "Hold a package at its current version",
+          "command": "sudo apt-mark hold <package>",
+          "description": "Stops the package from being upgraded or removed until released.",
+          "tags": [
+            "apt",
+            "hold"
+          ]
+        },
+        {
+          "title": "Release a held package",
+          "command": "sudo apt-mark unhold <package>",
+          "description": "Allows the package to be upgraded again.",
+          "tags": [
+            "apt",
+            "hold"
+          ]
+        },
+        {
+          "title": "Show held packages",
+          "command": "apt-mark showhold",
+          "description": "Lists packages that are on hold.",
+          "tags": [
+            "apt",
+            "hold"
+          ]
+        },
+        {
+          "title": "Dry-run unattended upgrades",
+          "command": "sudo unattended-upgrade --dry-run --debug",
+          "description": "Shows which security updates would be installed automatically without applying them.",
+          "tags": [
+            "apt",
+            "upgrade"
+          ]
+        },
+        {
+          "title": "Install a package with dnf",
+          "command": "sudo dnf install <package>",
+          "description": "Installs a package on Fedora, RHEL 8+ and derivatives.",
+          "tags": [
+            "dnf"
+          ]
+        },
+        {
+          "title": "Update all packages with dnf",
+          "command": "sudo dnf update",
+          "description": "Updates every installed package on Fedora, RHEL 8+ and derivatives.",
+          "tags": [
+            "dnf",
+            "upgrade"
+          ]
+        },
+        {
+          "title": "Install a package with yum",
+          "command": "sudo yum install <package>",
+          "description": "Installs a package on CentOS 7 and older RHEL systems.",
+          "tags": [
+            "yum"
+          ]
+        },
+        {
+          "title": "Update all packages with yum",
+          "command": "sudo yum update",
+          "description": "Updates every installed package on CentOS 7 and older RHEL systems.",
+          "tags": [
+            "yum",
+            "upgrade"
+          ]
+        },
+        {
+          "title": "Install a snap",
+          "command": "sudo snap install <snap>",
+          "description": "Installs a snap package from the Snap Store.",
+          "tags": [
+            "snap"
+          ]
+        },
+        {
+          "title": "List installed snaps",
+          "command": "snap list",
+          "description": "Shows installed snaps with version and revision.",
+          "tags": [
+            "snap"
+          ]
+        },
+        {
+          "title": "Refresh all snaps",
+          "command": "sudo snap refresh",
+          "description": "Updates every installed snap to its latest version.",
+          "tags": [
+            "snap",
+            "upgrade"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cron",
+      "name": "Scheduling & Cron",
+      "commands": [
+        {
+          "title": "List your cron jobs",
+          "command": "crontab -l",
+          "description": "Prints the current user's scheduled jobs.",
+          "tags": [
+            "crontab"
+          ]
+        },
+        {
+          "title": "Edit your cron jobs",
+          "command": "crontab -e",
+          "description": "Opens your crontab in an editor; format is minute hour day month weekday command.",
+          "tags": [
+            "crontab"
+          ]
+        },
+        {
+          "title": "Remove all your cron jobs",
+          "command": "crontab -r",
+          "description": "Deletes the whole crontab immediately with no confirmation.",
+          "tags": [
+            "crontab"
+          ],
+          "danger": true
+        },
+        {
+          "title": "List another user's cron jobs",
+          "command": "sudo crontab -u <user> -l",
+          "description": "Prints the scheduled jobs of the given user.",
+          "tags": [
+            "crontab"
+          ]
+        },
+        {
+          "title": "Edit another user's cron jobs",
+          "command": "sudo crontab -u <user> -e",
+          "description": "Opens the given user's crontab in an editor.",
+          "tags": [
+            "crontab"
+          ]
+        },
+        {
+          "title": "List systemd timers",
+          "command": "systemctl list-timers --all",
+          "description": "Shows scheduled systemd timers, when they last ran and when they run next.",
+          "tags": [
+            "timer"
+          ]
+        },
+        {
+          "title": "Show cron activity in the log",
+          "command": "grep CRON /var/log/syslog | tail -50",
+          "description": "Shows the last cron job executions on Debian and Ubuntu.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Preview scripts that cron.daily would run",
+          "command": "run-parts --test /etc/cron.daily",
+          "description": "Lists the scripts that would run without executing them.",
+          "tags": [
+            "cron"
+          ]
+        },
+        {
+          "title": "List system cron jobs",
+          "command": "ls -l /etc/cron.d /etc/cron.daily /etc/cron.hourly",
+          "description": "Shows system-wide cron files in addition to user crontabs.",
+          "tags": [
+            "cron"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "process-managers",
+      "name": "PM2 & Supervisor",
+      "commands": [
+        {
+          "title": "List PM2 processes",
+          "command": "pm2 list",
+          "description": "Shows every process PM2 manages with status, CPU, memory and restarts.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Start an app with PM2",
+          "command": "pm2 start <script> --name <name>",
+          "description": "Starts a script under PM2 and gives it a name.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Restart a PM2 app",
+          "command": "pm2 restart <name>",
+          "description": "Stops and starts the app, causing brief downtime.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Reload a PM2 app with zero downtime",
+          "command": "pm2 reload <name>",
+          "description": "Restarts cluster-mode workers one by one so the app keeps serving.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Stop a PM2 app",
+          "command": "pm2 stop <name>",
+          "description": "Stops the app but keeps it in the PM2 list.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Delete a PM2 app",
+          "command": "pm2 delete <name>",
+          "description": "Stops the app and removes it from PM2's list.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Show PM2 logs",
+          "command": "pm2 logs <name>",
+          "description": "Streams the app's output and error logs; omit the name for all apps.",
+          "tags": [
+            "pm2",
+            "logs"
+          ]
+        },
+        {
+          "title": "Open the PM2 monitor",
+          "command": "pm2 monit",
+          "description": "Shows a live dashboard of CPU, memory and logs per process.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Save the PM2 process list",
+          "command": "pm2 save",
+          "description": "Stores the current list so it can be restored after a reboot.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Make PM2 start at boot",
+          "command": "pm2 startup",
+          "description": "Prints a command to run with sudo that installs a boot service; run pm2 save afterwards.",
+          "tags": [
+            "pm2",
+            "boot"
+          ]
+        },
+        {
+          "title": "Restore saved PM2 processes",
+          "command": "pm2 resurrect",
+          "description": "Starts the processes stored by pm2 save.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Show details of a PM2 app",
+          "command": "pm2 describe <name>",
+          "description": "Prints script path, environment, restart count and log file locations.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Clear PM2 logs",
+          "command": "pm2 flush",
+          "description": "Empties all PM2 log files.",
+          "tags": [
+            "pm2",
+            "logs"
+          ]
+        },
+        {
+          "title": "Update PM2 in memory",
+          "command": "pm2 update",
+          "description": "Restarts the PM2 daemon while keeping the saved processes running.",
+          "tags": [
+            "pm2"
+          ]
+        },
+        {
+          "title": "Show Supervisor process status",
+          "command": "sudo supervisorctl status",
+          "description": "Lists every Supervisor program and whether it is running.",
+          "tags": [
+            "supervisor"
+          ]
+        },
+        {
+          "title": "Restart a Supervisor program",
+          "command": "sudo supervisorctl restart <program>",
+          "description": "Stops and starts the program.",
+          "tags": [
+            "supervisor"
+          ]
+        },
+        {
+          "title": "Load new Supervisor config",
+          "command": "sudo supervisorctl reread && sudo supervisorctl update",
+          "description": "Reads changed config files and starts or stops programs to match.",
+          "tags": [
+            "supervisor"
+          ]
+        },
+        {
+          "title": "Follow a Supervisor program's output",
+          "command": "sudo supervisorctl tail -f <program>",
+          "description": "Streams the program's stdout; add stderr at the end for its error output.",
+          "tags": [
+            "supervisor",
+            "logs"
+          ]
+        }
+      ]
+    }
+  ]
+}

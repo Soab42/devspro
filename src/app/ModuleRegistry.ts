@@ -10,6 +10,7 @@ import {
   Files,
   Globe,
   LayoutDashboard,
+  LibraryBig,
   Mail,
   MemoryStick,
   Network,
@@ -25,6 +26,7 @@ import {
   Workflow,
   CalendarClock,
   DatabaseZap,
+  Telescope,
 } from "../ui/icons";
 import type { LucideIcon } from "../ui/icons";
 
@@ -157,6 +159,29 @@ const registry: ModuleDefinition[] = [
     Component: lazy(() => import("../modules/mailcatcher/pages/MailCatcherPage")),
     description: "Catch outgoing email from local apps and read it here.",
     keywords: ["email", "smtp", "mailhog", "mailpit", "inbox"],
+  },
+  {
+    id: "llm-traces",
+    label: "LLM Traces",
+    icon: Telescope,
+    group: "services",
+    path: "/llm-traces",
+    Component: lazy(() => import("../modules/llm-traces/pages/LlmTracesPage")),
+    description: "Catch Langfuse, LangSmith and OpenTelemetry traces from local LLM apps and inspect them here.",
+    keywords: [
+      "langfuse",
+      "langsmith",
+      "langchain",
+      "opentelemetry",
+      "otel",
+      "llm",
+      "ai",
+      "tracing",
+      "observability",
+      "prompts",
+      "tokens",
+      "openai",
+    ],
   },
   {
     id: "workers",
@@ -321,6 +346,16 @@ const registry: ModuleDefinition[] = [
     Component: lazy(() => import("../modules/terminal/pages/TerminalPage")),
     description: "Local and SSH shells: split panes, windows and a file browser that follows the shell.",
     keywords: ["shell", "console", "tmux", "ssh", "pty"],
+  },
+  {
+    id: "commands",
+    label: "Commands",
+    icon: LibraryBig,
+    group: "system",
+    path: "/commands",
+    Component: lazy(() => import("../modules/commands/pages/CommandsPage")),
+    description: "A library of terminal commands for development and servers, plus your own.",
+    keywords: ["snippets", "cheatsheet", "library", "shell", "git", "docker", "nginx", "mysql"],
   },
   {
     id: "sftp",

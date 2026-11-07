@@ -526,6 +526,40 @@ pub fn sftp_upload(
     })
 }
 
+/// Copies a local file into the server's `/tmp`, or the home folder where
+/// there is none, keeping its name; returns the remote path. For a screenshot
+/// pasted into a remote terminal (see `paste.rs`), on a server other people
+/// may log in to: the copy is readable by its owner alone, and nothing
+/// already there is replaced, so a link planted under the name goes nowhere.
+#[tauri::command(async)]
+pub fn sftp_upload_temp(state: State<SshState>, session: String, local: String) -> Result<String, String> {
+    let local = Path::new(&local);
+    let name = local
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| format!("{} is not a file", local.display()))?;
+    with_session(&state, &session, |s| {
+        let mut failure = String::new();
+        for dir in [Some("/tmp".to_string()), None] {
+            let dir = match dir {
+                Some(dir) => dir,
+                None => s.sftp.realpath(Path::new(".")).map_err(err)?.to_string_lossy().into_owned(),
+            };
+            let target = join_remote(&dir, name);
+            let flags = ssh2::OpenFlags::WRITE | ssh2::OpenFlags::CREATE | ssh2::OpenFlags::EXCLUSIVE;
+            match s.sftp.open_mode(Path::new(&target), flags, 0o600, ssh2::OpenType::File) {
+                Ok(dst) => {
+                    let src = std::fs::File::open(local).map_err(|e| format!("could not open {}: {e}", local.display()))?;
+                    stream_copy(std::io::BufReader::new(src), dst, |_| ()).map_err(|e| format!("upload failed: {e}"))?;
+                    return Ok(target);
+                }
+                Err(e) => failure = format!("could not create {target}: {}", e.message()),
+            }
+        }
+        Err(failure)
+    })
+}
+
 /// What a zip download produced: bytes packed, and each file or folder left
 /// out because the server wouldn't hand it over, as "path: why".
 #[derive(Debug, Clone, Serialize)]
@@ -706,7 +740,7 @@ pub fn edit_cache_path(cache_root: &Path, session: &str, remote: &str) -> PathBu
 }
 
 #[cfg(not(windows))]
-fn cache_root() -> Result<PathBuf, String> {
+pub(super) fn cache_root() -> Result<PathBuf, String> {
     if let Some(dir) = std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from).filter(|p| p.is_absolute()) {
         return Ok(dir);
     }
@@ -715,7 +749,7 @@ fn cache_root() -> Result<PathBuf, String> {
 
 /// `%LOCALAPPDATA%`, Windows' per-user cache location.
 #[cfg(windows)]
-fn cache_root() -> Result<PathBuf, String> {
+pub(super) fn cache_root() -> Result<PathBuf, String> {
     match std::env::var_os("LOCALAPPDATA").map(PathBuf::from).filter(|p| p.is_absolute()) {
         Some(dir) => Ok(dir),
         None => Ok(super::home_dir()?.join("AppData").join("Local")),

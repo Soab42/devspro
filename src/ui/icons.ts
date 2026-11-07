@@ -20,6 +20,7 @@ export type { LucideIcon } from "lucide-react";
 export {
   /* ---- module / navigation ---- */
   LayoutDashboard, // Dashboard
+  LibraryBig, // Commands (the terminal command library)
   Globe, // Web Server & SSL
   Container, // Docker
   Layers, // a compose stack (group of containers)
@@ -176,6 +177,7 @@ export {
   /* ---- browser ---- */
   Star, // bookmark this page (filled when bookmarked)
   Bookmark, // a saved bookmark
+  BookmarkPlus, // save a copy of a library command as your own
   Columns2, // split view; SFTP panes side by side
   Columns3, // file manager column view
   FileImage, // file manager: image kinds
@@ -230,6 +232,15 @@ export {
   GitCommitHorizontal, // one commit
   History, // file history
   ArrowDown, // next change
+
+  /* ---- LLM Traces ---- */
+  Telescope, // LLM Traces module
+  ListTree, // a trace's observation tree
+  MessageSquare, // a chat message
+  BrainCircuit, // a generation (an LLM call)
+  Coins, // cost
+  Timer, // latency
+  Braces, // raw JSON view
 } from "lucide-react";
 
 /* ---- composed icons ------------------------------------------------------

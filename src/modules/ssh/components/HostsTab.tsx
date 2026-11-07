@@ -17,16 +17,10 @@ import {
 import { Eraser, Folder, KeyRound, Pencil, Plus, Server, Terminal, Trash2 } from "../../../ui/icons";
 import type { Resource } from "../../../ui";
 import { SshHost, SshKey, deleteHost, forgetPassword, installKeyOnHost } from "../api";
-import { errorMessage, hostLabel } from "../utils";
+import { AUTH_LABEL, errorMessage, hostLabel } from "../utils";
 import HostForm from "./HostForm";
 import InstallKeyModal from "./InstallKeyModal";
 import { useConnectFlow } from "./useConnectFlow";
-
-const AUTH_LABEL: Record<SshHost["auth"], string> = {
-  agent: "agent",
-  key: "key file",
-  password: "password",
-};
 
 export default function HostsTab({
   hosts,

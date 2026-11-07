@@ -1,0 +1,1825 @@
+{
+  "group": "System & Network",
+  "categories": [
+    {
+      "id": "files",
+      "name": "Files & Folders",
+      "commands": [
+        {
+          "title": "List files with sizes and hidden files",
+          "command": "ls -lah",
+          "description": "Long listing with human-readable sizes, including dotfiles.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "List newest files first",
+          "command": "ls -lat | head -20",
+          "description": "Shows the 20 most recently modified entries in the current folder.",
+          "tags": [
+            "list"
+          ]
+        },
+        {
+          "title": "Show a directory tree to a depth",
+          "command": "tree -L 2 <dir>",
+          "description": "Prints the folder structure down to two levels; install with apt if tree is missing.",
+          "tags": [
+            "tree"
+          ]
+        },
+        {
+          "title": "Find files by name",
+          "command": "find <dir> -type f -name \"<pattern>\"",
+          "description": "Searches recursively for files matching a glob such as *.log; quote the pattern.",
+          "tags": [
+            "find"
+          ]
+        },
+        {
+          "title": "Find files by name, case-insensitive",
+          "command": "find <dir> -type f -iname \"<pattern>\"",
+          "description": "Like find -name but ignores upper/lower case.",
+          "tags": [
+            "find"
+          ]
+        },
+        {
+          "title": "Find files larger than a size",
+          "command": "find <dir> -type f -size +100M",
+          "description": "Lists files over 100 MB; use k, M or G for other units.",
+          "tags": [
+            "find",
+            "size"
+          ]
+        },
+        {
+          "title": "Find files modified in the last day",
+          "command": "find <dir> -type f -mtime -1",
+          "description": "Lists files changed within the last 24 hours.",
+          "tags": [
+            "find"
+          ]
+        },
+        {
+          "title": "Find files older than N days",
+          "command": "find <dir> -type f -mtime +30",
+          "description": "Lists files not modified for more than 30 days.",
+          "tags": [
+            "find"
+          ]
+        },
+        {
+          "title": "Find only directories",
+          "command": "find <dir> -type d -name \"<pattern>\"",
+          "description": "Searches recursively for folders matching a name pattern.",
+          "tags": [
+            "find"
+          ]
+        },
+        {
+          "title": "Find and delete old files",
+          "command": "find <dir> -type f -mtime +30 -delete",
+          "description": "Permanently deletes files older than 30 days; run it without -delete first to preview.",
+          "tags": [
+            "find",
+            "cleanup"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Find empty directories",
+          "command": "find <dir> -type d -empty",
+          "description": "Lists folders that contain nothing; add -delete to remove them.",
+          "tags": [
+            "find"
+          ]
+        },
+        {
+          "title": "Find empty files",
+          "command": "find <dir> -type f -empty",
+          "description": "Lists zero-byte files.",
+          "tags": [
+            "find"
+          ]
+        },
+        {
+          "title": "Size of each item in a folder, sorted",
+          "command": "du -sh * | sort -h",
+          "description": "Shows how big every entry here is, smallest to largest.",
+          "tags": [
+            "size"
+          ]
+        },
+        {
+          "title": "Count files in a directory",
+          "command": "find <dir> -type f | wc -l",
+          "description": "Counts files recursively, not including folders.",
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "title": "Copy a folder recursively",
+          "command": "cp -r <source> <dest>",
+          "description": "Copies a directory with everything inside it; add -a to keep permissions and timestamps.",
+          "tags": [
+            "copy"
+          ]
+        },
+        {
+          "title": "Move or rename a file",
+          "command": "mv <source> <dest>",
+          "description": "Moves or renames; silently overwrites an existing destination unless you add -i.",
+          "tags": [
+            "move"
+          ]
+        },
+        {
+          "title": "Create nested directories",
+          "command": "mkdir -p <dir>",
+          "description": "Creates the folder and any missing parents without error if it already exists.",
+          "tags": [
+            "mkdir"
+          ]
+        },
+        {
+          "title": "Create a symbolic link",
+          "command": "ln -s <target> <link-name>",
+          "description": "Makes link-name point at target; give the target as an absolute path to avoid broken links.",
+          "tags": [
+            "link"
+          ]
+        },
+        {
+          "title": "Show file metadata",
+          "command": "stat <file>",
+          "description": "Prints size, permissions, owner, inode and access/modify/change times.",
+          "tags": [
+            "info"
+          ]
+        },
+        {
+          "title": "Identify a file's type",
+          "command": "file <file>",
+          "description": "Detects the real type of a file from its contents, not its extension.",
+          "tags": [
+            "info"
+          ]
+        },
+        {
+          "title": "Count lines in a file",
+          "command": "wc -l <file>",
+          "description": "Prints the number of lines.",
+          "tags": [
+            "count"
+          ]
+        },
+        {
+          "title": "Show the first lines of a file",
+          "command": "head -n 20 <file>",
+          "description": "Prints the first 20 lines.",
+          "tags": [
+            "view"
+          ]
+        },
+        {
+          "title": "Show the last lines of a file",
+          "command": "tail -n 50 <file>",
+          "description": "Prints the last 50 lines.",
+          "tags": [
+            "view"
+          ]
+        },
+        {
+          "title": "Follow a file as it grows",
+          "command": "tail -f <file>",
+          "description": "Streams new lines as they are appended, useful for logs; Ctrl+C to stop.",
+          "tags": [
+            "logs"
+          ]
+        },
+        {
+          "title": "Follow a file in less",
+          "command": "less +F <file>",
+          "description": "Follows like tail -f but lets you press Ctrl+C to scroll and F to resume.",
+          "tags": [
+            "logs",
+            "view"
+          ]
+        },
+        {
+          "title": "Compare two files in unified format",
+          "command": "diff -u <file1> <file2>",
+          "description": "Shows differences as a patch with context lines.",
+          "tags": [
+            "diff"
+          ]
+        },
+        {
+          "title": "Resolve the absolute path of a file",
+          "command": "realpath <file>",
+          "description": "Prints the full canonical path, following symlinks.",
+          "tags": [
+            "path"
+          ]
+        },
+        {
+          "title": "Create an empty file or update its timestamp",
+          "command": "touch <file>",
+          "description": "Creates the file if missing, otherwise sets its modified time to now.",
+          "tags": [
+            "touch"
+          ]
+        },
+        {
+          "title": "Update the file-name index and locate a file",
+          "command": "sudo updatedb && locate <name>",
+          "description": "Rebuilds the locate database then searches it; much faster than find but only as fresh as the last updatedb.",
+          "tags": [
+            "locate"
+          ]
+        },
+        {
+          "title": "Rename files by pattern",
+          "command": "rename 's/<old>/<new>/' *",
+          "description": "Perl rename: replaces the first match in every file name in this folder; add -n to preview.",
+          "tags": [
+            "rename"
+          ]
+        },
+        {
+          "title": "Change a file extension on many files",
+          "command": "for f in *.<ext>; do mv \"$f\" \"${f%.<ext>}.<newext>\"; done",
+          "description": "Renames every matching file in the current folder to the new extension.",
+          "tags": [
+            "rename"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "disk",
+      "name": "Disk & Storage",
+      "commands": [
+        {
+          "title": "Show disk space per filesystem",
+          "command": "df -h",
+          "description": "Human-readable usage and free space for every mounted filesystem.",
+          "tags": [
+            "space"
+          ]
+        },
+        {
+          "title": "Show disk space excluding temp filesystems",
+          "command": "df -hT -x tmpfs -x devtmpfs",
+          "description": "Adds filesystem type and hides tmpfs and devtmpfs noise.",
+          "tags": [
+            "space"
+          ]
+        },
+        {
+          "title": "Check inode usage",
+          "command": "df -i",
+          "description": "Shows inodes used and free; a full inode table blocks new files even with free space.",
+          "tags": [
+            "inodes"
+          ]
+        },
+        {
+          "title": "Find the biggest folders under a path",
+          "command": "sudo du -h --max-depth=1 <dir> 2> /dev/null | sort -rh | head -15",
+          "description": "Lists the 15 largest subfolders, biggest first.",
+          "tags": [
+            "size"
+          ]
+        },
+        {
+          "title": "Browse disk usage interactively",
+          "command": "ncdu <dir>",
+          "description": "Ncurses disk usage browser; install with apt install ncdu. Press d to delete, q to quit.",
+          "tags": [
+            "size"
+          ]
+        },
+        {
+          "title": "Find the largest files on a path",
+          "command": "sudo find <dir> -xdev -type f -size +100M -exec ls -lh {} + 2> /dev/null | sort -k5 -rh | head -20",
+          "description": "Lists files over 100 MB on one filesystem, largest first.",
+          "tags": [
+            "size",
+            "find"
+          ]
+        },
+        {
+          "title": "Find directories using the most inodes",
+          "command": "sudo find <dir> -xdev -type f | cut -d/ -f1-3 | sort | uniq -c | sort -nr | head",
+          "description": "Counts files per top-level folder to find where inodes are being used up.",
+          "tags": [
+            "inodes"
+          ]
+        },
+        {
+          "title": "List block devices",
+          "command": "lsblk",
+          "description": "Shows disks, partitions and mount points as a tree.",
+          "tags": [
+            "devices"
+          ]
+        },
+        {
+          "title": "List block devices with filesystems",
+          "command": "lsblk -f",
+          "description": "Adds filesystem type, label and UUID for each partition.",
+          "tags": [
+            "devices"
+          ]
+        },
+        {
+          "title": "Show UUIDs and filesystem types",
+          "command": "sudo blkid",
+          "description": "Prints the UUID, label and type of each block device, for use in /etc/fstab.",
+          "tags": [
+            "uuid"
+          ]
+        },
+        {
+          "title": "List partition tables",
+          "command": "sudo fdisk -l",
+          "description": "Shows every disk with its partition layout and sizes.",
+          "tags": [
+            "partitions"
+          ]
+        },
+        {
+          "title": "Show mounts as a tree",
+          "command": "findmnt",
+          "description": "Lists mounted filesystems with source and options.",
+          "tags": [
+            "mount"
+          ]
+        },
+        {
+          "title": "Find which mount holds a path",
+          "command": "findmnt -T <path>",
+          "description": "Shows the filesystem that a given file or folder lives on.",
+          "tags": [
+            "mount"
+          ]
+        },
+        {
+          "title": "Mount a partition",
+          "command": "sudo mount /dev/<device> <mountpoint>",
+          "description": "Mounts the device at an existing empty directory.",
+          "tags": [
+            "mount"
+          ]
+        },
+        {
+          "title": "Unmount a filesystem",
+          "command": "sudo umount <mountpoint>",
+          "description": "Unmounts cleanly; fails if the filesystem is busy.",
+          "tags": [
+            "mount"
+          ]
+        },
+        {
+          "title": "Force unmount a busy filesystem",
+          "command": "sudo umount -f <mountpoint>",
+          "description": "Forces the unmount, which can lose unwritten data; try umount -l (lazy) if the mount is hung.",
+          "tags": [
+            "mount"
+          ],
+          "danger": true
+        },
+        {
+          "title": "See which processes use a mount",
+          "command": "sudo lsof +f -- <mountpoint>",
+          "description": "Lists open files on a mount point, to find what keeps it busy.",
+          "tags": [
+            "mount",
+            "lsof"
+          ]
+        },
+        {
+          "title": "Watch disk I/O per process",
+          "command": "sudo iotop -oa",
+          "description": "Shows only processes doing I/O, with accumulated totals; install with apt install iotop.",
+          "tags": [
+            "io"
+          ]
+        },
+        {
+          "title": "Show disk I/O statistics",
+          "command": "iostat -xz 1",
+          "description": "Per-device utilisation, throughput and wait times every second; from the sysstat package.",
+          "tags": [
+            "io"
+          ]
+        },
+        {
+          "title": "Show swap in use",
+          "command": "swapon --show",
+          "description": "Lists swap files and partitions with size and usage.",
+          "tags": [
+            "swap"
+          ]
+        },
+        {
+          "title": "Create and enable a 2 GB swap file",
+          "command": "sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile",
+          "description": "Allocates a swap file and turns it on; add it to /etc/fstab to survive reboots.",
+          "tags": [
+            "swap"
+          ]
+        },
+        {
+          "title": "Disable a swap file",
+          "command": "sudo swapoff /swapfile",
+          "description": "Stops using the swap file; fails if there is not enough free RAM to take the contents.",
+          "tags": [
+            "swap"
+          ]
+        },
+        {
+          "title": "Clear the apt package cache",
+          "command": "sudo apt clean",
+          "description": "Deletes downloaded .deb files from /var/cache/apt/archives to free space.",
+          "tags": [
+            "apt",
+            "cleanup"
+          ]
+        },
+        {
+          "title": "Remove unused packages",
+          "command": "sudo apt autoremove --purge",
+          "description": "Removes dependencies nobody needs any more, with their config files.",
+          "tags": [
+            "apt",
+            "cleanup"
+          ]
+        },
+        {
+          "title": "Check a filesystem for errors",
+          "command": "sudo fsck -n /dev/<device>",
+          "description": "Read-only check (-n makes no changes); never run a repairing fsck on a mounted filesystem.",
+          "tags": [
+            "fsck"
+          ]
+        },
+        {
+          "title": "Show SMART health of a disk",
+          "command": "sudo smartctl -a /dev/<device>",
+          "description": "Prints drive health and error logs; install with apt install smartmontools.",
+          "tags": [
+            "health"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "processes",
+      "name": "Processes & Performance",
+      "commands": [
+        {
+          "title": "Live process monitor",
+          "command": "top",
+          "description": "Shows CPU, memory and the busiest processes; press q to quit, M to sort by memory.",
+          "tags": [
+            "monitor"
+          ]
+        },
+        {
+          "title": "Friendlier process monitor",
+          "command": "htop",
+          "description": "Interactive viewer with search, tree view and kill; install with apt install htop.",
+          "tags": [
+            "monitor"
+          ]
+        },
+        {
+          "title": "Top memory-consuming processes",
+          "command": "ps aux --sort=-%mem | head -10",
+          "description": "Lists the 10 processes using the most memory.",
+          "tags": [
+            "memory"
+          ]
+        },
+        {
+          "title": "Top CPU-consuming processes",
+          "command": "ps aux --sort=-%cpu | head -10",
+          "description": "Lists the 10 processes using the most CPU.",
+          "tags": [
+            "cpu"
+          ]
+        },
+        {
+          "title": "Show the process tree",
+          "command": "ps -ef --forest",
+          "description": "Prints every process with parent and child relationships.",
+          "tags": [
+            "tree"
+          ]
+        },
+        {
+          "title": "Find a process by name",
+          "command": "pgrep -a <name>",
+          "description": "Lists PIDs and full command lines of processes whose name matches.",
+          "tags": [
+            "find"
+          ]
+        },
+        {
+          "title": "Kill processes by name",
+          "command": "pkill <name>",
+          "description": "Sends SIGTERM to every process matching the name; check with pgrep -a first.",
+          "tags": [
+            "kill"
+          ]
+        },
+        {
+          "title": "Kill a process by PID",
+          "command": "kill <pid>",
+          "description": "Asks the process to terminate gracefully with SIGTERM.",
+          "tags": [
+            "kill"
+          ]
+        },
+        {
+          "title": "Force kill a process",
+          "command": "kill -9 <pid>",
+          "description": "Sends SIGKILL, which cannot be caught and skips cleanup; use only when kill fails.",
+          "tags": [
+            "kill"
+          ]
+        },
+        {
+          "title": "Kill all processes with a name",
+          "command": "killall <name>",
+          "description": "Terminates every process with exactly this name.",
+          "tags": [
+            "kill"
+          ]
+        },
+        {
+          "title": "Start a command at low priority",
+          "command": "nice -n 10 <command>",
+          "description": "Runs the command with a lower CPU priority (higher nice value).",
+          "tags": [
+            "nice"
+          ]
+        },
+        {
+          "title": "Change priority of a running process",
+          "command": "sudo renice -n 5 -p <pid>",
+          "description": "Raises the nice value of a running process; negative values need root.",
+          "tags": [
+            "nice"
+          ]
+        },
+        {
+          "title": "List files opened by a process",
+          "command": "sudo lsof -p <pid>",
+          "description": "Shows open files, sockets and libraries for one PID.",
+          "tags": [
+            "lsof"
+          ]
+        },
+        {
+          "title": "Show memory usage",
+          "command": "free -h",
+          "description": "Displays total, used, free and cached RAM and swap in human units.",
+          "tags": [
+            "memory"
+          ]
+        },
+        {
+          "title": "Virtual memory and CPU stats every second",
+          "command": "vmstat 1",
+          "description": "Prints run queue, swap, I/O and CPU columns once a second; Ctrl+C to stop.",
+          "tags": [
+            "perf"
+          ]
+        },
+        {
+          "title": "Show uptime and load average",
+          "command": "uptime",
+          "description": "Shows how long the system has been up and the 1, 5 and 15 minute load averages.",
+          "tags": [
+            "load"
+          ]
+        },
+        {
+          "title": "Count CPU cores",
+          "command": "nproc",
+          "description": "Prints the number of processing units available.",
+          "tags": [
+            "cpu"
+          ]
+        },
+        {
+          "title": "Repeat a command every few seconds",
+          "command": "watch -n 2 <command>",
+          "description": "Reruns the command every 2 seconds and shows the output full screen.",
+          "tags": [
+            "watch"
+          ]
+        },
+        {
+          "title": "Trace the system calls of a process",
+          "command": "sudo strace -p <pid> -f",
+          "description": "Attaches to a running process and prints its syscalls; slows it down, Ctrl+C to detach.",
+          "tags": [
+            "debug"
+          ]
+        },
+        {
+          "title": "Time how long a command takes",
+          "command": "time <command>",
+          "description": "Prints real, user and sys time after the command finishes.",
+          "tags": [
+            "time"
+          ]
+        },
+        {
+          "title": "Run a command that survives logout",
+          "command": "nohup <command> > nohup.out 2>&1 &",
+          "description": "Starts it in the background immune to hangups, writing output to nohup.out.",
+          "tags": [
+            "background"
+          ]
+        },
+        {
+          "title": "List background jobs",
+          "command": "jobs",
+          "description": "Shows jobs started from this shell and their state.",
+          "tags": [
+            "jobs"
+          ]
+        },
+        {
+          "title": "Resume a job in the foreground",
+          "command": "fg %1",
+          "description": "Brings job number 1 back to the foreground.",
+          "tags": [
+            "jobs"
+          ]
+        },
+        {
+          "title": "Resume a job in the background",
+          "command": "bg %1",
+          "description": "Continues a stopped job (after Ctrl+Z) in the background.",
+          "tags": [
+            "jobs"
+          ]
+        },
+        {
+          "title": "Show threads of a process",
+          "command": "ps -Lp <pid>",
+          "description": "Lists every thread of one process.",
+          "tags": [
+            "threads"
+          ]
+        },
+        {
+          "title": "Show a process's start time and elapsed time",
+          "command": "ps -o pid,lstart,etime,cmd -p <pid>",
+          "description": "Tells you when a process started and how long it has run.",
+          "tags": [
+            "time"
+          ]
+        },
+        {
+          "title": "Show per-CPU usage",
+          "command": "mpstat -P ALL 1",
+          "description": "Per-core utilisation every second; from the sysstat package.",
+          "tags": [
+            "cpu"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "networking",
+      "name": "Networking",
+      "commands": [
+        {
+          "title": "Show IP addresses",
+          "command": "ip -br a",
+          "description": "Brief list of interfaces with state and addresses.",
+          "tags": [
+            "ip"
+          ]
+        },
+        {
+          "title": "Show full interface details",
+          "command": "ip a",
+          "description": "Full address information for every network interface.",
+          "tags": [
+            "ip"
+          ]
+        },
+        {
+          "title": "Show the routing table",
+          "command": "ip r",
+          "description": "Lists routes including the default gateway.",
+          "tags": [
+            "routes"
+          ]
+        },
+        {
+          "title": "Show the route to a destination",
+          "command": "ip route get <ip>",
+          "description": "Shows which interface and gateway will be used to reach an address.",
+          "tags": [
+            "routes"
+          ]
+        },
+        {
+          "title": "List listening ports with processes",
+          "command": "sudo ss -tulpn",
+          "description": "Shows TCP and UDP listeners with the owning process and PID.",
+          "tags": [
+            "ports"
+          ]
+        },
+        {
+          "title": "Show socket summary",
+          "command": "ss -s",
+          "description": "Prints counts of sockets by state and protocol.",
+          "tags": [
+            "ports"
+          ]
+        },
+        {
+          "title": "Show which process listens on a port",
+          "command": "sudo lsof -i :<port>",
+          "description": "Lists the processes with that port open, with their PID and user; needs sudo to see other users' processes.",
+          "tags": [
+            "ports"
+          ]
+        },
+        {
+          "title": "Show established connections",
+          "command": "ss -tn state established",
+          "description": "Lists current TCP connections with addresses and ports.",
+          "tags": [
+            "connections"
+          ]
+        },
+        {
+          "title": "Fetch only the response headers",
+          "command": "curl -I <url>",
+          "description": "Sends a HEAD request and prints the status line and headers.",
+          "tags": [
+            "curl",
+            "http"
+          ]
+        },
+        {
+          "title": "Verbose request details",
+          "command": "curl -v <url>",
+          "description": "Shows the TLS handshake, request and response headers for debugging.",
+          "tags": [
+            "curl",
+            "http"
+          ]
+        },
+        {
+          "title": "Follow redirects and show the final URL",
+          "command": "curl -sIL -o /dev/null -w \"%{url_effective}\\n\" <url>",
+          "description": "Follows redirects and prints where you end up.",
+          "tags": [
+            "curl",
+            "http"
+          ]
+        },
+        {
+          "title": "Download a file with curl",
+          "command": "curl -L -o <file> <url>",
+          "description": "Saves the response to a file and follows redirects.",
+          "tags": [
+            "curl",
+            "download"
+          ]
+        },
+        {
+          "title": "POST JSON with curl",
+          "command": "curl -X POST -H \"Content-Type: application/json\" -d '{\"key\":\"value\"}' <url>",
+          "description": "Sends a JSON body in a POST request.",
+          "tags": [
+            "curl",
+            "http"
+          ]
+        },
+        {
+          "title": "Send an authorization header",
+          "command": "curl -H \"Authorization: Bearer <token>\" <url>",
+          "description": "Calls an API with a bearer token; avoid leaving tokens in shell history.",
+          "tags": [
+            "curl",
+            "http"
+          ]
+        },
+        {
+          "title": "Measure download speed with curl",
+          "command": "curl -o /dev/null -s -w \"%{speed_download} bytes/s, total %{time_total}s\\n\" <url>",
+          "description": "Downloads and discards the body, printing the average speed.",
+          "tags": [
+            "curl",
+            "speed"
+          ]
+        },
+        {
+          "title": "Time each phase of a request",
+          "command": "curl -o /dev/null -s -w \"dns %{time_namelookup}s connect %{time_connect}s tls %{time_appconnect}s first byte %{time_starttransfer}s total %{time_total}s\\n\" <url>",
+          "description": "Breaks down where the time goes for a request.",
+          "tags": [
+            "curl",
+            "perf"
+          ]
+        },
+        {
+          "title": "Download a file with wget",
+          "command": "wget <url>",
+          "description": "Saves the file in the current folder.",
+          "tags": [
+            "wget",
+            "download"
+          ]
+        },
+        {
+          "title": "Resume a partial download with wget",
+          "command": "wget -c <url>",
+          "description": "Continues a download that was interrupted.",
+          "tags": [
+            "wget",
+            "download"
+          ]
+        },
+        {
+          "title": "Mirror a page for offline use",
+          "command": "wget --mirror --convert-links --page-requisites --no-parent <url>",
+          "description": "Downloads a site section with its assets and rewrites links to work locally.",
+          "tags": [
+            "wget"
+          ]
+        },
+        {
+          "title": "Ping a host four times",
+          "command": "ping -c 4 <host>",
+          "description": "Sends four ICMP echo requests and prints latency and loss.",
+          "tags": [
+            "ping"
+          ]
+        },
+        {
+          "title": "Trace the route to a host",
+          "command": "traceroute <host>",
+          "description": "Shows each hop to the destination; install with apt install traceroute.",
+          "tags": [
+            "route"
+          ]
+        },
+        {
+          "title": "Combined ping and traceroute report",
+          "command": "mtr -rwc 10 <host>",
+          "description": "Sends 10 probes per hop and prints a report of loss and latency; install with apt install mtr-tiny.",
+          "tags": [
+            "route"
+          ]
+        },
+        {
+          "title": "Look up DNS records",
+          "command": "dig <domain>",
+          "description": "Queries the default resolver and shows the full answer.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Short DNS answer",
+          "command": "dig +short <domain>",
+          "description": "Prints only the resolved addresses.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Query a specific record type",
+          "command": "dig <domain> <type>",
+          "description": "Looks up a record type such as MX, TXT or NS.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Query a specific DNS server",
+          "command": "dig @<dns-server> <domain>",
+          "description": "Asks a chosen resolver instead of the system default.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Trace DNS resolution from the root",
+          "command": "dig +trace <domain>",
+          "description": "Follows delegation from the root servers to the authoritative answer.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Reverse DNS lookup",
+          "command": "dig -x <ip> +short",
+          "description": "Finds the hostname for an IP address.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Look up a name with nslookup",
+          "command": "nslookup <domain>",
+          "description": "Simple DNS lookup showing the server used and the answer.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Look up a name with host",
+          "command": "host <domain>",
+          "description": "One-line DNS lookup summary.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Test whether a TCP port is open",
+          "command": "nc -zv <host> <port>",
+          "description": "Tries to connect without sending data and reports success or failure.",
+          "tags": [
+            "ports",
+            "nc"
+          ]
+        },
+        {
+          "title": "Show my public IP address",
+          "command": "curl ifconfig.me",
+          "description": "Asks an external service for the IP address you appear from.",
+          "tags": [
+            "ip",
+            "public"
+          ]
+        },
+        {
+          "title": "Show local IP addresses",
+          "command": "hostname -I",
+          "description": "Prints all non-loopback addresses of this machine.",
+          "tags": [
+            "ip"
+          ]
+        },
+        {
+          "title": "Edit the hosts file",
+          "command": "sudo nano /etc/hosts",
+          "description": "Maps names to IP addresses locally, overriding DNS; one entry per line.",
+          "tags": [
+            "hosts"
+          ]
+        },
+        {
+          "title": "Show DNS resolver status",
+          "command": "resolvectl status",
+          "description": "Shows the DNS servers and domains systemd-resolved uses per interface.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Flush the DNS cache",
+          "command": "sudo resolvectl flush-caches",
+          "description": "Clears systemd-resolved cached answers.",
+          "tags": [
+            "dns"
+          ]
+        },
+        {
+          "title": "Capture packets on a port",
+          "command": "sudo tcpdump -i any port <port> -nn",
+          "description": "Prints traffic on that port from any interface without resolving names; Ctrl+C to stop.",
+          "tags": [
+            "tcpdump"
+          ]
+        },
+        {
+          "title": "Save a packet capture to a file",
+          "command": "sudo tcpdump -i any -w capture.pcap port <port>",
+          "description": "Writes raw packets for later analysis in Wireshark.",
+          "tags": [
+            "tcpdump"
+          ]
+        },
+        {
+          "title": "Start an iperf3 server",
+          "command": "iperf3 -s",
+          "description": "Listens for bandwidth tests on port 5201.",
+          "tags": [
+            "iperf3",
+            "speed"
+          ]
+        },
+        {
+          "title": "Test bandwidth to an iperf3 server",
+          "command": "iperf3 -c <host>",
+          "description": "Measures throughput to a host running iperf3 -s; add -R for the reverse direction.",
+          "tags": [
+            "iperf3",
+            "speed"
+          ]
+        },
+        {
+          "title": "Show interface traffic counters",
+          "command": "ip -s link",
+          "description": "Prints bytes, packets and errors per interface.",
+          "tags": [
+            "ip"
+          ]
+        },
+        {
+          "title": "Show Wi-Fi and network connections",
+          "command": "nmcli device status",
+          "description": "Lists network devices and their state in NetworkManager.",
+          "tags": [
+            "nmcli"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ssh",
+      "name": "SSH & File Transfer",
+      "commands": [
+        {
+          "title": "Connect with a port and key",
+          "command": "ssh -p <port> -i <key-file> <user>@<host>",
+          "description": "Logs in on a custom port using a specific private key.",
+          "tags": [
+            "ssh"
+          ]
+        },
+        {
+          "title": "Connect through a jump host",
+          "command": "ssh -J <jump-user>@<jump-host> <user>@<host>",
+          "description": "Reaches a host through a bastion in a single command.",
+          "tags": [
+            "ssh",
+            "proxy"
+          ]
+        },
+        {
+          "title": "Generate an ed25519 key pair",
+          "command": "ssh-keygen -t ed25519 -C \"<comment>\"",
+          "description": "Creates a new key in ~/.ssh; set a passphrase when prompted.",
+          "tags": [
+            "keys"
+          ]
+        },
+        {
+          "title": "Copy your public key to a server",
+          "command": "ssh-copy-id -i ~/.ssh/id_ed25519.pub <user>@<host>",
+          "description": "Adds your key to authorized_keys so you can log in without a password.",
+          "tags": [
+            "keys"
+          ]
+        },
+        {
+          "title": "Add a key to the ssh agent",
+          "command": "ssh-add ~/.ssh/id_ed25519",
+          "description": "Loads the key so you enter its passphrase once per session.",
+          "tags": [
+            "keys",
+            "agent"
+          ]
+        },
+        {
+          "title": "List keys loaded in the agent",
+          "command": "ssh-add -l",
+          "description": "Shows fingerprints of keys the agent holds.",
+          "tags": [
+            "keys",
+            "agent"
+          ]
+        },
+        {
+          "title": "Remove a stale host key",
+          "command": "ssh-keygen -R <host>",
+          "description": "Deletes the host from known_hosts after a server was reinstalled.",
+          "tags": [
+            "keys"
+          ]
+        },
+        {
+          "title": "Forward a local port",
+          "command": "ssh -L <local-port>:localhost:<remote-port> <user>@<host>",
+          "description": "Makes the remote service reachable at localhost on your machine.",
+          "tags": [
+            "tunnel"
+          ]
+        },
+        {
+          "title": "Forward a remote port back to you",
+          "command": "ssh -R <remote-port>:localhost:<local-port> <user>@<host>",
+          "description": "Exposes a local service on the remote server's port.",
+          "tags": [
+            "tunnel"
+          ]
+        },
+        {
+          "title": "Open a SOCKS proxy through a server",
+          "command": "ssh -D <port> -N <user>@<host>",
+          "description": "Starts a SOCKS5 proxy on localhost routed through the server; -N runs no command.",
+          "tags": [
+            "tunnel",
+            "proxy"
+          ]
+        },
+        {
+          "title": "Copy a file to a server",
+          "command": "scp <file> <user>@<host>:<remote-dir>",
+          "description": "Uploads over SSH; use -P for a non-default port.",
+          "tags": [
+            "scp"
+          ]
+        },
+        {
+          "title": "Copy a file from a server",
+          "command": "scp <user>@<host>:<remote-file> <local-dir>",
+          "description": "Downloads over SSH into a local folder.",
+          "tags": [
+            "scp"
+          ]
+        },
+        {
+          "title": "Copy a folder to a server",
+          "command": "scp -r <dir> <user>@<host>:<remote-dir>",
+          "description": "Recursively uploads a directory over SSH.",
+          "tags": [
+            "scp"
+          ]
+        },
+        {
+          "title": "Sync a folder with rsync",
+          "command": "rsync -avz --progress <source>/ <user>@<host>:<remote-dir>/",
+          "description": "Copies only changed files, compressed, keeping permissions; the trailing slash on the source matters.",
+          "tags": [
+            "rsync"
+          ]
+        },
+        {
+          "title": "Mirror a folder, deleting extras",
+          "command": "rsync -avz --delete <source>/ <user>@<host>:<remote-dir>/",
+          "description": "Makes the destination identical to the source, deleting files that are not in it; test with --dry-run.",
+          "tags": [
+            "rsync"
+          ],
+          "danger": true
+        },
+        {
+          "title": "Preview an rsync without changing anything",
+          "command": "rsync -avzn --delete <source>/ <user>@<host>:<remote-dir>/",
+          "description": "Dry run that lists what would be copied or deleted.",
+          "tags": [
+            "rsync"
+          ]
+        },
+        {
+          "title": "Open an SFTP session",
+          "command": "sftp -P <port> <user>@<host>",
+          "description": "Interactive file transfer shell with get, put, ls and cd.",
+          "tags": [
+            "sftp"
+          ]
+        },
+        {
+          "title": "Debug an SSH connection",
+          "command": "ssh -vvv <user>@<host>",
+          "description": "Prints detailed handshake and authentication output to diagnose failures.",
+          "tags": [
+            "ssh",
+            "debug"
+          ]
+        },
+        {
+          "title": "Run a command on a remote host",
+          "command": "ssh <user>@<host> \"<command>\"",
+          "description": "Executes one command remotely and returns its output.",
+          "tags": [
+            "ssh"
+          ]
+        },
+        {
+          "title": "Show a server's host key fingerprint",
+          "command": "ssh-keygen -lf <(ssh-keyscan <host> 2> /dev/null)",
+          "description": "Prints the fingerprint to verify before trusting a new host.",
+          "tags": [
+            "keys"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "archives",
+      "name": "Archives & Compression",
+      "commands": [
+        {
+          "title": "Create a tar.gz archive",
+          "command": "tar -czvf <archive>.tar.gz <dir>",
+          "description": "Packs and compresses a folder with gzip.",
+          "tags": [
+            "tar"
+          ]
+        },
+        {
+          "title": "Extract a tar.gz archive",
+          "command": "tar -xzvf <archive>.tar.gz",
+          "description": "Unpacks into the current folder.",
+          "tags": [
+            "tar"
+          ]
+        },
+        {
+          "title": "Extract into a specific folder",
+          "command": "tar -xzvf <archive>.tar.gz -C <dir>",
+          "description": "Unpacks into the given directory, which must already exist.",
+          "tags": [
+            "tar"
+          ]
+        },
+        {
+          "title": "List the contents of a tar.gz",
+          "command": "tar -tzvf <archive>.tar.gz",
+          "description": "Shows files inside without extracting.",
+          "tags": [
+            "tar"
+          ]
+        },
+        {
+          "title": "Create a tar.xz archive",
+          "command": "tar -cJvf <archive>.tar.xz <dir>",
+          "description": "Smaller than gzip but slower to compress.",
+          "tags": [
+            "tar",
+            "xz"
+          ]
+        },
+        {
+          "title": "Extract a tar.xz archive",
+          "command": "tar -xJvf <archive>.tar.xz",
+          "description": "Unpacks an xz-compressed tarball.",
+          "tags": [
+            "tar",
+            "xz"
+          ]
+        },
+        {
+          "title": "Create a tar.zst archive",
+          "command": "tar --zstd -cvf <archive>.tar.zst <dir>",
+          "description": "Fast, strong compression; needs the zstd package.",
+          "tags": [
+            "tar",
+            "zstd"
+          ]
+        },
+        {
+          "title": "Extract a tar.zst archive",
+          "command": "tar --zstd -xvf <archive>.tar.zst",
+          "description": "Unpacks a zstd-compressed tarball.",
+          "tags": [
+            "tar",
+            "zstd"
+          ]
+        },
+        {
+          "title": "Extract a single file from a tarball",
+          "command": "tar -xzvf <archive>.tar.gz <path-in-archive>",
+          "description": "Pulls out one member; get its exact path from tar -tzf.",
+          "tags": [
+            "tar"
+          ]
+        },
+        {
+          "title": "Zip a folder",
+          "command": "zip -r <archive>.zip <dir>",
+          "description": "Recursively creates a zip archive.",
+          "tags": [
+            "zip"
+          ]
+        },
+        {
+          "title": "Unzip an archive",
+          "command": "unzip <archive>.zip",
+          "description": "Extracts into the current folder; add -d <dir> to choose another.",
+          "tags": [
+            "zip"
+          ]
+        },
+        {
+          "title": "List a zip's contents",
+          "command": "unzip -l <archive>.zip",
+          "description": "Shows files inside the zip without extracting.",
+          "tags": [
+            "zip"
+          ]
+        },
+        {
+          "title": "Compress a file with gzip",
+          "command": "gzip <file>",
+          "description": "Replaces the file with file.gz; add -k to keep the original.",
+          "tags": [
+            "gzip"
+          ]
+        },
+        {
+          "title": "Decompress a gzip file",
+          "command": "gunzip <file>.gz",
+          "description": "Restores the original file and removes the .gz.",
+          "tags": [
+            "gzip"
+          ]
+        },
+        {
+          "title": "Read a compressed file without extracting",
+          "command": "zcat <file>.gz",
+          "description": "Prints the uncompressed content to the terminal.",
+          "tags": [
+            "gzip"
+          ]
+        },
+        {
+          "title": "Search inside compressed logs",
+          "command": "zgrep \"<pattern>\" <file>.gz",
+          "description": "Greps a gzip file directly; handy for rotated logs.",
+          "tags": [
+            "gzip",
+            "grep"
+          ]
+        },
+        {
+          "title": "Create a 7z archive",
+          "command": "7z a <archive>.7z <dir>",
+          "description": "High-compression archive; install with apt install p7zip-full.",
+          "tags": [
+            "7z"
+          ]
+        },
+        {
+          "title": "Extract a 7z archive",
+          "command": "7z x <archive>.7z",
+          "description": "Extracts with the full folder structure.",
+          "tags": [
+            "7z"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "text",
+      "name": "Text Processing",
+      "commands": [
+        {
+          "title": "Search files recursively for text",
+          "command": "grep -rn \"<pattern>\" <dir>",
+          "description": "Prints matching lines with file name and line number.",
+          "tags": [
+            "grep"
+          ]
+        },
+        {
+          "title": "Search case-insensitively",
+          "command": "grep -i \"<pattern>\" <file>",
+          "description": "Ignores letter case when matching.",
+          "tags": [
+            "grep"
+          ]
+        },
+        {
+          "title": "Show lines that do not match",
+          "command": "grep -v \"<pattern>\" <file>",
+          "description": "Inverts the match, printing only non-matching lines.",
+          "tags": [
+            "grep"
+          ]
+        },
+        {
+          "title": "Count matching lines",
+          "command": "grep -c \"<pattern>\" <file>",
+          "description": "Prints how many lines match.",
+          "tags": [
+            "grep",
+            "count"
+          ]
+        },
+        {
+          "title": "Match with an extended regex",
+          "command": "grep -E \"<pattern1>|<pattern2>\" <file>",
+          "description": "Matches either alternative using extended regular expressions.",
+          "tags": [
+            "grep",
+            "regex"
+          ]
+        },
+        {
+          "title": "Show context around matches",
+          "command": "grep -C 3 \"<pattern>\" <file>",
+          "description": "Prints 3 lines before and after each match.",
+          "tags": [
+            "grep"
+          ]
+        },
+        {
+          "title": "Replace text in a file",
+          "command": "sed -i 's/<old>/<new>/g' <file>",
+          "description": "Edits the file in place, replacing every occurrence; use -i.bak to keep a backup.",
+          "tags": [
+            "sed"
+          ]
+        },
+        {
+          "title": "Preview a sed substitution",
+          "command": "sed 's/<old>/<new>/g' <file>",
+          "description": "Prints the result to the terminal without changing the file.",
+          "tags": [
+            "sed"
+          ]
+        },
+        {
+          "title": "Print a range of lines",
+          "command": "sed -n '10,20p' <file>",
+          "description": "Shows lines 10 to 20 of a file.",
+          "tags": [
+            "sed"
+          ]
+        },
+        {
+          "title": "Delete lines matching a pattern",
+          "command": "sed '/<pattern>/d' <file>",
+          "description": "Prints the file without matching lines; add -i to edit in place.",
+          "tags": [
+            "sed"
+          ]
+        },
+        {
+          "title": "Print one column with awk",
+          "command": "awk '{print $1}' <file>",
+          "description": "Prints the first whitespace-separated field of each line.",
+          "tags": [
+            "awk"
+          ]
+        },
+        {
+          "title": "Use a custom field separator in awk",
+          "command": "awk -F: '{print $1, $3}' /etc/passwd",
+          "description": "Splits on a colon and prints fields 1 and 3.",
+          "tags": [
+            "awk"
+          ]
+        },
+        {
+          "title": "Sum a column with awk",
+          "command": "awk '{s+=$1} END {print s}' <file>",
+          "description": "Adds up the numbers in the first column.",
+          "tags": [
+            "awk"
+          ]
+        },
+        {
+          "title": "Count occurrences of each line",
+          "command": "sort <file> | uniq -c | sort -nr",
+          "description": "Ranks identical lines by how often they occur.",
+          "tags": [
+            "sort",
+            "uniq"
+          ]
+        },
+        {
+          "title": "Remove duplicate lines",
+          "command": "sort -u <file>",
+          "description": "Sorts and drops repeated lines.",
+          "tags": [
+            "sort"
+          ]
+        },
+        {
+          "title": "Extract a field with cut",
+          "command": "cut -d, -f1,3 <file>",
+          "description": "Prints columns 1 and 3 of a comma-separated file.",
+          "tags": [
+            "cut"
+          ]
+        },
+        {
+          "title": "Change case with tr",
+          "command": "tr 'a-z' 'A-Z' < <file>",
+          "description": "Converts lowercase to uppercase.",
+          "tags": [
+            "tr"
+          ]
+        },
+        {
+          "title": "Build commands from input with xargs",
+          "command": "find <dir> -name \"<pattern>\" | xargs -d '\\n' <command>",
+          "description": "Passes each found file as an argument to a command; -d keeps spaces in names safe.",
+          "tags": [
+            "xargs"
+          ]
+        },
+        {
+          "title": "Pretty-print JSON",
+          "command": "jq '.' <file>",
+          "description": "Formats and colourises JSON; install with apt install jq.",
+          "tags": [
+            "jq",
+            "json"
+          ]
+        },
+        {
+          "title": "Extract a JSON key",
+          "command": "jq '.<key>' <file>",
+          "description": "Prints the value of a top-level key.",
+          "tags": [
+            "jq",
+            "json"
+          ]
+        },
+        {
+          "title": "Filter JSON array items",
+          "command": "jq -r '.[] | select(.<key> == \"<value>\")' <file>",
+          "description": "Prints array elements whose key equals a value.",
+          "tags": [
+            "jq",
+            "json"
+          ]
+        },
+        {
+          "title": "Align output into columns",
+          "command": "mount | column -t",
+          "description": "Formats whitespace-separated input into a neat table.",
+          "tags": [
+            "column"
+          ]
+        },
+        {
+          "title": "Write output to screen and file",
+          "command": "<command> | tee <file>",
+          "description": "Shows the output and saves a copy; use tee -a to append.",
+          "tags": [
+            "tee"
+          ]
+        },
+        {
+          "title": "Append to a root-owned file",
+          "command": "echo \"<text>\" | sudo tee -a <file>",
+          "description": "Appends text to a file that needs sudo, where a plain redirect would fail.",
+          "tags": [
+            "tee",
+            "sudo"
+          ]
+        },
+        {
+          "title": "Base64 encode a string",
+          "command": "echo -n \"<text>\" | base64",
+          "description": "Encodes text without a trailing newline.",
+          "tags": [
+            "base64"
+          ]
+        },
+        {
+          "title": "Base64 decode a string",
+          "command": "echo \"<encoded>\" | base64 -d",
+          "description": "Decodes a base64 string.",
+          "tags": [
+            "base64"
+          ]
+        },
+        {
+          "title": "Compute a SHA-256 checksum",
+          "command": "sha256sum <file>",
+          "description": "Prints the hash to verify a download.",
+          "tags": [
+            "hash"
+          ]
+        },
+        {
+          "title": "Verify checksums from a file",
+          "command": "sha256sum -c <checksum-file>",
+          "description": "Checks files against a list of hashes and reports OK or FAILED.",
+          "tags": [
+            "hash"
+          ]
+        },
+        {
+          "title": "Count words, lines and bytes",
+          "command": "wc <file>",
+          "description": "Prints line, word and byte counts.",
+          "tags": [
+            "wc"
+          ]
+        },
+        {
+          "title": "Show unique values of a column",
+          "command": "cut -d, -f2 <file> | sort | uniq",
+          "description": "Lists the distinct values in the second CSV column.",
+          "tags": [
+            "cut",
+            "uniq"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "system-info",
+      "name": "System Info",
+      "commands": [
+        {
+          "title": "Show kernel and system info",
+          "command": "uname -a",
+          "description": "Prints kernel name, version, hostname and architecture.",
+          "tags": [
+            "kernel"
+          ]
+        },
+        {
+          "title": "Show the Ubuntu release",
+          "command": "lsb_release -a",
+          "description": "Prints distribution name, release and codename.",
+          "tags": [
+            "os"
+          ]
+        },
+        {
+          "title": "Show OS release details",
+          "command": "cat /etc/os-release",
+          "description": "Prints the distribution identifiers and version.",
+          "tags": [
+            "os"
+          ]
+        },
+        {
+          "title": "Show host details",
+          "command": "hostnamectl",
+          "description": "Shows hostname, OS, kernel, architecture and virtualization.",
+          "tags": [
+            "host"
+          ]
+        },
+        {
+          "title": "Show uptime in words",
+          "command": "uptime -p",
+          "description": "Prints how long the system has been up, for example \"up 3 days\".",
+          "tags": [
+            "uptime"
+          ]
+        },
+        {
+          "title": "Show CPU details",
+          "command": "lscpu",
+          "description": "Prints model, cores, threads, cache and architecture.",
+          "tags": [
+            "cpu"
+          ]
+        },
+        {
+          "title": "Show memory totals",
+          "command": "free -h",
+          "description": "Displays RAM and swap usage in human units.",
+          "tags": [
+            "memory"
+          ]
+        },
+        {
+          "title": "Show time and timezone settings",
+          "command": "timedatectl",
+          "description": "Prints local time, UTC, timezone and NTP sync status.",
+          "tags": [
+            "time"
+          ]
+        },
+        {
+          "title": "List available timezones",
+          "command": "timedatectl list-timezones | grep -i <city>",
+          "description": "Finds the exact timezone name for a city.",
+          "tags": [
+            "time"
+          ]
+        },
+        {
+          "title": "Set the timezone",
+          "command": "sudo timedatectl set-timezone <timezone>",
+          "description": "Changes the system timezone, for example Europe/Berlin.",
+          "tags": [
+            "time"
+          ]
+        },
+        {
+          "title": "Show the current date and time",
+          "command": "date",
+          "description": "Prints the local date and time.",
+          "tags": [
+            "time"
+          ]
+        },
+        {
+          "title": "Show the date in ISO format",
+          "command": "date -u +\"%Y-%m-%dT%H:%M:%SZ\"",
+          "description": "Prints the UTC time as an ISO 8601 timestamp.",
+          "tags": [
+            "time"
+          ]
+        },
+        {
+          "title": "Show the current user",
+          "command": "whoami",
+          "description": "Prints the name of the logged-in user.",
+          "tags": [
+            "user"
+          ]
+        },
+        {
+          "title": "Show user and group IDs",
+          "command": "id",
+          "description": "Prints the UID, GID and groups of the current user.",
+          "tags": [
+            "user"
+          ]
+        },
+        {
+          "title": "List environment variables sorted",
+          "command": "env | sort",
+          "description": "Prints every environment variable alphabetically.",
+          "tags": [
+            "env"
+          ]
+        },
+        {
+          "title": "Show boot history",
+          "command": "journalctl --list-boots | tail",
+          "description": "Lists recent boots with their first and last log timestamps; older boots need persistent journald storage.",
+          "tags": [
+            "boot"
+          ]
+        },
+        {
+          "title": "Show who is logged in",
+          "command": "w",
+          "description": "Lists logged-in users, their sessions and what they are running.",
+          "tags": [
+            "users"
+          ]
+        },
+        {
+          "title": "Show hardware summary",
+          "command": "sudo lshw -short",
+          "description": "Lists CPU, memory, disks and network hardware; install lshw if missing.",
+          "tags": [
+            "hardware"
+          ]
+        },
+        {
+          "title": "List PCI devices",
+          "command": "lspci",
+          "description": "Shows graphics, network and other PCI hardware.",
+          "tags": [
+            "hardware"
+          ]
+        },
+        {
+          "title": "Show when the system last booted",
+          "command": "uptime -s",
+          "description": "Prints the date and time of the last boot.",
+          "tags": [
+            "boot"
+          ]
+        },
+        {
+          "title": "Show reboot history",
+          "command": "last reboot | head",
+          "description": "Lists the most recent boots with their times, read from /var/log/wtmp.",
+          "tags": [
+            "boot",
+            "history"
+          ]
+        },
+        {
+          "title": "Check whether a reboot is pending",
+          "command": "cat /var/run/reboot-required.pkgs 2> /dev/null || echo 'No reboot required'",
+          "description": "On Ubuntu, lists the updated packages that need a reboot to take effect.",
+          "tags": [
+            "boot",
+            "updates"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -17,6 +17,7 @@ use modules::file_manager;
 use modules::hosts_file;
 use modules::http_client;
 use modules::laravel_log;
+use modules::llm_traces;
 use modules::logs;
 use modules::mailcatcher;
 use modules::memory;
@@ -72,6 +73,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        // The terminal copies through this rather than the webview's clipboard,
+        // which refuses writes that don't come straight from a click or key.
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -91,6 +95,7 @@ pub fn run() {
             app.manage(tunnel::TunnelState::default());
             app.manage(workers::WorkersState::default());
             app.manage(mailcatcher::MailcatcherState::default());
+            app.manage(llm_traces::LlmTracesState::default());
             app.manage(ssh::SshState::default());
             app.manage(remote_desktop::RemoteDesktopState::default());
             app.manage(memory::MemoryState::default());
@@ -104,6 +109,7 @@ pub fn run() {
             tray::setup(app.handle())?;
 
             mailcatcher::on_startup(app.handle());
+            llm_traces::on_startup(app.handle());
 
             if let Some(window) = app.get_webview_window("main") {
                 let app_handle = app.handle().clone();
@@ -267,6 +273,15 @@ pub fn run() {
             mailcatcher::mailcatcher_install,
             mailcatcher::mailcatcher_uninstall,
             mailcatcher::mailcatcher_set_options,
+            llm_traces::llm_traces_status,
+            llm_traces::llm_traces_start,
+            llm_traces::llm_traces_stop,
+            llm_traces::llm_traces_set_options,
+            llm_traces::llm_traces_list,
+            llm_traces::llm_traces_get,
+            llm_traces::llm_traces_delete,
+            llm_traces::llm_traces_clear,
+            llm_traces::llm_traces_recent,
             cleaner::cleaner_settings_get,
             cleaner::cleaner_settings_set,
             cleaner::cleaner_history_list,
@@ -390,6 +405,9 @@ pub fn run() {
             ssh::sftp::sftp_download,
             ssh::sftp::sftp_download_zip,
             ssh::sftp::sftp_upload,
+            ssh::sftp::sftp_upload_temp,
+            ssh::paste::terminal_clipboard_image,
+            ssh::paste::terminal_clipboard_text,
             ssh::sftp::sftp_read_file,
             ssh::sftp::sftp_write_file,
             ssh::sftp::sftp_open_in_editor,

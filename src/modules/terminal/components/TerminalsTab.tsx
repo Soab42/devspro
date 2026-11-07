@@ -6,6 +6,7 @@ import { openTerminalWindow } from "../../../app/popout";
 import { Button, IconButton, Select, Spinner } from "../../../ui";
 import {
   ChevronRight,
+  LibraryBig,
   Monitor,
   PanelLeft,
   PictureInPicture2,
@@ -18,7 +19,7 @@ import {
 import { Icon } from "../../../ui/Icon";
 import { PaneLayout } from "../../../ui/PaneLayout";
 import { TerminalWorkspace, clampAside, hideNextHook } from "../../../ui/Terminal";
-import { sftpConnect, sftpDisconnect, sftpUpload, termRemoteCwd, writePty, type SshHost } from "../../ssh/api";
+import { sftpConnect, sftpDisconnect, sftpUpload, sftpUploadTemp, termRemoteCwd, writePty, type SshHost } from "../../ssh/api";
 import HostPicker from "../../ssh/components/HostPicker";
 import { useConnectFlow } from "../../ssh/components/useConnectFlow";
 import { elementAtPoint, endFileDrag, hasFileDrag, readFileDrag, useOsFileDrop, type Point } from "../../ssh/dnd";
@@ -46,8 +47,24 @@ import TerminalSidebar, { type RemoteBrowser } from "./TerminalSidebar";
 const Terminal = lazy(() => import("../../../ui/Terminal"));
 const EditorGroup = lazy(() => import("./EditorGroup"));
 
+const CommandsPanel = lazy(() => import("../../commands/components/CommandsPanel"));
+
 const ASIDE_KEY = "devspro.terminal.aside";
 const ASIDE_WIDTH_KEY = "devspro.terminal.asideWidth";
+const COMMANDS_KEY = "devspro.terminal.commands";
+const COMMANDS_WIDTH_KEY = "devspro.terminal.commandsWidth";
+
+/** The command library on the right: shut until asked for, unlike the file browser. */
+function readCommandsPanel(): { open: boolean; width: number } {
+  try {
+    return {
+      open: localStorage.getItem(COMMANDS_KEY) === "1",
+      width: clampAside(Number(localStorage.getItem(COMMANDS_WIDTH_KEY)) || 300),
+    };
+  } catch {
+    return { open: false, width: 300 };
+  }
+}
 
 function readAside(): { open: boolean; width: number } {
   try {
@@ -140,6 +157,7 @@ export default function TerminalsTab({
     }
   }, [keep, state.sessions]);
   const [aside, setAside] = useState(readAside);
+  const [commandsPanel, setCommandsPanel] = useState(readCommandsPanel);
   const connectFlow = useConnectFlow();
 
   // Read through refs so the handle given to the page is stable: a new
@@ -206,10 +224,36 @@ export default function TerminalsTab({
       return next;
     });
   }
+  // A host picked from the empty page logs the file browser in alongside the
+  // terminal. The browser connects whenever a remote pane is focused and its
+  // panel is open, so opening the panel is all that takes.
+  function logIn(host: SshHost) {
+    if (!aside.open) toggleAside();
+    openWindow({ ssh: host.id });
+  }
   function resizeAside(width: number) {
     setAside((a) => ({ ...a, width }));
     try {
       localStorage.setItem(ASIDE_WIDTH_KEY, String(width));
+    } catch {
+      /* private mode */
+    }
+  }
+  function toggleCommands() {
+    setCommandsPanel((c) => {
+      const next = { ...c, open: !c.open };
+      try {
+        localStorage.setItem(COMMANDS_KEY, next.open ? "1" : "0");
+      } catch {
+        /* private mode */
+      }
+      return next;
+    });
+  }
+  function resizeCommands(width: number) {
+    setCommandsPanel((c) => ({ ...c, width }));
+    try {
+      localStorage.setItem(COMMANDS_WIDTH_KEY, String(width));
     } catch {
       /* private mode */
     }
@@ -224,7 +268,8 @@ export default function TerminalsTab({
   const [sftpFailed, setSftpFailed] = useState<Record<string, string>>({});
   const attachedId = initial?.session.id ?? null;
 
-  async function connectBrowser(host: SshHost) {
+  /** Resolves with the session, or null when it failed or was cancelled. */
+  async function connectBrowser(host: SshHost): Promise<string | null> {
     setSftpConnecting(host.id);
     setSftpFailed((prev) => {
       const next = { ...prev };
@@ -235,8 +280,10 @@ export default function TerminalsTab({
       const id = await connectFlow.run(host, (creds) => sftpConnect(host.id, creds));
       if (id !== null) setSftp((prev) => ({ ...prev, [host.id]: id }));
       else setSftpFailed((prev) => ({ ...prev, [host.id]: "Connection cancelled." }));
+      return id;
     } catch (e) {
       setSftpFailed((prev) => ({ ...prev, [host.id]: errorMessage(e) }));
+      return null;
     } finally {
       setSftpConnecting(null);
     }
@@ -305,6 +352,20 @@ export default function TerminalsTab({
   );
   const recordCwd = useCallback((id: string, cwd: string) => dispatch({ type: "cwd", id, cwd }), []);
 
+  // The command library types into the focused pane, then gives it the
+  // keyboard back, so Enter (or an edit first) lands in the shell.
+  const typeTarget = focused && !focused.exited ? focused.id : null;
+  const typeIntoFocused = useCallback(
+    (text: string) => {
+      if (!typeTarget) return;
+      send(typeTarget, text);
+      document
+        .querySelector<HTMLTextAreaElement>(`[data-session-id="${CSS.escape(typeTarget)}"] .xterm-helper-textarea`)
+        ?.focus();
+    },
+    [typeTarget, send],
+  );
+
   /* ---- drops onto a terminal pane ---- */
   // A file row from the browser (or the SFTP page) types its path, quoted,
   // into the shell; a run of plain text is typed as it is. Files from the
@@ -356,6 +417,22 @@ export default function TerminalsTab({
     } catch (e) {
       onError(errorMessage(e));
     }
+  }
+
+  // An image pasted into a remote shell is copied to the host first, over
+  // the file browser's connection (made now if there isn't one), and the
+  // remote path typed instead of the local one.
+  async function pasteImageInto(id: string, local: string): Promise<string | null> {
+    const s = stateRef.current.sessions[id];
+    if (!s || s.command === "local") return local;
+    const hostId = s.command.ssh;
+    const host = hostsRef.current.find((h) => h.id === hostId);
+    const sftpId = sftpRef.current[hostId] ?? (host ? await connectBrowser(host) : null);
+    if (!sftpId) {
+      onError("The image could not be pasted: connect the file browser to this host, so it can be uploaded there.");
+      return null;
+    }
+    return sftpUploadTemp(sftpId, local);
   }
 
   const paneAt = (point: Point) => elementAtPoint<HTMLDivElement>(document.body, point, ".term-pane")?.dataset.sessionId ?? null;
@@ -520,6 +597,16 @@ export default function TerminalsTab({
       >
         Files
       </Button>
+      <Button
+        size="sm"
+        icon={LibraryBig}
+        title={commandsPanel.open ? "Hide the command library" : "Show the command library beside the terminal"}
+        aria-pressed={commandsPanel.open}
+        className={commandsPanel.open ? "term-toggle-on" : undefined}
+        onClick={toggleCommands}
+      >
+        Commands
+      </Button>
       {terminalWindow && (
         <>
           <IconButton icon={SquareSplitHorizontal} label="Split side by side" onClick={() => split(focused?.command ?? "local", "row")} />
@@ -546,6 +633,7 @@ export default function TerminalsTab({
           if (hosts.some((h) => h.id === id)) openWindow({ ssh: id });
         }}
         options={hosts.map((h) => ({ value: h.id, label: `${h.name} (${hostLabel(h)})` }))}
+        menuWidth="content"
       />
     </>
   );
@@ -578,13 +666,22 @@ export default function TerminalsTab({
         }
         asideWidth={aside.width}
         onAsideResize={resizeAside}
+        rightAside={
+          commandsPanel.open && (
+            <Suspense fallback={<Spinner />}>
+              <CommandsPanel write={typeTarget ? typeIntoFocused : null} onClose={toggleCommands} onError={onError} />
+            </Suspense>
+          )
+        }
+        rightAsideWidth={commandsPanel.width}
+        onRightAsideResize={resizeCommands}
         footer={<HostStatsBar session={focused} sftpId={focusedHostId ? (sftp[focusedHostId] ?? null) : null} />}
         empty={
           state.windows.length === 0 && (
             <TerminalLauncher
               hosts={hosts}
               onLocal={() => openWindow("local")}
-              onHost={(h) => openWindow({ ssh: h.id })}
+              onHost={logIn}
               onAddHost={onAddHost}
             />
           )
@@ -656,6 +753,7 @@ export default function TerminalsTab({
                               }
                         }
                         onDetached={() => dispatch({ type: "detach", id: s.id })}
+                        onPasteImage={(local) => pasteImageInto(s.id, local)}
                       />
                     </div>
                   );

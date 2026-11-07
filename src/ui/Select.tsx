@@ -28,10 +28,11 @@ export interface SelectProps {
   className?: string;
   /**
    * A menu wider than its trigger, in px, for lists whose labels run longer
-   * than the selected value — device presets, say. Kept on screen by
-   * right-aligning when there is no room to the right.
+   * than the selected value — device presets, say. "content" sizes it to the
+   * longest option instead, for labels of no predictable length. Either way
+   * it is kept on screen by right-aligning when there is no room to the right.
    */
-  menuWidth?: number;
+  menuWidth?: number | "content";
   /** Fires as the menu opens and closes. The Browser module hides its native page views while any popup is up. */
   onOpenChange?: (open: boolean) => void;
 }
@@ -106,7 +107,13 @@ export function Select({
       spaceBelow < height + 8 && rect.top > height
         ? rect.top - height - 4
         : rect.bottom + 4;
-    const width = Math.max(rect.width, menuWidth ?? 0);
+    // On the measuring pass the popover has no width set, so it shrinks to its
+    // longest option. Rounded up: a fraction of a pixel short ellipsizes it.
+    const natural =
+      menuWidth === "content"
+        ? Math.ceil(menuRef.current?.getBoundingClientRect().width ?? 0)
+        : (menuWidth ?? 0);
+    const width = Math.min(window.innerWidth - 16, Math.max(rect.width, natural));
     const left =
       rect.left + width > window.innerWidth - 8
         ? Math.max(8, rect.right - width)
@@ -161,6 +168,9 @@ export function Select({
   const current = options.find((o) => o.value === value);
 
   function openMenu() {
+    // Measured afresh each time: the options may have changed since it last
+    // opened, and a "content" width is read off the unsized popover.
+    setPosition(null);
     setQuery("");
     const selected = options.findIndex((o) => o.value === value);
     setActiveIndex(selected >= 0 ? selected : 0);
