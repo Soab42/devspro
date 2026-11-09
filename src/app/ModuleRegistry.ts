@@ -376,6 +376,7 @@ const registry: ModuleDefinition[] = [
     Component: lazy(() => import("../modules/remote-desktop/pages/RemoteDesktopPage")),
     description: "VNC screens viewed in-app and RDP sessions in your system's client.",
     keywords: ["vnc", "rdp", "remote", "desktop", "screen", "freerdp", "remmina", "novnc", "windows"],
+    inDevelopment: true,
   },
   {
     id: "settings",
