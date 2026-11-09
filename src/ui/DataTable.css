@@ -231,6 +231,12 @@
   max-width: none;
 }
 
+/* After .dt-cell-mono, so it wins over that one's 0.95em. */
+.dt-cell-small {
+  font-size: var(--text-xs);
+  line-height: var(--lh-xs);
+}
+
 .dt-align-end {
   text-align: right;
 }

@@ -90,8 +90,18 @@ export default function HostsPage() {
       header: "Hostnames",
       priority: 1,
       mono: true,
+      wrap: true,
+      small: true,
       sortValue: (e) => e.hostnames[0] ?? "",
-      render: (e) => e.hostnames.join(" "),
+      // One name per item: an entry with a dozen names wraps onto more lines,
+      // between names and never inside one, instead of pushing the table sideways.
+      render: (e) => (
+        <Stack direction="row" wrap gap={2}>
+          {e.hostnames.map((name, i) => (
+            <span key={`${i}:${name}`}>{name}</span>
+          ))}
+        </Stack>
+      ),
     },
     {
       key: "source",

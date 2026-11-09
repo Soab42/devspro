@@ -38,6 +38,8 @@ export interface Column<T> {
   priority?: ColumnPriority;
   mono?: boolean;
   wrap?: boolean;
+  /** Smaller text, for a dense list of values in one cell (a hosts entry's names). */
+  small?: boolean;
   /** Plain-text label for aria when `header` is not a string. */
   headerLabel?: string;
 }
@@ -325,6 +327,7 @@ function cellClasses<T>(
     column.align && column.align !== "start" && `dt-align-${column.align}`,
     column.mono && "dt-cell-mono",
     column.wrap && "dt-cell-wrap",
+    column.small && "dt-cell-small",
   ]
     .filter(Boolean)
     .join(" ");
