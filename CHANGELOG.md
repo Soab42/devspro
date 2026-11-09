@@ -5,10 +5,25 @@ for the version being released becomes the in-app update notes and the
 website's changelog. Keep the headings in this shape — `## <version> — <date>`
 (or `## Unreleased`), then `### <group>` and `- ` bullets.
 
-## Unreleased
+## 0.4.0 — 2026-11-09
 
 ### New
 - **LLM Traces (beta).** A local Langfuse and LangSmith. Point an LLM app's Langfuse, LangSmith or OpenTelemetry SDK at DevsPro and every trace lands here: a waterfall of its LLM calls, tool calls and steps, with prompts shown as chats, responses, models, tokens, time to first token, errors and scores. Any API key works, apps in Docker containers can send traces too (as `host.docker.internal`), nothing leaves the machine, and the Connect tab has the environment variables or docker-compose snippet for each SDK and a log of what reached the collector.
+- **Terminals and SFTP keep running when you leave their page.** Come back and each terminal has its history and each SFTP connection is in the folders you left it in. The sidebar shows how many are running. They end when you disconnect them or close the window.
+- **Remember SSH passwords.** Tick "Remember this password" when connecting to a password host, and connecting won't ask again. It is saved encrypted on this computer; forget it from the host's menu in SSH.
+
+### Improved
+- The terminal's file browser follows an SSH shell's folder without typing anything into the shell.
+- The SFTP page offers Connect, or Add a host when none is saved, instead of sitting empty.
+- Pages remember what they held for as long as DevsPro is open, such as the two files in Env Diff.
+- Terminal tabs have a full-width row of their own under the header. When there are more than fit, the mouse wheel scrolls them, and the active tab stays in view.
+- Hosts file: an entry's hostnames are smaller and wrap onto more lines, so the table no longer scrolls sideways.
+
+### Changed
+- HTTP client and Browser are left out of this release while they are being finished.
+
+### Fixed
+- Switching from a local terminal to an SSH one no longer shows a "could not list" error in the file browser.
 
 ## 0.3.1 — 2026-11-01
 
