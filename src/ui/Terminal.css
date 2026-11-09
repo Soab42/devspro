@@ -338,6 +338,20 @@
   scrollbar-width: none;
 }
 
+/* The Terminal page's strip: the page's full width, in the row under the
+   header; gone while no window is open. */
+.page-tabs:has(> .term-page-tabs-slot) {
+  margin-bottom: var(--space-3);
+}
+
+.page-tabs:has(> .term-page-tabs-slot:empty) {
+  display: none;
+}
+
+.term-page-tabs-slot > .term-windows {
+  width: 100%;
+}
+
 .term-window-tab {
   display: inline-flex;
   align-items: center;

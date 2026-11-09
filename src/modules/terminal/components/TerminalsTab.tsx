@@ -544,8 +544,31 @@ export default function TerminalsTab({
   const terminalWindow = sidebarTerminalWindow(state);
   const showStrip = state.windows.length > 0 && (!solo || state.windows.length > 1);
 
+  // More windows than fit: a plain mouse wheel scrolls the strip sideways
+  // (it has no scrollbar), and the active window is always scrolled into view.
+  const stripEl = useRef<HTMLDivElement | null>(null);
+  const stripRef = useCallback((el: HTMLDivElement | null) => {
+    stripEl.current = el;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+      el.scrollLeft += e.deltaY;
+      e.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      stripEl.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    stripEl.current
+      ?.querySelector<HTMLElement>(".term-window-tab-active")
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [state.activeWindow, state.windows.length]);
+
   const strip = showStrip && (
-    <div className="term-windows" role="tablist" aria-label="Terminal windows">
+    <div ref={stripRef} className="term-windows" role="tablist" aria-label="Terminal windows">
       {state.windows.map((w) => {
         const activeFile = w.kind === "editor" ? w.files.find((f) => editorKey(f) === w.active) : undefined;
         const label =

@@ -100,7 +100,8 @@ function TerminalModulePage() {
   const [error, setError] = useState<string | null>(null);
   const [count, setCount] = useState(0);
   // The workspace's buttons live in the page header, beside "Local terminal",
-  // and its window strip beside the title.
+  // and its window strip in a row of its own under the header: beside the
+  // title it shared the line with the buttons and was cut off.
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const [tabsSlot, setTabsSlot] = useState<HTMLDivElement | null>(null);
 
@@ -131,12 +132,8 @@ function TerminalModulePage() {
       title={module.label}
       icon={module.icon}
       fill
-      meta={
-        <>
-          {count > 0 && <Badge tone="accent">{count} open</Badge>}
-          <div ref={setTabsSlot} className="term-page-tabs-slot" />
-        </>
-      }
+      meta={count > 0 && <Badge tone="accent">{count} open</Badge>}
+      tabs={<div ref={setTabsSlot} className="term-page-tabs-slot" />}
       actions={
         <>
           <div ref={setSlot} className="term-page-actions-slot" />
