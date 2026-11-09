@@ -169,12 +169,43 @@ fn authenticate_agent(sess: &Session, user: &str, preferred: &[Vec<u8>]) -> Vec<
     offered
 }
 
+/// libssh2's code for a key file it couldn't load: unreadable, an unknown
+/// format, or — the usual case — encrypted and the passphrase missing or wrong.
+/// A key the server turned down comes back with a different code.
+const LIBSSH2_ERROR_FILE: i32 = -16;
+
+fn could_not_load(e: &ssh2::Error) -> bool {
+    matches!(e.code(), ssh2::ErrorCode::Session(LIBSSH2_ERROR_FILE))
+}
+
+/// Private keys in `~/.ssh` (those with a `.pub` beside them) that none of
+/// `tried` covers, by file name: what to point the user at when nothing
+/// worked, since `ssh` never offers a key by itself unless it has a default
+/// name.
+fn untried_keys(tried: &[PathBuf], offered: &[Vec<u8>]) -> Vec<String> {
+    let Ok(dir) = super::ssh_dir() else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let tried: Vec<String> = tried.iter().map(|p| super::config::normalize(p)).collect();
+    let mut names: Vec<String> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("pub"))
+        .map(|p| p.with_extension(""))
+        .filter(|p| p.is_file() && !tried.contains(&super::config::normalize(p)))
+        .filter(|p| public_key_blob(p).map_or(true, |blob| !offered.contains(&blob)))
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    names
+}
+
 /// What `ssh` tries, in its order, so that a host the terminal (the real
 /// `ssh`) logs in to connects here too: every agent key, then the host's key
-/// file, then the default `~/.ssh` keys, then the password. A key file that
-/// isn't there is noted and skipped, as `ssh` does with a missing `-i`, rather
-/// than ending the attempt. The agent goes first because a key loaded into it
-/// shouldn't need its passphrase typed again.
+/// file, then the `IdentityFile`s `~/.ssh/config` gives this host, then the
+/// default `~/.ssh` keys, then the password. A key file that isn't there is
+/// noted and skipped, as `ssh` does with a missing `-i`, rather than ending
+/// the attempt. The agent goes first because a key loaded into it shouldn't
+/// need its passphrase typed again.
 fn authenticate(sess: &Session, host: &SshHost, creds: &Credentials) -> Result<(), String> {
     let user = host.username.as_str();
     let mut failures: Vec<String> = Vec::new();
@@ -184,11 +215,21 @@ fn authenticate(sess: &Session, host: &SshHost, creds: &Credentials) -> Result<(
         .as_deref()
         .filter(|k| host.auth == "key" && !k.trim().is_empty())
         .map(PathBuf::from);
+    let same = |a: &Path, b: &Path| super::config::normalize(a) == super::config::normalize(b);
+    let configured: Vec<PathBuf> = super::config::identity_files(&super::config::Target {
+        host: &host.host,
+        port: host.port,
+        user,
+    })
+    .into_iter()
+    .filter(|p| !key_file.as_deref().is_some_and(|k| same(k, p)))
+    .collect();
     let defaults: Vec<PathBuf> = super::ssh_dir()
         .map(|dir| DEFAULT_IDENTITIES.iter().map(|name| dir.join(name)).collect())
         .unwrap_or_default();
     let preferred: Vec<Vec<u8>> = key_file
         .iter()
+        .chain(&configured)
         .chain(&defaults)
         .filter_map(|path| public_key_blob(path))
         .collect();
@@ -217,11 +258,33 @@ fn authenticate(sess: &Session, host: &SshHost, creds: &Credentials) -> Result<(
         }
     }
 
+    // The config's keys, which `ssh` would use for this host too. A typed
+    // passphrase is for them when the host has no key of its own; an
+    // encrypted one that can't be opened is reported as "key auth failed",
+    // which is what makes the UI ask for the passphrase.
+    let config_passphrase = if key_file.is_none() { creds.passphrase.as_deref() } else { None };
+    for path in &configured {
+        if !path.is_file() {
+            failures.push(format!("~/.ssh/config names a key that isn't there: {}", path.display()));
+            continue;
+        }
+        if already_offered(path) {
+            continue;
+        }
+        match sess.userauth_pubkey_file(user, None, path, config_passphrase) {
+            Ok(()) if sess.authenticated() => return Ok(()),
+            Err(e) if could_not_load(&e) => {
+                failures.push(format!("key auth failed for {} (from ~/.ssh/config): {}", path.display(), e.message()))
+            }
+            _ => failures.push(format!("{} (from ~/.ssh/config) was not accepted", path.display())),
+        }
+    }
+
     // No passphrase: one the user typed is for the host's own key. An
     // encrypted default key then fails to load here, before anything is sent,
     // so it costs no attempt against the server.
     for path in &defaults {
-        if key_file.as_ref() == Some(path) || !path.is_file() || already_offered(path) {
+        if key_file.as_ref() == Some(path) || configured.iter().any(|c| same(c, path)) || !path.is_file() || already_offered(path) {
             continue;
         }
         if sess.userauth_pubkey_file(user, None, path, None).is_ok() && sess.authenticated() {
@@ -239,12 +302,24 @@ fn authenticate(sess: &Session, host: &SshHost, creds: &Credentials) -> Result<(
         }
     }
 
+    if host.auth != "password" {
+        let tried: Vec<PathBuf> = key_file.iter().chain(&configured).chain(&defaults).cloned().collect();
+        let untried = untried_keys(&tried, &offered);
+        if !untried.is_empty() {
+            failures.push(format!("{UNTRIED_KEYS_PREFIX}{}", untried.join(", ")));
+        }
+    }
+
     Err(format!(
         "authentication failed for {user}@{}: {}",
         host.host,
         failures.join("; ")
     ))
 }
+
+/// Starts the part of an auth failure that lists `~/.ssh` keys nothing
+/// offered. The UI matches on it, so it is part of the command contract.
+pub const UNTRIED_KEYS_PREFIX: &str = "not tried (not a default name, not in ~/.ssh/config): ";
 
 /// Full connection: handshake, host-key verification, authentication.
 pub fn connect(host: &SshHost, creds: &Credentials) -> Result<Session, String> {

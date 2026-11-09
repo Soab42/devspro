@@ -96,6 +96,13 @@ webkit2gtk = "2.0"
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
+# On Windows libssh2 is otherwise built on WinCNG, which can't sign with an
+# ED25519 key — the default kind ssh-keygen makes — so SFTP to such a host
+# failed with "Callback returned error" while the terminal's ssh logged in.
+# OpenSSL is built from source and linked in statically: users need nothing
+# installed, but building needs a Windows-native Perl (Strawberry Perl;
+# Git's msys perl won't do).
+ssh2 = { version = "0.9.6", features = ["openssl-on-win32", "vendored-openssl"] }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_UI_Shell",

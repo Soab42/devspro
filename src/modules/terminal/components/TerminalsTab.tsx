@@ -19,7 +19,7 @@ import {
 import { Icon } from "../../../ui/Icon";
 import { PaneLayout } from "../../../ui/PaneLayout";
 import { TerminalWorkspace, clampAside, hideNextHook } from "../../../ui/Terminal";
-import { sftpConnect, sftpDisconnect, sftpUpload, sftpUploadTemp, termRemoteCwd, writePty, type SshHost } from "../../ssh/api";
+import { saveHost, sftpConnect, sftpDisconnect, sftpUpload, sftpUploadTemp, termRemoteCwd, writePty, type SshHost } from "../../ssh/api";
 import HostPicker from "../../ssh/components/HostPicker";
 import { useConnectFlow } from "../../ssh/components/useConnectFlow";
 import { elementAtPoint, endFileDrag, hasFileDrag, readFileDrag, useOsFileDrop, type Point } from "../../ssh/dnd";
@@ -107,6 +107,7 @@ export default function TerminalsTab({
   onCountChange,
   onError,
   onAddHost,
+  onHostsChanged,
   keep,
 }: {
   hosts: SshHost[];
@@ -125,6 +126,8 @@ export default function TerminalsTab({
   onError: (message: string) => void;
   /** Where "Add a host" goes when no SSH host is saved; without it the launcher just says so. */
   onAddHost?: () => void;
+  /** A host was edited from here (a key picked after a failed login): reload the list. */
+  onHostsChanged?: () => void;
   /**
    * Keep this workspace, and its shells, running while the page is away,
    * under this key; the page picks it up again when it comes back. Without
@@ -338,6 +341,23 @@ export default function TerminalsTab({
               if (focusedHost) void connectBrowser(focusedHost);
             },
             disconnect: () => disconnectBrowser(focusedHostId),
+            useKey: async (keyPath: string) => {
+              if (!focusedHost) return;
+              try {
+                const saved = await saveHost(focusedHost.id, {
+                  name: focusedHost.name,
+                  host: focusedHost.host,
+                  port: focusedHost.port,
+                  username: focusedHost.username,
+                  auth: "key",
+                  keyPath,
+                });
+                onHostsChanged?.();
+                await connectBrowser(saved);
+              } catch (e) {
+                setSftpFailed((prev) => ({ ...prev, [focusedHost.id]: errorMessage(e) }));
+              }
+            },
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps

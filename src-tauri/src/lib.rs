@@ -381,6 +381,7 @@ pub fn run() {
             ssh::hosts::ssh_hosts_delete,
             ssh::passwords::ssh_password_forget,
             ssh::keys::ssh_keys_list,
+            ssh::config::ssh_config_identities,
             ssh::keys::ssh_keys_generate,
             ssh::keys::ssh_keys_import,
             ssh::keys::ssh_keys_delete,

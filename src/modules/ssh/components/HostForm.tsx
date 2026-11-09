@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Button, Callout, Field, Form, FormGrid, FormRow, Select, Stack, TextInput } from "../../../ui";
-import { AuthMethod, KeyPermissions, SshHost, SshKey, keyPermissions, restrictKey, saveHost } from "../api";
-import { errorMessage, validateHostForm } from "../utils";
+import { AuthMethod, KeyPermissions, SshHost, SshKey, configIdentities, keyPermissions, restrictKey, saveHost } from "../api";
+import { errorMessage, keysIgnoredByAgentMode, validateHostForm } from "../utils";
 
 const AUTH_OPTIONS: { value: AuthMethod; label: string }[] = [
   { value: "agent", label: "SSH agent / default keys" },
@@ -49,6 +49,36 @@ export default function HostForm({
       live = false;
     };
   }, [keyToCheck]);
+
+  // "SSH agent / default keys" never offers a key with any other name unless
+  // ~/.ssh/config names it for this host — say which keys that leaves out,
+  // rather than let the first connect fail with "Permission denied".
+  const [configKeys, setConfigKeys] = useState<string[] | null>(null);
+  const lookupHost = auth === "agent" ? address.trim() : "";
+  const lookupUser = username.trim();
+  const lookupPort = Number(port) || 22;
+  useEffect(() => {
+    // The last answer stays up while a new one is fetched, so typing the
+    // address doesn't make the warning blink.
+    if (auth !== "agent") return;
+    let live = true;
+    const timer = window.setTimeout(() => {
+      configIdentities(lookupHost, lookupPort, lookupUser).then(
+        (paths) => live && setConfigKeys(paths),
+        () => live && setConfigKeys([]),
+      );
+    }, 250);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [auth, lookupHost, lookupPort, lookupUser]);
+  const ignoredKeys = auth === "agent" && configKeys !== null ? keysIgnoredByAgentMode(keys, configKeys) : [];
+
+  function switchToKeyFile() {
+    setAuth("key");
+    if (ignoredKeys.length === 1) setKeyPath(ignoredKeys[0].path);
+  }
 
   async function handleRestrict() {
     try {
@@ -145,6 +175,28 @@ export default function HostForm({
             options={AUTH_OPTIONS}
           />
         </Field>
+
+        {ignoredKeys.length > 0 && (
+          <Callout
+            tone="warning"
+            actions={
+              <Button size="sm" variant="secondary" onClick={switchToKeyFile}>
+                {ignoredKeys.length === 1 ? `Use ${ignoredKeys[0].name}` : "Pick a key file"}
+              </Button>
+            }
+          >
+            This mode only offers keys loaded in ssh-agent, keys <code>~/.ssh/config</code> names for this host,
+            and <code>id_ed25519</code> / <code>id_ecdsa</code> / <code>id_rsa</code>. So{" "}
+            {ignoredKeys.map((k, i) => (
+              <span key={k.path}>
+                {i > 0 && ", "}
+                <code>{k.name}</code>
+              </span>
+            ))}{" "}
+            in <code>~/.ssh</code> won't be used. If this host needs {ignoredKeys.length === 1 ? "it" : "one of them"},
+            switch to a private key file.
+          </Callout>
+        )}
 
         {auth === "key" && (
           <Field label="Private key" htmlFor="ssh-host-key" required>

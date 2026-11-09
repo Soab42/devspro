@@ -97,7 +97,9 @@ export function useConnectFlow() {
             continue;
           }
 
-          if (host.auth === "key" && /key auth failed/i.test(message)) {
+          // The host's own key, or (for any host) a ~/.ssh/config key that
+          // couldn't be opened without its passphrase.
+          if (/key auth failed/i.test(message)) {
             const passphrase = await ask(
               host,
               "passphrase",

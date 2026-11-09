@@ -17,6 +17,7 @@
 //! to the session and is dropped with it, unless the user ticks "Remember this
 //! password" — then it is stored encrypted (`passwords.rs`).
 
+pub mod config;
 pub mod hosts;
 pub mod key_perms;
 pub mod keys;

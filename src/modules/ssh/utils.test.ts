@@ -8,7 +8,11 @@ import {
   formatModified,
   formatSize,
   hostLabel,
+  isAuthFailure,
   isPasswordRequired,
+  keysIgnoredByAgentMode,
+  samePath,
+  untriedKeys,
   joinPath,
   parentPath,
   sortEntries,
@@ -175,5 +179,34 @@ describe("shell helpers", () => {
     // The bash branch must single-quote the assignment, or $PWD is baked in once.
     expect(hook).toMatch(/PROMPT_COMMAND='printf "%b" "\\033\]7;file:\/\/\$\(hostname 2>\/dev\/null\)\$PWD\\007"'/);
     expect(hook).toContain("precmd()");
+  });
+});
+
+describe("auth failure hints", () => {
+  const failure =
+    "authentication failed for ploi@52.62.3.173: ssh-agent has no keys loaded; not tried (not a default name, not in ~/.ssh/config): dealercore-server, work";
+
+  it("recognises an auth failure and reads the keys nothing offered", () => {
+    expect(isAuthFailure(failure)).toBe(true);
+    expect(isAuthFailure("could not connect to x:22")).toBe(false);
+    expect(untriedKeys(failure)).toEqual(["dealercore-server", "work"]);
+    expect(untriedKeys("authentication failed for a@b: password rejected")).toEqual([]);
+  });
+
+  it("lists only keys agent mode leaves out", () => {
+    const key = (name: string, path: string, has_private = true) => ({ name, path, has_private });
+    const keys = [
+      key("id_ed25519", String.raw`C:\Users\me\.ssh\id_ed25519`),
+      key("dealercore-server", String.raw`C:\Users\me\.ssh\dealercore-server`),
+      key("configured", String.raw`C:\Users\me\.ssh\configured`),
+      key("public-only", String.raw`C:\Users\me\.ssh\public-only`, false),
+    ];
+    const ignored = keysIgnoredByAgentMode(keys, ["c:/users/ME/.ssh/configured"]);
+    expect(ignored.map((k) => k.name)).toEqual(["dealercore-server"]);
+  });
+
+  it("compares key paths across slash styles", () => {
+    expect(samePath(String.raw`C:\Users\Me\.ssh\k`, "c:/users/me/.ssh/k")).toBe(true);
+    expect(samePath("/home/me/.ssh/K", "/home/me/.ssh/k")).toBe(false);
   });
 });
