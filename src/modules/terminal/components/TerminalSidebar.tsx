@@ -199,16 +199,23 @@ export default function TerminalSidebar({
     [isLocal, sftpId],
   );
 
+  // Only the latest listing may show. Moving focus from a local pane to a
+  // remote one lists the old folder on the new source once, before that
+  // source's start folder is known; its late answer ("could not list
+  // /home/you") must not land on top of the right folder.
+  const loadSeq = useRef(0);
   const load = useCallback(
     async (target: string) => {
+      const seq = ++loadSeq.current;
       setLoading(true);
       setError(null);
       try {
-        setEntries(await list(target));
+        const rows = await list(target);
+        if (seq === loadSeq.current) setEntries(rows);
       } catch (e) {
-        setError(errorMessage(e));
+        if (seq === loadSeq.current) setError(errorMessage(e));
       } finally {
-        setLoading(false);
+        if (seq === loadSeq.current) setLoading(false);
       }
     },
     [list],
