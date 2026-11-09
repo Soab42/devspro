@@ -107,6 +107,8 @@ export default function HostsPage() {
       key: "source",
       header: "Source",
       priority: 2,
+      // The wrapping hostnames take all the slack; without this the badge is clipped.
+      width: "7rem",
       sortValue: (e) => (e.managed ? 1 : 0),
       render: (e) =>
         e.managed ? <Badge tone="accent">DevsPro</Badge> : <Badge tone="neutral">system</Badge>,
