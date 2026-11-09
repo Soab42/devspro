@@ -30,12 +30,14 @@ export default function LockScreen() {
 
   const activeId = profileId || profiles[0]?.id;
   const activeProfile = profiles.find((p) => p.id === activeId) ?? profiles[0];
+  // A profile made without a password opens with a plain "Continue".
+  const needsPassword = activeProfile?.has_password ?? true;
 
   async function handleSubmit() {
     if (!activeId) return;
     setBusy(true);
     try {
-      await unlock(activeId, password);
+      await unlock(activeId, needsPassword ? password : "");
     } catch {
       // surfaced via context `error`
     } finally {
@@ -60,7 +62,9 @@ export default function LockScreen() {
                 <Icon icon={Lock} size="md" />
                 Locked
               </h1>
-              <p className="auth-subtitle">Enter your password to continue.</p>
+              <p className="auth-subtitle">
+                {needsPassword ? "Enter your password to continue." : "This profile has no password."}
+              </p>
             </div>
 
             {profiles.length > 1 ? (
@@ -92,29 +96,31 @@ export default function LockScreen() {
               )
             )}
 
-            <Field label="Password" htmlFor="lock-password">
-              <div className="dt-cell-inline">
-                <TextInput
-                  id="lock-password"
-                  type={reveal ? "text" : "password"}
-                  autoFocus
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="u-flex-1"
-                />
-                <IconButton
-                  icon={reveal ? EyeOff : Eye}
-                  label={reveal ? "Hide password" : "Show password"}
-                  onClick={() => setReveal((v) => !v)}
-                />
-              </div>
-            </Field>
+            {needsPassword && (
+              <Field label="Password" htmlFor="lock-password">
+                <div className="dt-cell-inline">
+                  <TextInput
+                    id="lock-password"
+                    type={reveal ? "text" : "password"}
+                    autoFocus
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="u-flex-1"
+                  />
+                  <IconButton
+                    icon={reveal ? EyeOff : Eye}
+                    label={reveal ? "Hide password" : "Show password"}
+                    onClick={() => setReveal((v) => !v)}
+                  />
+                </div>
+              </Field>
+            )}
 
             {error && <Callout tone="danger">{error}</Callout>}
 
-            <Button type="submit" variant="primary" size="lg" fullWidth loading={busy}>
-              Unlock
+            <Button type="submit" variant="primary" size="lg" fullWidth loading={busy} autoFocus={!needsPassword}>
+              {needsPassword ? "Unlock" : "Continue"}
             </Button>
           </Stack>
         </Form>

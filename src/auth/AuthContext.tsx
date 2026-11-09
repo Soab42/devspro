@@ -5,6 +5,8 @@ export interface Profile {
   id: string;
   display_name: string;
   created_at: string;
+  /** False when the profile was made without a password: it opens without one. */
+  has_password: boolean;
 }
 
 type AuthStatus = "loading" | "no-profile" | "locked" | "unlocked";
@@ -14,6 +16,7 @@ interface AuthState {
   profile: Profile | null;
   profiles: Profile[];
   error: string | null;
+  /** An empty password makes a profile without one; an empty name takes the OS account's. */
   createProfile: (displayName: string, password: string) => Promise<void>;
   unlock: (profileId: string, password: string) => Promise<void>;
   lock: () => Promise<void>;

@@ -22,21 +22,27 @@ export default function CreateProfile() {
 
   // Checked as you go rather than only on submit, so the mismatch surfaces
   // while you still remember what you typed.
-  const mismatch = confirmTouched && confirm.length > 0 && password !== confirm;
+  const mismatch = confirmTouched && password.length > 0 && confirm.length > 0 && password !== confirm;
 
-  async function handleSubmit() {
-    if (password !== confirm) {
-      setConfirmTouched(true);
-      return;
-    }
+  async function create(name: string, secret: string) {
     setBusy(true);
     try {
-      await createProfile(displayName, password);
+      await createProfile(name, secret);
     } catch {
       // surfaced via context `error`
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleSubmit() {
+    // The confirm field only exists while a password is typed; a confirm
+    // left over from a password since cleared doesn't count.
+    if (password.length > 0 && password !== confirm) {
+      setConfirmTouched(true);
+      return;
+    }
+    await create(displayName, password);
   }
 
   return (
@@ -56,12 +62,15 @@ export default function CreateProfile() {
                 <Icon icon={UserPlus} size="md" />
                 Welcome
               </h1>
-              <p className="auth-subtitle">Create a local profile to get started.</p>
+              <p className="auth-subtitle">
+                Create a local profile, or skip it. A password is optional: without one, DevsPro opens
+                straight away, protected by your computer's own login.
+              </p>
             </div>
 
             {/* Real labels, not placeholders — a placeholder-only field loses
                 its label the moment you type into it. */}
-            <Field label="Your name" htmlFor="profile-name" required>
+            <Field label="Your name" htmlFor="profile-name" description="Optional. Your computer's account name is used when left empty.">
               <TextInput
                 id="profile-name"
                 autoFocus
@@ -70,7 +79,7 @@ export default function CreateProfile() {
               />
             </Field>
 
-            <Field label="Password" htmlFor="profile-password" required>
+            <Field label="Password" htmlFor="profile-password" description="Optional. Leave empty to open without one.">
               <div className="dt-cell-inline">
                 <TextInput
                   id="profile-password"
@@ -83,25 +92,27 @@ export default function CreateProfile() {
               </div>
             </Field>
 
-            <Field
-              label="Confirm password"
-              htmlFor="profile-confirm"
-              required
-              error={mismatch ? "Passwords do not match." : undefined}
-            >
-              <div className="dt-cell-inline">
-                <TextInput
-                  id="profile-confirm"
-                  type="password"
-                  autoComplete="new-password"
-                  value={confirm}
-                  invalid={mismatch}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  onBlur={() => setConfirmTouched(true)}
-                  className="u-flex-1"
-                />
-              </div>
-            </Field>
+            {password.length > 0 && (
+              <Field
+                label="Confirm password"
+                htmlFor="profile-confirm"
+                required
+                error={mismatch ? "Passwords do not match." : undefined}
+              >
+                <div className="dt-cell-inline">
+                  <TextInput
+                    id="profile-confirm"
+                    type="password"
+                    autoComplete="new-password"
+                    value={confirm}
+                    invalid={mismatch}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    onBlur={() => setConfirmTouched(true)}
+                    className="u-flex-1"
+                  />
+                </div>
+              </Field>
+            )}
 
             {error && <Callout tone="danger">{error}</Callout>}
 
@@ -113,7 +124,10 @@ export default function CreateProfile() {
               loading={busy}
               disabled={mismatch}
             >
-              Create profile
+              {password.length > 0 ? "Create profile" : "Continue without a password"}
+            </Button>
+            <Button variant="link" fullWidth disabled={busy} onClick={() => void create("", "")}>
+              Skip — use DevsPro without a profile
             </Button>
           </Stack>
         </Form>
