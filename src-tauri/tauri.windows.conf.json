@@ -4,7 +4,8 @@
     "targets": ["nsis"],
     "windows": {
       "nsis": {
-        "installMode": "perMachine"
+        "installMode": "perMachine",
+        "installerIcon": "icons/icon.ico"
       }
     }
   }

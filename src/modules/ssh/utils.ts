@@ -114,6 +114,51 @@ export function isSavedPasswordRejected(message: string): boolean {
   return message.trim() === SAVED_PASSWORD_REJECTED;
 }
 
+/** A connection that reached the server but couldn't log in (session.rs). */
+export function isAuthFailure(message: string): boolean {
+  return message.trim().startsWith("authentication failed for ");
+}
+
+/** Must match `UNTRIED_KEYS_PREFIX` in session.rs. */
+export const UNTRIED_KEYS_PREFIX = "not tried (not a default name, not in ~/.ssh/config): ";
+
+/** The `~/.ssh` key names an auth failure says nothing offered. */
+export function untriedKeys(message: string): string[] {
+  const at = message.indexOf(UNTRIED_KEYS_PREFIX);
+  if (at < 0) return [];
+  return message
+    .slice(at + UNTRIED_KEYS_PREFIX.length)
+    .split(";")[0]
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** The key names `ssh` (and session.rs) try on their own, without being told. */
+export const DEFAULT_KEY_NAMES = ["id_ed25519", "id_ecdsa", "id_rsa"];
+
+/** Two spellings of one key path compare equal: either slash, and on Windows any case. */
+export function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => {
+    const s = p.trim().replace(/\\/g, "/");
+    return /^[a-z]:\//i.test(s) ? s.toLowerCase() : s;
+  };
+  return norm(a) === norm(b);
+}
+
+/**
+ * Keys in `~/.ssh` that "SSH agent / default keys" won't use for this host:
+ * not one of the default names, and not named by `~/.ssh/config`.
+ */
+export function keysIgnoredByAgentMode<K extends { name: string; path: string; has_private: boolean }>(
+  keys: K[],
+  configIdentities: string[],
+): K[] {
+  return keys.filter(
+    (k) => k.has_private && !DEFAULT_KEY_NAMES.includes(k.name) && !configIdentities.some((c) => samePath(c, k.path)),
+  );
+}
+
 export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }

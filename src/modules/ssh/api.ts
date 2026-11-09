@@ -102,6 +102,10 @@ export const importKey = (args: {
     },
   });
 
+/** The key files `~/.ssh/config` names for this host (its `IdentityFile`s). */
+export const configIdentities = (host: string, port: number, username: string) =>
+  invoke<string[]>("ssh_config_identities", { host, port, username });
+
 export const deleteKey = (name: string) =>
   invoke<void>("ssh_keys_delete", { name });
 

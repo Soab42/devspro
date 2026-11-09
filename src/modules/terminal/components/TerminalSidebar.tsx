@@ -1,5 +1,5 @@
 import { DragEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Callout, EmptyState, IconButton, MenuItem, Spinner, Stack } from "../../../ui";
+import { Button, Callout, EmptyState, FormRow, IconButton, MenuItem, Spinner, Stack } from "../../../ui";
 import {
   ArrowUp,
   ChevronDown,
@@ -19,6 +19,7 @@ import {
   FolderPlus,
   HardDrive,
   House,
+  KeyRound,
   LocateFixed,
   Pencil,
   RefreshCw,
@@ -36,7 +37,7 @@ import { Icon } from "../../../ui/Icon";
 import { TextInput } from "../../../ui";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { fmCopy, fmCreateFile, fmList, fmMkdir, fmMove, fmPlaces, fmRename, fmTrash } from "../../file-manager/api";
-import { ptyCwd, sftpDelete, sftpHome, sftpList, sftpMkdir, sftpRename, sftpUpload, sftpWriteFile, type SftpEntry, type SshHost } from "../../ssh/api";
+import { listKeys, ptyCwd, sftpDelete, sftpHome, sftpList, sftpMkdir, sftpRename, sftpUpload, sftpWriteFile, type SftpEntry, type SshHost, type SshKey } from "../../ssh/api";
 import {
   canMoveInto,
   currentFileDrag,
@@ -50,7 +51,7 @@ import {
   useOsFileDrop,
   type FileDragPayload,
 } from "../../ssh/dnd";
-import { baseName, cdCommand, errorMessage, followHookCommand, joinPath, parentPath, shellQuote, sortEntries } from "../../ssh/utils";
+import { baseName, cdCommand, errorMessage, followHookCommand, isAuthFailure, joinPath, parentPath, shellQuote, sortEntries, untriedKeys } from "../../ssh/utils";
 import type { TerminalSession } from "../workspace";
 
 /** What the sidebar browses for one host: an open SFTP session, or the state of getting one. */
@@ -61,6 +62,8 @@ export interface RemoteBrowser {
   failure: string | null;
   connect: () => void;
   disconnect: () => void;
+  /** Save `keyPath` as the host's private key file, then connect again. */
+  useKey?: (keyPath: string) => Promise<void>;
 }
 
 interface Row {
@@ -187,6 +190,9 @@ export default function TerminalSidebar({
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   // The row the last right-click landed on, kept lit while its menu is up.
   const [selected, setSelected] = useState<string | null>(null);
+  // The key list under a failed login, open.
+  const [choosingKey, setChoosingKey] = useState(false);
+  useEffect(() => setChoosingKey(false), [host?.id]);
 
   const list = useCallback(
     async (target: string): Promise<Row[]> => {
@@ -633,9 +639,26 @@ export default function TerminalSidebar({
           {remote?.failure ? (
             <>
               <Callout tone="danger">{remote.failure}</Callout>
-              <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => remote.connect()}>
-                Retry
-              </Button>
+              <FormRow>
+                <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => remote.connect()}>
+                  Retry
+                </Button>
+                {remote.useKey && isAuthFailure(remote.failure) && !choosingKey && (
+                  <Button variant="secondary" size="sm" icon={KeyRound} onClick={() => setChoosingKey(true)}>
+                    Use a key from ~/.ssh…
+                  </Button>
+                )}
+              </FormRow>
+              {remote.useKey && choosingKey && (
+                <KeyChooser
+                  untried={untriedKeys(remote.failure)}
+                  onPick={(path) => {
+                    setChoosingKey(false);
+                    void remote.useKey?.(path);
+                  }}
+                  onCancel={() => setChoosingKey(false)}
+                />
+              )}
             </>
           ) : (
             <span className="term-browser-hint term-browser-connecting">
@@ -808,6 +831,68 @@ export default function TerminalSidebar({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The private keys in `~/.ssh`, for a host whose login failed: picking one
+ * makes it the host's key file. Keys the failure says nothing offered come
+ * first — one of those is almost always the answer.
+ */
+function KeyChooser({
+  untried,
+  onPick,
+  onCancel,
+}: {
+  untried: string[];
+  onPick: (path: string) => void;
+  onCancel: () => void;
+}) {
+  const [keys, setKeys] = useState<SshKey[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    listKeys().then(
+      (all) => live && setKeys(all.filter((k) => k.has_private)),
+      (e) => live && setError(errorMessage(e)),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const ordered = useMemo(() => {
+    if (!keys) return [];
+    const rank = (k: SshKey) => (untried.includes(k.name) ? 0 : 1);
+    return [...keys].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+  }, [keys, untried]);
+
+  async function browse() {
+    const chosen = await openDialog({ multiple: false, title: "Choose a private key" });
+    if (chosen && !Array.isArray(chosen)) onPick(chosen);
+  }
+
+  return (
+    <Stack gap={2} className="term-browser-keys">
+      <span className="term-browser-hint">The host will use the key you pick from now on, in the terminal too.</span>
+      {error && <Callout tone="danger">{error}</Callout>}
+      {keys === null && !error && <Spinner size="sm" />}
+      {keys !== null && ordered.length === 0 && <span className="term-browser-hint">No private keys in ~/.ssh.</span>}
+      {ordered.map((k) => (
+        <Button key={k.path} variant="secondary" size="sm" icon={KeyRound} onClick={() => onPick(k.path)} title={k.path}>
+          {k.name}
+          {untried.includes(k.name) ? " (not tried)" : ""}
+        </Button>
+      ))}
+      <FormRow>
+        <Button variant="link" size="sm" onClick={() => void browse()}>
+          Choose file…
+        </Button>
+        <Button variant="link" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+      </FormRow>
+    </Stack>
   );
 }
 

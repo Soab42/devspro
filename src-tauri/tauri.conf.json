@@ -26,8 +26,8 @@
   "bundle": {
     "active": true,
     "targets": ["deb", "rpm"],
-    "publisher": "soab42",
-    "copyright": "Copyright (c) 2026 soab42",
+    "publisher": "CodeVionix",
+    "copyright": "Copyright (c) 2026 CodeVionix",
     "license": "MIT",
     "licenseFile": "../LICENSE",
     "homepage": "https://github.com/Soab42/devspro",

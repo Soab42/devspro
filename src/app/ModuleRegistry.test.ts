@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const UNFINISHED = ["http", "browser"];
+const UNFINISHED = ["http", "browser", "remote-desktop"];
 
 describe("modules still in development", () => {
   afterEach(() => {

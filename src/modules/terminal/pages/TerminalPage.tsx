@@ -74,6 +74,7 @@ function TerminalWindowPage() {
       )}
       <TerminalsTab
         hosts={hosts.data ?? []}
+        onHostsChanged={() => void hosts.refresh()}
         hidden={false}
         initial={initial}
         solo={solo}
@@ -150,6 +151,7 @@ function TerminalModulePage() {
       )}
       <TerminalsTab
         hosts={hosts.data ?? []}
+        onHostsChanged={() => void hosts.refresh()}
         hidden={false}
         actionsPortal={slot}
         tabsPortal={tabsSlot}
