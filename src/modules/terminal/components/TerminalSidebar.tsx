@@ -176,7 +176,24 @@ export default function TerminalSidebar({
       /* private mode */
     }
   }
-  const [path, setPath] = useState<string | null>(null);
+  // The folder on show belongs to the source it was set on. Read against
+  // another source it is no folder at all, so a pane on a Linux host never
+  // lists the Windows path a local pane was in (or the other way round),
+  // not even once while its own start folder is being worked out.
+  const [location, setLocation] = useState<{ source: string; path: string } | null>(null);
+  const path = location !== null && location.source === sourceKey ? location.path : null;
+  const setPath = useCallback(
+    (next: string | null) => setLocation(next === null ? null : { source: sourceKey, path: next }),
+    [sourceKey],
+  );
+  // The last folder browsed on each machine: local, or one saved host
+  // (surviving a reconnect, which brings a new SFTP session). Coming back to
+  // a pane's machine returns there, not to that machine's home.
+  const machineKey = isLocal ? "local" : host ? `host:${host.id}` : sourceKey;
+  const lastPaths = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (path !== null) lastPaths.current[machineKey] = path;
+  }, [path, machineKey]);
   const [entries, setEntries] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,11 +222,10 @@ export default function TerminalSidebar({
     [isLocal, sftpId],
   );
 
-  // Only the latest listing may show. Moving focus from a local pane to a
-  // remote one lists the old folder on the new source once, before that
-  // source's start folder is known; its late answer ("could not list
-  // /home/you") must not land on top of the right folder.
+  // Only the latest listing may show: a slow answer for a folder the browser
+  // has since left must not land on top of the one now on show.
   const loadSeq = useRef(0);
+  const startFallback = useRef<{ from: string; to: string } | null>(null);
   const load = useCallback(
     async (target: string) => {
       const seq = ++loadSeq.current;
@@ -217,18 +233,30 @@ export default function TerminalSidebar({
       setError(null);
       try {
         const rows = await list(target);
-        if (seq === loadSeq.current) setEntries(rows);
+        if (seq !== loadSeq.current) return;
+        if (startFallback.current?.from === target) startFallback.current = null;
+        setEntries(rows);
       } catch (e) {
-        if (seq === loadSeq.current) setError(errorMessage(e));
+        if (seq !== loadSeq.current) return;
+        // A start folder that has gone since (deleted, or the shell's cwd
+        // from before a reinstall) falls back to home, once, quietly.
+        const fallback = startFallback.current;
+        startFallback.current = null;
+        if (fallback && fallback.from === target) {
+          setPath(fallback.to);
+          return;
+        }
+        setError(errorMessage(e));
       } finally {
         if (seq === loadSeq.current) setLoading(false);
       }
     },
-    [list],
+    [list, setPath],
   );
 
-  // A new source: find its home, then start at the shell's last known cwd
-  // when we have one, else at home.
+  // A new source: find its home, then start at the shell's folder when
+  // following it, else where this machine was last browsed, else the
+  // shell's last known folder, else home.
   const sessionCwd = session?.cwd ?? null;
   useEffect(() => {
     if (!canBrowse) {
@@ -236,14 +264,21 @@ export default function TerminalSidebar({
       setEntries([]);
       return;
     }
+    // The last source's rows and error aren't this one's: show nothing until
+    // this one has been listed.
+    setEntries([]);
+    setError(null);
     let cancelled = false;
     const start = isLocal ? fmPlaces().then((p) => p.home) : sftpHome(sftpId as string);
     start
       .catch(() => "/")
       .then((h) => {
         if (cancelled) return;
-        setHome(h || "/");
-        setPath(sessionCwd ?? h ?? "/");
+        const homeDir = h || "/";
+        const startAt = (follow ? sessionCwd : null) ?? lastPaths.current[machineKey] ?? sessionCwd ?? homeDir;
+        startFallback.current = startAt === homeDir ? null : { from: startAt, to: homeDir };
+        setHome(homeDir);
+        setPath(startAt);
       });
     return () => {
       cancelled = true;

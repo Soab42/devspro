@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ConfirmProvider } from "../../../app/ConfirmContext";
 import type { SshHost } from "../../ssh/api";
 import type { TerminalSession } from "../workspace";
@@ -34,8 +34,11 @@ const folder = (dir: string, name: string) => ({
   is_hidden: false,
 });
 
+let projectsGone = false;
+
 beforeEach(() => {
   cleanup();
+  projectsGone = false;
   invoke.mockReset();
   invoke.mockImplementation(async (cmd: string, args?: { path?: string }) => {
     switch (cmd) {
@@ -47,6 +50,7 @@ beforeEach(() => {
         return "/home/dev";
       case "sftp_list":
         if (args?.path === "/home/dev") return [folder("/home/dev", "projects")];
+        if (args?.path === "/home/dev/projects" && !projectsGone) return [folder("/home/dev/projects", "src")];
         // The local folder isn't on the host, and the server takes a moment to say so.
         await new Promise((resolve) => setTimeout(resolve, 50));
         throw `could not list ${args?.path}: no such file`;
@@ -85,5 +89,46 @@ describe("moving focus from a local shell to a remote one", () => {
 
     expect(screen.queryByText(/could not list/)).toBeNull();
     expect(screen.getByText("projects")).toBeTruthy();
+  });
+
+  it("never asks the host to list the local folder", async () => {
+    const { rerender } = render(sidebar(local));
+    expect(await screen.findByText("notes")).toBeTruthy();
+    rerender(sidebar(ssh));
+    expect(await screen.findByText("projects")).toBeTruthy();
+
+    const remoteLists = invoke.mock.calls.filter(([cmd]) => cmd === "sftp_list").map(([, args]) => args.path);
+    expect(remoteLists).toEqual(["/home/dev"]);
+  });
+});
+
+describe("each machine keeps its own folder (#3)", () => {
+  it("comes back to where the host was browsed, and the local shell to its own", async () => {
+    const { rerender } = render(sidebar(ssh));
+    fireEvent.click(await screen.findByText("projects"));
+    expect(await screen.findByText("src")).toBeTruthy();
+
+    rerender(sidebar(local));
+    expect(await screen.findByText("notes")).toBeTruthy();
+    expect(screen.getByTitle(/^\/home\/me /)).toBeTruthy();
+
+    rerender(sidebar(ssh));
+    expect(await screen.findByText("src")).toBeTruthy();
+    expect(screen.getByTitle(/^\/home\/dev\/projects /)).toBeTruthy();
+    expect(screen.queryByText(/could not list/)).toBeNull();
+  });
+
+  it("falls back to home when the remembered folder is gone", async () => {
+    const { rerender } = render(sidebar(ssh));
+    fireEvent.click(await screen.findByText("projects"));
+    expect(await screen.findByText("src")).toBeTruthy();
+    rerender(sidebar(local));
+    expect(await screen.findByText("notes")).toBeTruthy();
+
+    projectsGone = true;
+    rerender(sidebar(ssh));
+    expect(await screen.findByText("projects", {}, { timeout: 2000 })).toBeTruthy();
+    expect(screen.getByTitle(/^\/home\/dev /)).toBeTruthy();
+    expect(screen.queryByText(/could not list/)).toBeNull();
   });
 });
