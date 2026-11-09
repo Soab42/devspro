@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DevsPro: your local dev stack in one window</title>
-  <meta name="description" content="Run nginx or Apache sites with trusted HTTPS, Docker, databases, workers, mail and logs from one app for Linux and Windows. Elevation only through a small helper. MIT licensed.">
+  <meta name="description" content="Run nginx or Apache sites with trusted HTTPS, Docker, databases, workers, mail, logs and local LLM traces from one app for Linux and Windows. Elevation only through a small helper. MIT licensed.">
   <link rel="canonical" href="https://soab42.github.io/devspro/">
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="DevsPro">
   <meta property="og:title" content="DevsPro: your local dev stack in one window">
-  <meta property="og:description" content="nginx or Apache sites with trusted HTTPS, Docker, databases, workers, mail, logs and ports in one desktop app for Linux and Windows. Free and MIT licensed.">
+  <meta property="og:description" content="nginx or Apache sites with trusted HTTPS, Docker, databases, workers, mail, logs, ports and LLM traces in one desktop app for Linux and Windows. Free and MIT licensed.">
   <meta property="og:url" content="https://soab42.github.io/devspro/">
   <meta property="og:image" content="https://soab42.github.io/devspro/assets/og.png">
   <meta property="og:image:width" content="1200">
@@ -18,7 +18,7 @@
   <meta property="og:image:alt" content="DevsPro: your local dev stack in one window. A desktop app for Linux and Windows.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="DevsPro: your local dev stack in one window">
-  <meta name="twitter:description" content="nginx or Apache sites with trusted HTTPS, Docker, databases, workers, mail, logs and ports in one desktop app for Linux and Windows.">
+  <meta name="twitter:description" content="nginx or Apache sites with trusted HTTPS, Docker, databases, workers, mail, logs, ports and LLM traces in one desktop app for Linux and Windows.">
   <meta name="twitter:image" content="https://soab42.github.io/devspro/assets/og.png">
 
   <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)">
@@ -37,7 +37,7 @@
     "name": "DevsPro",
     "operatingSystem": "Linux, Windows",
     "applicationCategory": "DeveloperApplication",
-    "description": "A local development environment manager for Linux and Windows: nginx or Apache sites with locally-trusted HTTPS, Docker, databases, workers, a mail catcher, logs and ports in one window.",
+    "description": "A local development environment manager for Linux and Windows: nginx or Apache sites with locally-trusted HTTPS, Docker, databases, workers, a mail catcher, logs, ports and a local LLM trace collector in one window.",
     "url": "https://soab42.github.io/devspro/",
     "license": "https://opensource.org/licenses/MIT",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
@@ -112,7 +112,8 @@
           <h1>Your local dev stack, <span class="grad">in one window.</span></h1>
           <p class="hero-sub">
             DevsPro runs nginx or Apache sites with trusted HTTPS, Docker, databases, queue
-            workers, mail, logs and ports from one desktop app for Linux and Windows. Anything that
+            workers, mail, logs, ports and your LLM app's traces from one desktop app for Linux
+            and Windows. Anything that
             needs root or administrator rights goes through one small helper that can only
             do a fixed list of things.
           </p>
@@ -192,6 +193,7 @@
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#database"/></svg><span>Databases</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#table-2"/></svg><span>Data browser</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#mail"/></svg><span>Mail Catcher</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#telescope"/></svg><span>LLM Traces</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#workflow"/></svg><span>Workers</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#calendar-clock"/></svg><span>Scheduled tasks</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#database-zap"/></svg><span>Redis</span></div>
@@ -201,8 +203,6 @@
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#network"/></svg><span>Processes</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#memory-stick"/></svg><span>Memory</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#scroll-text"/></svg><span>Logs</span></div>
-                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#send"/></svg><span>HTTP client</span></div>
-                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#app-window"/></svg><span>Browser</span></div>
                   </div>
                   <div class="win-group">
                     <div class="win-group-label">System</div>
@@ -212,6 +212,7 @@
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#file-diff"/></svg><span>Env Diff</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#book-user"/></svg><span>Hosts file</span></div>
                     <div class="win-link"><svg class="i"><use href="assets/icons.svg#square-terminal"/></svg><span>SSH</span></div>
+                    <div class="win-link"><svg class="i"><use href="assets/icons.svg#bot"/></svg><span>AI agents</span></div>
                   </div>
                 </div>
               </aside>
@@ -340,7 +341,7 @@
           <article class="highlight">
             <div class="highlight-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#square-terminal"/></svg></div>
             <h3>The tools you keep switching to</h3>
-            <p>Terminal, SSH and SFTP, a database browser, an HTTP client, a browser and terminal AI agents, with a terminal docked beside any page.</p>
+            <p>Terminal, SSH and SFTP that keep running when you leave the page, a database browser, a command library, terminal AI agents, and LLM traces from your own apps.</p>
           </article>
         </div>
       </div>
@@ -351,13 +352,13 @@
       <div class="container">
         <div class="section-head">
           <span class="kicker">Modules</span>
-          <h2 id="modules-title">25 modules. Switch off the ones you don't use.</h2>
+          <h2 id="modules-title">24 modules. Switch off the ones you don't use.</h2>
           <p>Open a module from the sidebar or the launcher (Ctrl+K), or Ctrl+click it to open it in a window of its own. A module you switch off in Settings isn't loaded at all.</p>
         </div>
 
         <div class="module-groups">
           <div class="module-group">
-            <h3>Services <small>8</small></h3>
+            <h3>Services <small>9</small></h3>
             <p class="module-group-desc">Things with a lifecycle you start, stop and remove.</p>
             <ul class="modules">
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#globe"/></svg></span><div><h4>Web Server &amp; SSL</h4><p>Proxy-to-port and Laravel sites with trusted HTTPS, served by nginx or Apache, including XAMPP, WAMP and Laragon installs. PHP versions, an optional Cloudflare tunnel, and a New Project wizard.</p></div></li>
@@ -365,6 +366,7 @@
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#database"/></svg></span><div><h4>Databases</h4><p>MySQL, PostgreSQL, MongoDB and Redis in their own compose project, each with an admin UI, users, backup and restore.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#table-2"/></svg></span><div><h4>Data browser</h4><p>Browse and edit rows in any MySQL or PostgreSQL database, local or remote, with a SQL console and export.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#mail"/></svg></span><div><h4>Mail Catcher</h4><p>Outgoing mail from local apps lands in Mailpit, built in or in Docker. No Docker needed, and it can start with DevsPro.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#telescope"/></svg></span><div><h4>LLM Traces <span class="module-tag">Beta</span></h4><p>A local Langfuse and LangSmith. Point an LLM app's Langfuse, LangSmith or OpenTelemetry SDK here and read each trace's calls, prompts, tokens and timings.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#workflow"/></svg></span><div><h4>Workers</h4><p>Any command kept running in the background, like a Laravel queue worker, with its output as a console or a table.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#calendar-clock"/></svg></span><div><h4>Scheduled tasks</h4><p>Recurring commands on a schedule, with each run's output and, for a failed run, the matching Laravel log entry.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#database-zap"/></svg></span><div><h4>Redis</h4><p>Browse keys by pattern and watch Laravel queues: pending, delayed and reserved.</p></div></li>
@@ -372,15 +374,13 @@
           </div>
 
           <div class="module-group">
-            <h3>Dashboard &amp; monitoring <small>6</small></h3>
+            <h3>Dashboard &amp; monitoring <small>4</small></h3>
             <p class="module-group-desc">The home screen, and read-mostly views onto the machine.</p>
             <ul class="modules">
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#layout-dashboard"/></svg></span><div><h4>Dashboard</h4><p>Live CPU per core, memory, GPU, storage, network and temperatures, with a health summary, and port conflicts when there are any.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#network"/></svg></span><div><h4>Processes</h4><p>What is listening on which port, and stop it.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#memory-stick"/></svg></span><div><h4>Memory</h4><p>See which apps use your RAM, stop them, and let a watchdog close idle ones when memory runs out.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#scroll-text"/></svg></span><div><h4>Logs</h4><p>Tail nginx access and error logs and Laravel logs per site.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#send"/></svg></span><div><h4>HTTP client</h4><p>Send any request to your local sites, trusted through the app's own CA, with a history to rerun.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#app-window"/></svg></span><div><h4>Browser</h4><p>Tabs, split view, bookmarks, saved logins, history, device presets and the Web Inspector, in a native webview.</p></div></li>
             </ul>
           </div>
 
@@ -393,12 +393,24 @@
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#files"/></svg></span><div><h4>Files</h4><p>A Finder-style explorer with your drives and devices, and editor tabs with syntax highlighting, git blame and diffs.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#file-diff"/></svg></span><div><h4>Env Diff</h4><p>Compare two <code>.env</code> files by variable and copy values across.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#book-user"/></svg></span><div><h4>Hosts file</h4><p>Edit the hosts file entry by entry, with DevsPro's own lines told apart from the system's.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#square-terminal"/></svg></span><div><h4>SSH</h4><p>Saved hosts, key generation, and installing a key on a host.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#square-terminal"/></svg></span><div><h4>SSH</h4><p>Saved hosts, key generation, installing a key on a host, and passwords remembered encrypted on this computer.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#bot"/></svg></span><div><h4>AI agents</h4><p>Run Claude Code, Codex, Gemini CLI, OpenCode and other terminal coding agents in a project folder.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#terminal"/></svg></span><div><h4>Terminal</h4><p>Local and SSH shells with split panes, windows and pop-out, a file browser that follows the shell, and a terminal docked beside any page.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#folder-sync"/></svg></span><div><h4>SFTP</h4><p>A two-pane file browser for a saved host, with favourite folders, multi-select and Download as zip.</p></div></li>
-              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#screen-share"/></svg></span><div><h4>Remote Desktop</h4><p>VNC screens viewed in-app, and RDP sessions in your system's RDP client.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#terminal"/></svg></span><div><h4>Terminal</h4><p>Local and SSH shells with split panes, windows and pop-out, a file browser that follows the shell, and pasted screenshots. Sessions keep running when you leave the page.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#library-big"/></svg></span><div><h4>Commands</h4><p>889 commands for Git, Docker, Kubernetes, Laravel, nginx, systemd and databases, plus your own. Type or run one from beside the terminal.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#folder-sync"/></svg></span><div><h4>SFTP</h4><p>A two-pane file browser for a saved host, with favourite folders, multi-select and Download as zip. Connections stay open when you leave the page.</p></div></li>
               <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#settings"/></svg></span><div><h4>Settings</h4><p>Theme and interface size, which modules load, autostart and tray, your external editor, updates, and backup and restore.</p></div></li>
+            </ul>
+          </div>
+
+          <!-- Modules marked inDevelopment in src/app/ModuleRegistry.ts: left out of
+               release builds until they are finished. -->
+          <div class="module-group is-upcoming">
+            <h3>In development <small>3</small></h3>
+            <p class="module-group-desc">Being finished, and left out of releases until they are. They arrive in a later update.</p>
+            <ul class="modules">
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#send"/></svg></span><div><h4>HTTP client <span class="module-tag">Coming later</span></h4><p>Send any request to your local sites, trusted through the app's own CA, with a history to rerun.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#app-window"/></svg></span><div><h4>Browser <span class="module-tag">Coming later</span></h4><p>Tabs, split view, bookmarks, saved logins, history, device presets and the Web Inspector, in a native webview.</p></div></li>
+              <li class="module"><span class="module-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#screen-share"/></svg></span><div><h4>Remote Desktop <span class="module-tag">Coming later</span></h4><p>VNC screens viewed in-app, and RDP sessions in your system's RDP client.</p></div></li>
             </ul>
           </div>
         </div>
@@ -569,7 +581,7 @@
           <div class="spotlight-copy">
             <span class="kicker">Terminal and AI agents</span>
             <h3>Your shells, your servers and your agents, side by side.</h3>
-            <p>A tmux-style terminal with split panes and windows, docked beside any page with Ctrl+`, saved SSH hosts and SFTP, and a launcher for terminal coding agents. Each agent opens in its own tab in the project folder you pick; DevsPro sees which are installed and installs the missing ones.</p>
+            <p>A tmux-style terminal with split panes and windows, docked beside any page with Ctrl+`, saved SSH hosts and SFTP, and a launcher for terminal coding agents. Each agent opens in its own tab in the project folder you pick; DevsPro sees which are installed and installs the missing ones. Terminals and SFTP keep running when you leave their page, and a library of 889 commands opens beside the terminal.</p>
             <ul class="agents" aria-label="Agents DevsPro can launch">
               <li>Claude Code</li><li>Codex CLI</li><li>Gemini CLI</li><li>OpenCode</li><li>Copilot CLI</li><li>Aider</li><li>Goose</li><li>Amp</li><li>and more, or your own command</li>
             </ul>
@@ -591,6 +603,63 @@ HTTP/2 200
 server: nginx</div>
             </div>
             <p class="panel-caption">Illustration</p>
+          </div>
+        </article>
+
+        <article class="spotlight is-flipped">
+          <div class="spotlight-copy">
+            <span class="kicker">LLM Traces <span class="module-tag">Beta</span></span>
+            <h3>See what your LLM app did, without sending it anywhere.</h3>
+            <p>A local Langfuse and LangSmith. Point an app's Langfuse, LangSmith or OpenTelemetry SDK at DevsPro and every trace lands here as a waterfall of its LLM calls, tool calls and steps, with prompts shown as chats, responses, models, tokens, time to first token, errors and scores.</p>
+            <ul class="checks">
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>Any API key works, and nothing leaves the machine</li>
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg><span>Apps in Docker containers send traces too, as <code>host.docker.internal</code></span></li>
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>The Connect tab has the environment variables or docker-compose snippet for each SDK</li>
+              <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#circle-check"/></svg>A trace still being written fills in as it arrives</li>
+            </ul>
+          </div>
+          <div data-shot="traces" data-shot-alt="A trace in DevsPro's LLM Traces">
+            <!-- Drawn after the trace view (src/modules/llm-traces/components/TraceView.tsx):
+                 the trace's badges, then the timeline with each observation's bar placed
+                 on the trace's span and coloured by kind. -->
+            <div class="app-view" role="img" aria-label="Illustration of a trace in LLM Traces: a support agent's run with a retriever step, two LLM calls and a tool call laid out as a waterfall, and the selected LLM call's model, first-token time and tokens.">
+              <div class="av-tabs" aria-hidden="true">
+                <span class="is-on">Traces</span><span>Connect</span>
+              </div>
+              <div class="av-body" aria-hidden="true">
+                <div class="av-trace-head">
+                  <b>answer-ticket</b>
+                  <div class="av-badges">
+                    <span class="av-badge av-badge-info">Langfuse</span>
+                    <span class="av-badge mono">support-bot</span>
+                    <span class="av-badge">4.82 s</span>
+                    <span class="av-badge av-hide-sm">3.4k in · 612 out</span>
+                    <span class="av-badge av-badge-ok av-hide-sm">helpful: 1</span>
+                  </div>
+                </div>
+                <div class="av-card">
+                  <div class="av-card-head">
+                    <svg class="i av-head-icon"><use href="assets/icons.svg#list-tree"/></svg>
+                    <div><b>Timeline</b></div>
+                    <span class="av-muted">6 observations</span>
+                  </div>
+                  <div class="av-tree">
+                    <div class="av-row"><span class="av-row-label"><svg class="i k-neutral"><use href="assets/icons.svg#list-tree"/></svg>answer-ticket</span><span class="av-row-meta">4.82 s</span><span class="av-track"><i class="k-neutral" style="left: 0; width: 100%"></i></span></div>
+                    <div class="av-row d1"><span class="av-row-label"><svg class="i k-info"><use href="assets/icons.svg#bot"/></svg>support-agent</span><span class="av-row-meta">4.79 s</span><span class="av-track"><i class="k-info" style="left: 0.4%; width: 99.4%"></i></span></div>
+                    <div class="av-row d2"><span class="av-row-label"><svg class="i k-info"><use href="assets/icons.svg#search"/></svg>retrieve-docs</span><span class="av-row-meta">312 ms</span><span class="av-track"><i class="k-info" style="left: 0.8%; width: 6.5%"></i></span></div>
+                    <div class="av-row d2 is-active"><span class="av-row-label"><svg class="i k-accent"><use href="assets/icons.svg#brain-circuit"/></svg>plan-reply</span><span class="av-row-meta">1.94 s · 2.6k tok</span><span class="av-track"><i class="k-accent" style="left: 7.6%; width: 40.2%"></i></span></div>
+                    <div class="av-row d2"><span class="av-row-label"><svg class="i k-warn"><use href="assets/icons.svg#wrench"/></svg>lookup_order</span><span class="av-row-meta">418 ms</span><span class="av-track"><i class="k-warn" style="left: 48.2%; width: 8.7%"></i></span></div>
+                    <div class="av-row d2"><span class="av-row-label"><svg class="i k-accent"><use href="assets/icons.svg#brain-circuit"/></svg>write-reply</span><span class="av-row-meta">2.03 s · 1.4k tok</span><span class="av-track"><i class="k-accent" style="left: 57.3%; width: 42.1%"></i></span></div>
+                  </div>
+                </div>
+                <div class="av-facts">
+                  <div><small>Model</small><b class="mono">claude-sonnet-5-5</b></div>
+                  <div><small>First token</small><b>612 ms</b></div>
+                  <div class="av-hide-sm"><small>Tokens</small><b>2.2k in · 384 out</b></div>
+                </div>
+              </div>
+            </div>
+            <p class="panel-caption">Illustration drawn from the app. The trace is an example.</p>
           </div>
         </article>
       </div>
@@ -829,7 +898,7 @@ server: nginx</div>
           </details>
           <details>
             <summary>Does it send anything anywhere?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
-            <div class="answer"><p>No telemetry and no online account. Apart from the update check, DevsPro only goes online when you ask it to, for example to install a tool, open a tunnel or load a page in its browser. Your sites, services and settings stay on your machine (in <code>~/.local/share/com.soab.devspro</code> on Linux), and Settings&nbsp;→ Backup&nbsp;&amp;&nbsp;restore exports them to one file.</p></div>
+            <div class="answer"><p>No telemetry and no online account. Apart from the update check, DevsPro only goes online when you ask it to, for example to install a tool or open a tunnel. LLM Traces only takes traces from this machine and its Docker containers, and keeps them there. Your profile is local too, and its name and password are optional. Your sites, services and settings stay on your machine (in <code>~/.local/share/com.soab.devspro</code> on Linux), and Settings&nbsp;→ Backup&nbsp;&amp;&nbsp;restore exports them to one file.</p></div>
           </details>
           <details>
             <summary>How do updates work?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
@@ -840,8 +909,12 @@ server: nginx</div>
             <div class="answer"><p>Nothing. DevsPro is free and released under the MIT license.</p></div>
           </details>
           <details>
+            <summary>Where did the HTTP client, Browser and Remote Desktop go?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
+            <div class="answer"><p>They are being finished, so releases leave them out for now: they don't appear in the sidebar, the launcher or Settings. They come back in a later update, and the <a href="changelog.html">changelog</a> will say when.</p></div>
+          </details>
+          <details>
             <summary>Do I need Docker?<svg class="i" aria-hidden="true"><use href="assets/icons.svg#chevron-down"/></svg></summary>
-            <div class="answer"><p>Only for the modules built on it: Docker, Databases and the Data browser, plus the Cleaner's Docker tab. The Mail Catcher runs Mailpit without Docker, and sites, workers, scheduled tasks, Redis, the terminal, Files and the rest work without it too.</p><p>If Docker isn't installed, those pages offer to install it from the Apps module (on Windows you can pick the Docker Desktop version). If it's installed but not running, a Start Docker button starts it and waits until it's ready.</p></div>
+            <div class="answer"><p>Only for the modules built on it: Docker, Databases and the Data browser, plus the Cleaner's Docker tab. The Mail Catcher runs Mailpit without Docker, and sites, workers, scheduled tasks, Redis, LLM Traces, the terminal, Files and the rest work without it too.</p><p>If Docker isn't installed, those pages offer to install it from the Apps module (on Windows you can pick the Docker Desktop version). If it's installed but not running, a Start Docker button starts it and waits until it's ready.</p></div>
           </details>
         </div>
       </div>
@@ -879,7 +952,7 @@ server: nginx</div>
         <li><a href="https://github.com/Soab42/devspro" data-repo-link>GitHub</a></li>
         <li><a href="https://github.com/Soab42/devspro/blob/main/LICENSE" data-license-link>MIT License</a></li>
       </ul>
-      <span>© <span data-year>2026</span> soab42</span>
+      <span>© <span data-year>2026</span> CodeVionix</span>
     </div>
   </footer>
 </body>

@@ -26,5 +26,6 @@ window.DEVSPRO_SITE = {
     wizard: "",
     cleaner: "",
     agents: "",
+    traces: "",
   },
 };

@@ -1463,6 +1463,43 @@ pre {
   font-size: 0.875rem;
   line-height: 1.5;
 }
+.module-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: 2px;
+  white-space: nowrap;
+}
+.module h4:has(.module-tag) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 8px;
+}
+.module h4 .module-tag {
+  margin-left: 0;
+  vertical-align: 0;
+}
+.module-group.is-upcoming .module {
+  border-style: dashed;
+  background: transparent;
+}
+.module-group.is-upcoming .module-icon,
+.module-group.is-upcoming .module p {
+  opacity: 0.75;
+}
+.module-group.is-upcoming .module-tag {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
 .modules-note {
   margin-top: 28px;
   color: var(--muted);
@@ -1779,6 +1816,144 @@ pre {
   padding-top: 10px;
   border-top: 1px solid var(--w-border);
   font-size: 11.5px;
+}
+/* LLM Traces: the trace head, the waterfall and the selected call's facts */
+.av-trace-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.av-trace-head > b {
+  font-size: 14px;
+  font-weight: 600;
+}
+.av-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.av-badge {
+  padding: 1px 8px;
+  border: 1px solid var(--w-border);
+  border-radius: 999px;
+  background: var(--w-surface-2);
+  color: var(--w-text-2);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.av-badge.mono {
+  font-size: 10px;
+}
+.av-badge-info {
+  border-color: var(--w-accent-border);
+  background: var(--w-accent-subtle);
+  color: var(--w-accent-text);
+}
+.av-badge-ok {
+  border-color: var(--w-ok-border);
+  background: var(--w-ok-bg);
+  color: var(--w-ok);
+}
+.av-head-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--w-muted);
+}
+.av-card-head .av-muted {
+  font-size: 11px;
+}
+.av-tree {
+  display: grid;
+  padding: 4px 0;
+}
+.av-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(3.5rem, 32%);
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  border-left: 2px solid transparent;
+  font-size: 12px;
+}
+.av-row.is-active {
+  border-left-color: var(--w-accent);
+  background: var(--w-accent-subtle);
+}
+.av-row-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.av-row.d1 .av-row-label {
+  padding-left: 14px;
+}
+.av-row.d2 .av-row-label {
+  padding-left: 28px;
+}
+.av-row-label .i {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+.av-row-meta {
+  color: var(--w-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.av-track {
+  position: relative;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--w-surface-3);
+}
+.av-track i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 2px;
+  border-radius: 999px;
+}
+.av-tree .k-accent { color: var(--w-accent); }
+.av-tree .k-info { color: #5bb4e5; }
+.av-tree .k-warn { color: #d99a35; }
+.av-tree .k-neutral { color: var(--w-muted); }
+.av-track i.k-accent { background: var(--w-accent); }
+.av-track i.k-info { background: #5bb4e5; }
+.av-track i.k-warn { background: #d99a35; }
+.av-track i.k-neutral { background: #55555c; }
+.av-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--w-border);
+  border-radius: 9px;
+  background: var(--w-surface);
+}
+.av-facts div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.av-facts small {
+  color: var(--w-muted);
+  font-size: 10.5px;
+}
+.av-facts b {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.av-facts b.mono {
+  font-size: 11px;
 }
 @media (max-width: 640px) {
   .av-hide-sm {
