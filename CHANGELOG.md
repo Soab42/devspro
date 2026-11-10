@@ -5,6 +5,18 @@ for the version being released becomes the in-app update notes and the
 website's changelog. Keep the headings in this shape — `## <version> — <date>`
 (or `## Unreleased`), then `### <group>` and `- ` bullets.
 
+## 0.5.0 — 2026-11-10
+
+### New
+- **Windows.** DevsPro now comes for 64-bit Windows as a setup `.exe`. It installs for every user into Program Files, so installing needs an administrator, and anything that needs administrator rights asks through the usual Windows prompt. The installer isn't code-signed yet, so the first time Windows SmartScreen shows "Windows protected your PC": choose **More info → Run anyway**.
+
+### Improved
+- SFTP logs in with the keys the terminal's ssh uses. It now also offers the keys `~/.ssh/config` names for a host, as ssh does, so a host you can reach in the terminal opens in the file browser too. When no key works, the error lists the keys in `~/.ssh` that weren't tried, and the terminal sidebar can make one of them the host's key and reconnect. The host form warns when "SSH agent / default keys" would leave out a key in `~/.ssh`.
+- A profile no longer needs a name or a password. The welcome screen can be skipped, and a profile without a password opens without asking. An empty name takes your computer account's name. A profile that has a password still asks for it.
+
+### Fixed
+- The terminal's file browser keeps each machine's folder to that machine. Moving between a local shell and an SSH host no longer tries to list one machine's path on the other, and each machine goes back to the folder you last browsed on it.
+
 ## 0.4.0 — 2026-11-09
 
 ### New
