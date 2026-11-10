@@ -1,0 +1,129 @@
+# Builds the Windows installer for a release the Linux machine has already
+# published, uploads it to that release, adds it to site/latest.json on main
+# and redeploys the site. See docs/PACKAGING.md, "Releasing an update".
+#
+#   gh workflow run release-windows.yml -f tag=v0.5.0
+#
+# Needs the repository secret TAURI_SIGNING_PRIVATE_KEY, holding the contents
+# of ~/.tauri/devspro-updater.key. Every installed copy trusts only that key.
+# Only the signing step sees it, not the build, which runs npm packages' code.
+name: Release Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The published release to add Windows to, e.g. v0.5.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write # upload to the release, push the feed
+  actions: write # start the Pages deploy; a push made with this token doesn't
+
+concurrency:
+  group: release-windows
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      # SFTP's libssh2 links OpenSSL built from source on Windows, and that
+      # build needs a Windows-native Perl. Git for Windows' msys perl, which
+      # bash steps find first on PATH, won't do.
+      OPENSSL_SRC_PERL: C:\Strawberry\perl\bin\perl.exe
+    steps:
+      - name: Keep line endings as committed
+        run: git config --global core.autocrlf false
+
+      - name: Check the release and the Linux feed are out
+        shell: bash
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::tag must look like v1.2.3, not $TAG"; exit 1; }
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null \
+            || { echo "::error::there is no release $TAG yet; publish the Linux side first"; exit 1; }
+          feed=$(gh api -H "Accept: application/vnd.github.raw+json" "repos/$GITHUB_REPOSITORY/contents/site/latest.json?ref=main" \
+            | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+          [ "v$feed" = "$TAG" ] \
+            || { echo "::error::site/latest.json on main is for $feed; push the Linux side's feed for $TAG first"; exit 1; }
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Check the tag holds that version
+        shell: bash
+        run: |
+          v=$(node -p "require('./package.json').version")
+          [ "v$v" = "$TAG" ] || { echo "::error::$TAG holds version $v"; exit 1; }
+          test -f "$OPENSSL_SRC_PERL" || { echo "::error::no Strawberry Perl at $OPENSSL_SRC_PERL"; exit 1; }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Build the installer
+        run: npm run package
+
+      - name: Check it bundled the real helper
+        shell: bash
+        run: |
+          helper=src-tauri/binaries/ldm-helper-x86_64-pc-windows-msvc.exe
+          size=$(stat -c %s "$helper")
+          # build.rs leaves an empty file when the helper wasn't built first.
+          [ "$size" -gt 100000 ] || { echo "::error::$helper is $size bytes, the placeholder rather than the helper"; exit 1; }
+          ls -l src-tauri/target/release/bundle/nsis/
+
+      # The feed is merged into main's copy, which already names the Linux
+      # packages for this version. Only the tag's sources were built above.
+      - name: Switch to main for the feed
+        shell: bash
+        run: |
+          git fetch origin main
+          git checkout -f -B main origin/main
+          v=$(node -p "require('./package.json').version")
+          [ "v$v" = "$TAG" ] || { echo "::error::main has moved on to $v since $TAG"; exit 1; }
+
+      - name: Sign into the feed and upload to the release
+        shell: bash
+        env:
+          # Not TAURI_SIGNING_PRIVATE_KEY: the signer would read that as well
+          # as the key file release.mjs passes it.
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          [ -n "$UPDATER_KEY" ] || { echo "::error::the TAURI_SIGNING_PRIVATE_KEY secret isn't set"; exit 1; }
+          export TAURI_SIGNING_PRIVATE_KEY_PATH="$RUNNER_TEMP\\devspro-updater.key"
+          trap 'rm -f "$TAURI_SIGNING_PRIVATE_KEY_PATH"' EXIT
+          node -e "require('fs').writeFileSync(process.env.TAURI_SIGNING_PRIVATE_KEY_PATH, process.env.UPDATER_KEY.trim())"
+          unset UPDATER_KEY
+          npm run release:feed
+          npm run release:publish
+
+      # Only after the upload: a copy that sees the feed downloads at once.
+      - name: Push the feed and redeploy the site
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/latest.json site/changelog.json
+          git commit -m "Add Windows to the ${TAG#v} update feed"
+          for attempt in 1 2 3; do
+            git push origin HEAD:main && break
+            [ "$attempt" = 3 ] && exit 1
+            git pull --rebase origin main
+          done
+          gh workflow run pages.yml --ref main -R "$GITHUB_REPOSITORY"

@@ -196,6 +196,34 @@ Windows one; the feed keeps both platforms' entries for the same version. Push
 `site/latest.json` only after every package it names is uploaded — a copy that
 sees the feed downloads at once.
 
+### Windows from GitHub Actions
+
+With no Windows machine to hand, do the Linux side as above, push its feed,
+then:
+
+```sh
+gh workflow run release-windows.yml -f tag=v0.2.0
+gh run watch "$(gh run list -w release-windows.yml -L 1 --json databaseId -q '.[0].databaseId')"
+```
+
+`.github/workflows/release-windows.yml` builds the tag on `windows-latest`,
+checks the real helper went into the installer, then on main runs the same
+`release:feed` and `release:publish`, pushes `site/latest.json` and starts the
+Pages deploy (a push made with the workflow's own token doesn't start it). It
+refuses to start until the release exists and main's feed is for that version,
+so the Linux entries are never dropped.
+
+It signs with the repository secret `TAURI_SIGNING_PRIVATE_KEY`, set once from
+the key file:
+
+```sh
+gh secret set TAURI_SIGNING_PRIVATE_KEY -R Soab42/devspro < ~/.tauri/devspro-updater.key
+```
+
+Nobody has run the installer it builds before it ships, so install it on a
+Windows machine afterwards and run Settings → Elevation helper → **Test
+elevation**.
+
 ### The signing key
 
 `src-tauri/updater.pub` is compiled into both the app and the helper. The
