@@ -10,6 +10,10 @@
     "linux-x86_64-rpm": {
       "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSZlhMQm9KUWpjNHczSWlqd0s5eE5PYm9xVFg3Um94N3hJY0pQejNBc2pWMXM2d01ZekJ2RWNwNnQxRVVzaTYybi91T1hVUGVBLzlTV3dyQnJpaHY2S2Z3cnFQTW5TUGdvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MjkyMjg5CWZpbGU6RGV2c1Byby0wLjUuMC0xLng4Nl82NC5ycG0KajdRNVdzbnN1SUVTWHBpQ0QzZ2pmRnUvTDh2b01hZG1iNllXZGVPUzE5SENtTVVsUlc4UWR5QW5WTU1HTHlZZTRMMCsrRVNIempNamUxNlZXN1hzRFE9PQo=",
       "url": "https://github.com/Soab42/devspro/releases/download/v0.5.0/DevsPro-0.5.0-1.x86_64.rpm"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSZlhMQm9KUWpjNHlGd1JHSDAzOUY1WkgyOW9STDVjdVFTZ3doYU5tQjN0K0JrS3BBZDdZdUVTYzdlaGUxdGF3SlpZbkhET3lKa0VWbm5PTlJ4b2JkZEtRcHRiQWlOcndBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0MjkzNzYwCWZpbGU6RGV2c1Byb18wLjUuMF94NjQtc2V0dXAuZXhlCmUxWHNXaEFRcTZOSXUrMFd2OGVSY2ZKK1MrVFl3M0Y4aTVSZTlsc0tSc1hZZm50bGFtN1NFYUZKZUZBdUg2cWREWHFtcTNHTmFMTUNRNUhyR3J6c0FRPT0K",
+      "url": "https://github.com/Soab42/devspro/releases/download/v0.5.0/DevsPro_0.5.0_x64-setup.exe"
     }
   }
 }
