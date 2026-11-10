@@ -117,8 +117,9 @@
             needs root or administrator rights goes through one small helper that can only
             do a fixed list of things.
           </p>
-          <!-- data-os (set in <head>) picks the primary button; with no match,
-               or no JavaScript, all three show. -->
+          <!-- All three always show. data-os (set in <head>) puts the
+               visitor's system first as the primary button; with no match,
+               or no JavaScript, Linux leads. -->
           <div class="hero-ctas hero-downloads">
             <a class="btn btn-primary btn-stack cta-linux" href="https://github.com/Soab42/devspro/releases/latest" data-download="deb">
               <span class="btn-row">
@@ -137,18 +138,11 @@
             <a class="btn btn-secondary btn-stack cta-win" href="https://github.com/Soab42/devspro/releases/latest" data-download="exe">
               <span class="btn-row">
                 <svg class="i" aria-hidden="true"><use href="assets/icons.svg#download"/></svg>
-                Download for Windows
+                Download .exe
               </span>
-              <small>64-bit installer (.exe)</small>
+              <small>Windows, 64-bit</small>
             </a>
           </div>
-          <p class="hero-also">
-            <span class="also-linux">Also for Linux:
-              <a href="https://github.com/Soab42/devspro/releases/latest" data-download="deb">.deb</a> ·
-              <a href="https://github.com/Soab42/devspro/releases/latest" data-download="rpm">.rpm</a></span>
-            <span class="also-win">Also for Windows:
-              <a href="https://github.com/Soab42/devspro/releases/latest" data-download="exe">64-bit installer</a></span>
-          </p>
           <div class="hero-meta">
             <span><svg class="i" aria-hidden="true"><use href="assets/icons.svg#badge-check"/></svg>Free, MIT licensed</span>
             <span><svg class="i" aria-hidden="true"><use href="assets/icons.svg#refresh-cw"/></svg>Signed in-app updates</span>

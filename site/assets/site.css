@@ -524,18 +524,14 @@ pre {
     padding-left: 0;
   }
 }
-/* The visitor's system (data-os on <html>, set in <head>) decides which
-   download leads. Unknown systems and no-JS visitors get all three, Linux
-   first, and no "Also for" row. */
+/* Every download always shows. The visitor's system (data-os on <html>, set
+   in <head>) decides which one leads as the primary button; unknown systems
+   and no-JS visitors get Linux first. */
 .cta-win {
   order: 3;
 }
-[data-os="windows"] .cta-linux,
-[data-os="linux"] .cta-win {
-  display: none;
-}
 [data-os="windows"] .cta-win {
-  order: 0;
+  order: -1;
   background: var(--accent);
   border-color: transparent;
   color: var(--accent-fg);
@@ -543,26 +539,14 @@ pre {
 [data-os="windows"] .cta-win:hover {
   background: var(--accent-hover);
 }
-.hero-also {
-  display: none;
-  margin-top: 14px;
-  color: var(--muted);
-  font-size: 0.875rem;
+/* The .deb steps down to a secondary button when Windows leads. */
+[data-os="windows"] .cta-linux.btn-primary {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+  color: var(--text);
 }
-.hero-also a {
-  font-weight: 600;
-}
-.also-linux,
-.also-win {
-  display: none;
-}
-[data-os="windows"] .hero-also,
-[data-os="linux"] .hero-also {
-  display: block;
-}
-[data-os="windows"] .also-linux,
-[data-os="linux"] .also-win {
-  display: inline;
+[data-os="windows"] .cta-linux.btn-primary:hover {
+  background: var(--surface-3);
 }
 
 .hero-meta {
