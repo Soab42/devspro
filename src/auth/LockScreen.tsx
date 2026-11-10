@@ -12,6 +12,7 @@ import {
   TextInput,
 } from "../ui";
 import { Eye, EyeOff, Lock } from "../ui/icons";
+import ResetPassword from "./ResetPassword";
 import "./Auth.css";
 
 function initials(name: string): string {
@@ -27,6 +28,7 @@ export default function LockScreen() {
   const [password, setPassword] = useState("");
   const [reveal, setReveal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const activeId = profileId || profiles[0]?.id;
   const activeProfile = profiles.find((p) => p.id === activeId) ?? profiles[0];
@@ -55,75 +57,84 @@ export default function LockScreen() {
           <span className="auth-wordmark">DevsPro</span>
         </div>
 
-        <Form onSubmit={handleSubmit}>
-          <Stack gap={5}>
-            <div>
-              <h1 className="auth-title">
-                <Icon icon={Lock} size="md" />
-                Locked
-              </h1>
-              <p className="auth-subtitle">
-                {needsPassword ? "Enter your password to continue." : "This profile has no password."}
-              </p>
-            </div>
+        {resetting && activeProfile ? (
+          <ResetPassword profile={activeProfile} onBack={() => setResetting(false)} />
+        ) : (
+          <Form onSubmit={handleSubmit}>
+            <Stack gap={5}>
+              <div>
+                <h1 className="auth-title">
+                  <Icon icon={Lock} size="md" />
+                  Locked
+                </h1>
+                <p className="auth-subtitle">
+                  {needsPassword ? "Enter your password to continue." : "This profile has no password."}
+                </p>
+              </div>
 
-            {profiles.length > 1 ? (
-              <Field label="Profile" htmlFor="lock-profile">
-                {/* Was the last native <select> in the app — under WebKitGTK it
-                    renders with GTK's own colours and ignores our theme, which
-                    is the exact bug the custom Select exists to avoid. */}
-                <Select
-                  id="lock-profile"
-                  value={activeId ?? ""}
-                  onChange={setProfileId}
-                  options={profiles.map((p) => ({
-                    value: p.id,
-                    label: p.display_name,
-                  }))}
-                  aria-label="Profile"
-                />
-              </Field>
-            ) : (
-              activeProfile && (
-                <div className="auth-identity">
-                  <span className="auth-avatar" aria-hidden="true">
-                    {initials(activeProfile.display_name)}
-                  </span>
-                  <span className="auth-identity-name">
-                    {activeProfile.display_name}
-                  </span>
-                </div>
-              )
-            )}
-
-            {needsPassword && (
-              <Field label="Password" htmlFor="lock-password">
-                <div className="dt-cell-inline">
-                  <TextInput
-                    id="lock-password"
-                    type={reveal ? "text" : "password"}
-                    autoFocus
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="u-flex-1"
+              {profiles.length > 1 ? (
+                <Field label="Profile" htmlFor="lock-profile">
+                  {/* Was the last native <select> in the app — under WebKitGTK it
+                      renders with GTK's own colours and ignores our theme, which
+                      is the exact bug the custom Select exists to avoid. */}
+                  <Select
+                    id="lock-profile"
+                    value={activeId ?? ""}
+                    onChange={setProfileId}
+                    options={profiles.map((p) => ({
+                      value: p.id,
+                      label: p.display_name,
+                    }))}
+                    aria-label="Profile"
                   />
-                  <IconButton
-                    icon={reveal ? EyeOff : Eye}
-                    label={reveal ? "Hide password" : "Show password"}
-                    onClick={() => setReveal((v) => !v)}
-                  />
-                </div>
-              </Field>
-            )}
+                </Field>
+              ) : (
+                activeProfile && (
+                  <div className="auth-identity">
+                    <span className="auth-avatar" aria-hidden="true">
+                      {initials(activeProfile.display_name)}
+                    </span>
+                    <span className="auth-identity-name">
+                      {activeProfile.display_name}
+                    </span>
+                  </div>
+                )
+              )}
 
-            {error && <Callout tone="danger">{error}</Callout>}
+              {needsPassword && (
+                <Field label="Password" htmlFor="lock-password">
+                  <div className="dt-cell-inline">
+                    <TextInput
+                      id="lock-password"
+                      type={reveal ? "text" : "password"}
+                      autoFocus
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="u-flex-1"
+                    />
+                    <IconButton
+                      icon={reveal ? EyeOff : Eye}
+                      label={reveal ? "Hide password" : "Show password"}
+                      onClick={() => setReveal((v) => !v)}
+                    />
+                  </div>
+                </Field>
+              )}
 
-            <Button type="submit" variant="primary" size="lg" fullWidth loading={busy} autoFocus={!needsPassword}>
-              {needsPassword ? "Unlock" : "Continue"}
-            </Button>
-          </Stack>
-        </Form>
+              {error && <Callout tone="danger">{error}</Callout>}
+
+              <Button type="submit" variant="primary" size="lg" fullWidth loading={busy} autoFocus={!needsPassword}>
+                {needsPassword ? "Unlock" : "Continue"}
+              </Button>
+              {needsPassword && (
+                <Button variant="link" fullWidth disabled={busy} onClick={() => setResetting(true)}>
+                  Forgot password?
+                </Button>
+              )}
+            </Stack>
+          </Form>
+        )}
       </div>
     </div>
   );

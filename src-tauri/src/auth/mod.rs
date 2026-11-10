@@ -6,9 +6,15 @@
 //!
 //! The password is optional. A profile made without one stores an empty
 //! `password_hash` and opens without asking — for a personal machine already
-//! behind its OS login, a second password is only friction. (Unlocking with
-//! the OS login itself, and resetting a forgotten password, are not done yet:
-//! see GitHub issue #1.)
+//! behind its OS login, a second password is only friction.
+//!
+//! A forgotten password is reset by passing the OS administrator prompt
+//! (pkexec / UAC, through the elevation helper) and choosing a new one, or
+//! none. That proves no more than the OS account already proves, which is the
+//! point: the password guards nothing that account can't read anyway, so
+//! whoever can pass that prompt has never been locked out by it. It encrypts
+//! nothing either (see `crate::secrets`), so a reset loses no data. Unlocking
+//! with the OS login itself is still to do: see GitHub issue #1.
 
 pub mod model;
 
@@ -41,6 +47,17 @@ fn hash_password(password: &str) -> Result<String, String> {
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
         .map_err(|e| format!("failed to hash password: {e}"))
+}
+
+/// What `password_hash` holds for a password being set: empty for none.
+fn hash_new_password(password: &str) -> Result<String, String> {
+    if password.is_empty() {
+        Ok(String::new())
+    } else if password.chars().count() < 4 {
+        Err("password must be at least 4 characters (or leave it empty for none)".to_string())
+    } else {
+        hash_password(password)
+    }
 }
 
 fn verify_password(hash: &str, password: &str) -> bool {
@@ -88,13 +105,7 @@ fn create_profile(conn: &Connection, display_name: &str, password: &str) -> Resu
         "" => default_display_name(),
         name => name.to_string(),
     };
-    let password_hash = if password.is_empty() {
-        String::new()
-    } else if password.chars().count() < 4 {
-        return Err("password must be at least 4 characters (or leave it empty for none)".to_string());
-    } else {
-        hash_password(password)?
-    };
+    let password_hash = hash_new_password(password)?;
 
     let profile = Profile {
         id: uuid::Uuid::new_v4().to_string(),
@@ -137,6 +148,44 @@ fn unlock_profile(conn: &Connection, profile_id: &str, password: &str) -> Result
     } else {
         Err("incorrect password".to_string())
     }
+}
+
+/// Replaces `profile_id`'s password with `new_password`, or removes it when
+/// that is empty. Says nothing about who may: the callers check that.
+fn set_password(conn: &Connection, profile_id: &str, new_password: &str) -> Result<Profile, String> {
+    let hash = hash_new_password(new_password)?;
+    let changed = conn
+        .execute("UPDATE profiles SET password_hash = ?1 WHERE id = ?2", (&hash, profile_id))
+        .map_err(|e| e.to_string())?;
+    if changed == 0 {
+        return Err("profile not found".to_string());
+    }
+    conn.query_row(
+        &format!("SELECT {PROFILE_COLUMNS} FROM profiles WHERE id = ?1"),
+        [profile_id],
+        row_to_profile,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Settings: the open profile's password, changed by someone who knows the
+/// current one (anything goes when it has none).
+fn change_password(conn: &Connection, profile_id: &str, current: &str, new_password: &str) -> Result<Profile, String> {
+    let hash: String = conn
+        .query_row("SELECT password_hash FROM profiles WHERE id = ?1", [profile_id], |row| row.get(0))
+        .map_err(|_| "profile not found".to_string())?;
+    if !hash.is_empty() && !verify_password(&hash, current) {
+        return Err("the current password is incorrect".to_string());
+    }
+    set_password(conn, profile_id, new_password)
+}
+
+/// The lock screen's "Forgot password?", once the OS prompt has been passed:
+/// the new password (or none) is set and the profile opens.
+fn reset_password(conn: &Connection, profile_id: &str, new_password: &str) -> Result<Profile, String> {
+    let profile = set_password(conn, profile_id, new_password)?;
+    persist_session(conn, &profile.id).map_err(|e| e.to_string())?;
+    Ok(profile)
 }
 
 #[tauri::command(async)]
@@ -222,6 +271,36 @@ pub fn auth_unlock(
     unlock_profile(&conn, &profile_id, &password)
 }
 
+/// `new_password` may be empty to remove the password.
+#[tauri::command(async)]
+pub fn auth_change_password(
+    db: tauri::State<crate::db::Db>,
+    profile_id: String,
+    current_password: String,
+    new_password: String,
+) -> Result<Profile, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    change_password(&conn, &profile_id, &current_password, &new_password)
+}
+
+/// Asks for the OS administrator prompt first, through the same helper round
+/// trip as Settings → Test elevation, and only then sets the new password and
+/// opens the profile. The database isn't locked while the prompt is up.
+#[tauri::command(async)]
+pub fn auth_reset_password(
+    app: tauri::AppHandle,
+    db: tauri::State<crate::db::Db>,
+    profile_id: String,
+    new_password: String,
+) -> Result<Profile, String> {
+    // Refuse a too-short password before putting up the prompt, not after.
+    hash_new_password(&new_password)?;
+    crate::elevate::ping(&app)
+        .map_err(|e| format!("the administrator check didn't go through, so the password is unchanged ({e})"))?;
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    reset_password(&conn, &profile_id, &new_password)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,6 +331,50 @@ mod tests {
         assert!(unlock_profile(&conn, &p.id, "").is_err());
         assert!(unlock_profile(&conn, &p.id, "wrong").is_err());
         assert!(unlock_profile(&conn, &p.id, "s3cret").unwrap().has_password);
+    }
+
+    fn session(conn: &Connection) -> Option<String> {
+        conn.query_row("SELECT value FROM settings WHERE key = ?1", [SESSION_SETTING_KEY], |row| row.get(0))
+            .ok()
+    }
+
+    #[test]
+    fn changing_a_password_needs_the_current_one() {
+        let conn = db();
+        let p = create_profile(&conn, "Talha", "s3cret").unwrap();
+        assert!(change_password(&conn, &p.id, "wrong", "n3w-one").unwrap_err().contains("incorrect"));
+        assert!(unlock_profile(&conn, &p.id, "s3cret").is_ok());
+
+        assert!(change_password(&conn, &p.id, "s3cret", "n3w-one").unwrap().has_password);
+        assert!(unlock_profile(&conn, &p.id, "s3cret").is_err());
+        assert!(unlock_profile(&conn, &p.id, "n3w-one").is_ok());
+    }
+
+    #[test]
+    fn a_password_can_be_removed_and_added_back() {
+        let conn = db();
+        let p = create_profile(&conn, "Talha", "s3cret").unwrap();
+        assert!(!change_password(&conn, &p.id, "s3cret", "").unwrap().has_password);
+        assert!(unlock_profile(&conn, &p.id, "").is_ok());
+        // With none set, there is no current password to check.
+        assert!(change_password(&conn, &p.id, "", "added").unwrap().has_password);
+        assert!(unlock_profile(&conn, &p.id, "added").is_ok());
+        assert!(change_password(&conn, &p.id, "added", "abc").unwrap_err().contains("at least 4"));
+    }
+
+    #[test]
+    fn a_reset_sets_the_new_password_and_opens_the_profile() {
+        let conn = db();
+        let p = create_profile(&conn, "Talha", "forgotten").unwrap();
+        conn.execute("DELETE FROM settings WHERE key = ?1", [SESSION_SETTING_KEY]).unwrap();
+
+        assert!(reset_password(&conn, &p.id, "fresh").unwrap().has_password);
+        assert_eq!(session(&conn).as_deref(), Some(p.id.as_str()));
+        assert!(unlock_profile(&conn, &p.id, "forgotten").is_err());
+        assert!(unlock_profile(&conn, &p.id, "fresh").is_ok());
+
+        assert!(!reset_password(&conn, &p.id, "").unwrap().has_password);
+        assert!(reset_password(&conn, "no-such-profile", "fresh").unwrap_err().contains("not found"));
     }
 
     #[test]

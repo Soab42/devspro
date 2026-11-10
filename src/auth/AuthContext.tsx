@@ -19,6 +19,13 @@ interface AuthState {
   /** An empty password makes a profile without one; an empty name takes the OS account's. */
   createProfile: (displayName: string, password: string) => Promise<void>;
   unlock: (profileId: string, password: string) => Promise<void>;
+  /**
+   * The lock screen's "Forgot password?": the OS administrator prompt comes
+   * up, then the new password (empty for none) is set and the profile opens.
+   */
+  resetPassword: (profileId: string, newPassword: string) => Promise<void>;
+  /** The open profile's password, given its current one. An empty new password removes it. */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   lock: () => Promise<void>;
 }
 
@@ -84,6 +91,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  function remember(updated: Profile) {
+    setProfile(updated);
+    setProfiles((list) => list.map((p) => (p.id === updated.id ? updated : p)));
+  }
+
+  // These two throw for the form that asked rather than setting `error`,
+  // which the lock screen shows under its own password field.
+  async function resetPassword(profileId: string, newPassword: string) {
+    const opened = await invoke<Profile>("auth_reset_password", { profileId, newPassword });
+    setError(null);
+    remember(opened);
+    setStatus("unlocked");
+  }
+
+  async function changePassword(currentPassword: string, newPassword: string) {
+    if (!profile) throw new Error("no profile is open");
+    remember(
+      await invoke<Profile>("auth_change_password", { profileId: profile.id, currentPassword, newPassword }),
+    );
+  }
+
   async function lock() {
     try {
       await invoke("auth_logout");
@@ -94,7 +122,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ status, profile, profiles, error, createProfile, unlock, lock }}>
+    <AuthContext.Provider
+      value={{ status, profile, profiles, error, createProfile, unlock, resetPassword, changePassword, lock }}
+    >
       {children}
     </AuthContext.Provider>
   );

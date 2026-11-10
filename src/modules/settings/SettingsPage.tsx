@@ -26,6 +26,7 @@ import {
 } from "./api";
 import BackupRestoreSection from "./components/BackupRestoreSection";
 import ModulesSection from "./components/ModulesSection";
+import PasswordSection from "./components/PasswordSection";
 import UpdatesSection from "./components/UpdatesSection";
 
 export default function SettingsPage() {
@@ -120,6 +121,8 @@ export default function SettingsPage() {
             <ZoomControl />
           </Field>
         </Section>
+
+        <PasswordSection />
 
         <ModulesSection />
 

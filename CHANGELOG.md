@@ -5,6 +5,11 @@ for the version being released becomes the in-app update notes and the
 website's changelog. Keep the headings in this shape — `## <version> — <date>`
 (or `## Unreleased`), then `### <group>` and `- ` bullets.
 
+## Unreleased
+
+### New
+- **Forgot your password?** The lock screen can reset it: your computer asks for an administrator's approval, then you choose a new password or none. Nothing else is lost, since the password never encrypted anything. Settings → Password sets, changes or removes it.
+
 ## 0.5.0 — 2026-11-10
 
 ### New

@@ -147,6 +147,8 @@ pub fn run() {
             auth::auth_list_profiles,
             auth::auth_create_profile,
             auth::auth_unlock,
+            auth::auth_change_password,
+            auth::auth_reset_password,
             auth::auth_current_session,
             auth::auth_logout,
             nginx::nginx_ssl_detect_nginx,
