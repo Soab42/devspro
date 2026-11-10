@@ -6,7 +6,11 @@
 #
 # Needs the repository secret TAURI_SIGNING_PRIVATE_KEY, holding the contents
 # of ~/.tauri/devspro-updater.key. Every installed copy trusts only that key.
-# Only the signing step sees it, not the build, which runs npm packages' code.
+#
+# Two jobs, so the key is never on a runner that ran third-party actions or
+# npm packages' install scripts: `build` compiles on Windows with read-only
+# access and no secrets, and `publish` signs and uploads on a fresh runner
+# that runs only first-party actions and this repository's own scripts.
 name: Release Windows
 
 on:
@@ -17,20 +21,22 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write # upload to the release, push the feed
-  actions: write # start the Pages deploy; a push made with this token doesn't
+permissions: {}
 
 concurrency:
   group: release-windows
   cancel-in-progress: false
 
+env:
+  TAG: ${{ inputs.tag }}
+
 jobs:
-  windows:
+  build:
     runs-on: windows-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
     env:
-      TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ github.token }}
       # SFTP's libssh2 links OpenSSL built from source on Windows, and that
       # build needs a Windows-native Perl. Git for Windows' msys perl, which
@@ -54,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag }}
-          fetch-depth: 0
+          persist-credentials: false
 
       - name: Check the tag holds that version
         shell: bash
@@ -68,9 +74,9 @@ jobs:
           node-version: 24
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
 
@@ -88,34 +94,64 @@ jobs:
           [ "$size" -gt 100000 ] || { echo "::error::$helper is $size bytes, the placeholder rather than the helper"; exit 1; }
           ls -l src-tauri/target/release/bundle/nsis/
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nsis
+          path: src-tauri/target/release/bundle/nsis/DevsPro_*_x64-setup.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # upload to the release, push the feed
+      actions: write # start the Pages deploy; a push made with this token doesn't
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
       # The feed is merged into main's copy, which already names the Linux
-      # packages for this version. Only the tag's sources were built above.
-      - name: Switch to main for the feed
-        shell: bash
+      # packages for this version. Only the tag's sources were built.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check main is still at that version
         run: |
-          git fetch origin main
-          git checkout -f -B main origin/main
           v=$(node -p "require('./package.json').version")
           [ "v$v" = "$TAG" ] || { echo "::error::main has moved on to $v since $TAG"; exit 1; }
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # For the Tauri CLI's signer. No lifecycle scripts: nothing from npm runs
+      # on the runner that holds the key, beyond the signer itself.
+      - run: npm ci --ignore-scripts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: nsis
+          path: src-tauri/target/release/bundle/nsis
+
       - name: Sign into the feed and upload to the release
-        shell: bash
         env:
           # Not TAURI_SIGNING_PRIVATE_KEY: the signer would read that as well
           # as the key file release.mjs passes it.
           UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           [ -n "$UPDATER_KEY" ] || { echo "::error::the TAURI_SIGNING_PRIVATE_KEY secret isn't set"; exit 1; }
-          export TAURI_SIGNING_PRIVATE_KEY_PATH="$RUNNER_TEMP\\devspro-updater.key"
+          export TAURI_SIGNING_PRIVATE_KEY_PATH="$RUNNER_TEMP/devspro-updater.key"
           trap 'rm -f "$TAURI_SIGNING_PRIVATE_KEY_PATH"' EXIT
-          node -e "require('fs').writeFileSync(process.env.TAURI_SIGNING_PRIVATE_KEY_PATH, process.env.UPDATER_KEY.trim())"
+          (umask 077 && printf '%s' "$UPDATER_KEY" > "$TAURI_SIGNING_PRIVATE_KEY_PATH")
           unset UPDATER_KEY
           npm run release:feed
           npm run release:publish
 
       # Only after the upload: a copy that sees the feed downloads at once.
       - name: Push the feed and redeploy the site
-        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
